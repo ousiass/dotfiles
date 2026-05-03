@@ -150,8 +150,8 @@ install_go() {
     local version
     version=$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)
     if [[ -z "$version" ]]; then
-        err "Go の最新バージョン取得に失敗"
-        return 1
+        warn "Go の最新バージョン取得に失敗、Go インストールをスキップ"
+        return 0
     fi
     local tarball="${version}.linux-${arch}.tar.gz"
     log "Download: $tarball"
