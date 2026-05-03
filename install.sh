@@ -162,6 +162,44 @@ install_go() {
 }
 
 # ------------------------------------------------------------------
+# AI CLI ツール
+# ------------------------------------------------------------------
+install_claude_code() {
+    if command -v claude >/dev/null 2>&1; then
+        log "Claude Code は既にインストール済み"
+        return
+    fi
+    log "Claude Code をインストール"
+    curl -fsSL https://claude.ai/install.sh | bash
+}
+
+install_codex_cli() {
+    if command -v codex >/dev/null 2>&1; then
+        log "Codex CLI は既にインストール済み"
+        return
+    fi
+    if ! command -v bun >/dev/null 2>&1; then
+        warn "bun が見つからないため Codex CLI インストールをスキップ"
+        return
+    fi
+    log "Codex CLI をインストール (bun -g @openai/codex)"
+    bun install -g @openai/codex
+}
+
+install_gemini_cli() {
+    if command -v gemini >/dev/null 2>&1; then
+        log "Gemini CLI は既にインストール済み"
+        return
+    fi
+    if ! command -v bun >/dev/null 2>&1; then
+        warn "bun が見つからないため Gemini CLI インストールをスキップ"
+        return
+    fi
+    log "Gemini CLI をインストール (bun -g @google/gemini-cli)"
+    bun install -g @google/gemini-cli
+}
+
+# ------------------------------------------------------------------
 # 各ツールのバイナリパスを fish の universal path に追加
 # ------------------------------------------------------------------
 setup_fish_paths() {
@@ -352,6 +390,10 @@ main() {
     install_rustup
     install_fnm
     install_go
+
+    install_claude_code
+    install_codex_cli
+    install_gemini_cli
 
     link_config nvim
     link_config tmux

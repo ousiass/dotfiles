@@ -68,14 +68,18 @@ $EDITOR ~/.env
    - **rustup** (Rust toolchain manager)
    - **fnm** (Fast Node Manager, Rust 製の nvm 代替)
    - **Go** (Linux: 公式 tarball を `/usr/local/go` へ / macOS: brew)
-6. 各ツールのバイナリパスを fish の `fish_user_paths` (universal) に追加
-7. 既存の `~/.config/{nvim,tmux,fish}`, `~/.claude`, `~/.mcp.json` を `*.bak.<日付>` にバックアップ
-8. dotfiles を該当パスにシンボリックリンク
-9. `~/.claude` のランタイムデータ（履歴・セッション等）をバックアップから dotfiles 側に移行（既存は上書きしない）
-10. fisher（fish プラグインマネージャ）をインストール → `fish_plugins` の内容を反映
-11. fnm 経由で Node.js LTS をインストールしデフォルトに設定
-12. nvim プラグインを headless で同期（`lazy.nvim`）
-13. ログインシェルを fish に変更（必要時のみ）
+6. AI CLI ツール（未導入のもののみ）:
+   - **Claude Code** (公式 curl インストーラ)
+   - **OpenAI Codex CLI** (`bun install -g @openai/codex`)
+   - **Gemini CLI** (`bun install -g @google/gemini-cli`)
+7. 各ツールのバイナリパスを fish の `fish_user_paths` (universal) に追加
+8. 既存の `~/.config/{nvim,tmux,fish,gh-dash}`, `~/.claude`, `~/.mcp.json` を `*.bak.<日付>` にバックアップ
+9. dotfiles を該当パスにシンボリックリンク
+10. `~/.claude` のランタイムデータ（履歴・セッション等）をバックアップから dotfiles 側に移行（既存は上書きしない）
+11. fisher（fish プラグインマネージャ）をインストール → `fish_plugins` の内容を反映
+12. fnm 経由で Node.js LTS をインストールしデフォルトに設定
+13. nvim プラグインを headless で同期（`lazy.nvim`）
+14. ログインシェルを fish に変更（必要時のみ）
 
 何度実行しても安全（既にインストール済 / リンク済みならスキップ）。
 
