@@ -356,6 +356,7 @@ main() {
     link_config nvim
     link_config tmux
     link_config fish
+    link_config gh-dash
     link_claude
     link_home_file .mcp.json
 

@@ -12,6 +12,7 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── .claude/            # → ~/.claude（CLAUDE.md, agents/, skills/, settings.json 等）
 ├── nvim/               # → ~/.config/nvim
 ├── tmux/               # → ~/.config/tmux
+├── gh-dash/            # → ~/.config/gh-dash (GitHub Dashboard CLI)
 └── fish/               # → ~/.config/fish
     ├── config.fish
     ├── fish_plugins
