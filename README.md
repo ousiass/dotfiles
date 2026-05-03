@@ -91,6 +91,18 @@ git pull
 # シンボリックリンク経由で即反映
 ```
 
+## 各ツールをリセット（テスト/壊れた時用）
+
+`reset-tools.sh` で言語ツール・AI CLI 一式を削除して install.sh で再インストール:
+
+```bash
+bash ~/dotfiles/reset-tools.sh
+```
+
+- `CLAUDECODE=1` を検出して Claude Code セッション中は自動的に拒否
+- 削除対象: uv / bun (codex/gemini 含む) / rustup / fnm + Node / Go / Claude Code
+- 削除しないもの: fish/tmux/neovim/git, ~/.env, ~/.claude のデータ, シンボリックリンク
+
 ## 注意
 
 - `nvim` 設定は LazyVim starter ベース。初回起動時に `lazy.nvim` がプラグインを自動取得する
