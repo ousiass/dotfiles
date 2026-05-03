@@ -1,0 +1,28 @@
+{
+    "mcpContextUris": [],
+    "mcpServers": {
+      "supabase": {
+        "type": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@supabase/mcp-server-supabase@0.5.10"
+        ],
+        "env": {
+          "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}"
+        }
+      },
+      "deepwiki": {
+        "type": "http",
+        "url": "https://mcp.deepwiki.com/mcp"
+      },
+      "nano-banana": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "@zhibinyang/nano-banana-mcp"],
+        "env": {
+          "GEMINI_API_KEY": "${GEMINI_API_KEY}"
+        }
+      }
+    }
+}

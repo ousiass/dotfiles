@@ -1,0 +1,40 @@
+# 認証情報
+.credentials.json
+
+# ローカル設定
+settings.local.json
+policy-limits.json
+
+# セッション・キャッシュ・一時データ
+sessions/
+history.jsonl
+stats-cache.json
+cache/
+debug/
+file-history/
+ide/
+paste-cache/
+plans/
+session-env/
+shell-snapshots/
+statsig/
+tasks/
+todos/
+projects/
+telemetry/
+
+# ランタイム状態
+backups/
+teams/
+llm/active
+usage-data/
+
+# プラグインローカル設定
+plugins/blocklist.json
+plugins/cache/
+plugins/installed_plugins.json
+plugins/config.json
+plugins/repos/
+
+# ビルド成果物
+tools/swm/swm

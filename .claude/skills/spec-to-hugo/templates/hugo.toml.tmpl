@@ -1,0 +1,29 @@
+baseURL = '/'
+title = '{{SITE_TITLE}}'
+defaultContentLanguage = 'ja'
+languageCode = 'ja'
+
+[module]
+  [[module.imports]]
+    path = "github.com/imfing/hextra"
+
+[markup.goldmark.renderer]
+  unsafe = true
+
+[[menu.main]]
+  name = "ドキュメント"
+  pageRef = "/docs"
+  weight = 1
+
+[params]
+  description = '{{SITE_DESCRIPTION}}'
+
+  [params.navbar]
+    displayTitle = true
+    displayLogo = false
+
+  [params.footer]
+    displayPoweredBy = false
+
+  [params.editURL]
+    enable = false

@@ -4,7 +4,9 @@
 #
 # 使い方:
 #   git clone git@github.com:ousiass/dotfiles.git ~/dotfiles
-#   cd ~/dotfiles && ./install.sh
+#   cd ~/dotfiles
+#   cp .env.example ~/.env && $EDITOR ~/.env   # API キーを記入
+#   ./install.sh
 #
 # 何度実行しても安全（idempotent）。
 
@@ -17,6 +19,24 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 log()  { printf '\033[1;34m[install]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[warn]\033[0m %s\n' "$*"; }
 err()  { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; }
+
+# ------------------------------------------------------------------
+# 0. ~/.env 存在チェック（事前準備が必要）
+# ------------------------------------------------------------------
+check_env() {
+    if [[ -f "$HOME/.env" ]]; then
+        log "~/.env 確認 OK"
+        return
+    fi
+
+    err "~/.env が存在しません"
+    err ""
+    err "セットアップ前に以下を実施してください:"
+    err "  1. cp $DOTFILES_DIR/.env.example $HOME/.env"
+    err "  2. \$EDITOR $HOME/.env  # API キー等を記入"
+    err "  3. ./install.sh を再実行"
+    exit 1
+}
 
 # ------------------------------------------------------------------
 # 1. apt パッケージ
@@ -39,25 +59,25 @@ install_packages() {
         neovim \
         git \
         curl \
-        xclip
+        xclip \
+        rsync
 }
 
 # ------------------------------------------------------------------
-# 2. シンボリックリンク作成
+# 2. 共通シンボリックリンクヘルパー
 # ------------------------------------------------------------------
-link_config() {
-    local name="$1"
-    local target="$CONFIG_DIR/$name"
-    local source="$DOTFILES_DIR/$name"
+make_symlink() {
+    local target="$1"
+    local source="$2"
 
-    mkdir -p "$CONFIG_DIR"
+    mkdir -p "$(dirname "$target")"
 
     if [[ -L "$target" ]]; then
         local current
         current="$(readlink "$target")"
         if [[ "$current" == "$source" ]]; then
             log "$target は既に正しくリンク済み"
-            return
+            return 1
         fi
         log "$target の既存リンク ($current) を削除"
         rm "$target"
@@ -65,31 +85,62 @@ link_config() {
         local backup="$target.bak.$TIMESTAMP"
         log "既存の $target を $backup にバックアップ"
         mv "$target" "$backup"
+        # 呼び出し側が backup を使う場合があるので返す
+        echo "$backup"
     fi
 
     ln -s "$source" "$target"
     log "$target -> $source"
+    return 0
+}
+
+link_config() {
+    local name="$1"
+    make_symlink "$CONFIG_DIR/$name" "$DOTFILES_DIR/$name" >/dev/null || true
+}
+
+link_home_file() {
+    local name="$1"
+    make_symlink "$HOME/$name" "$DOTFILES_DIR/$name" >/dev/null || true
 }
 
 # ------------------------------------------------------------------
-# 3. secrets ファイルの存在チェック（事前準備が必要）
+# 3. ~/.claude のシンボリックリンク化（ランタイムデータ保全付き）
 # ------------------------------------------------------------------
-check_secrets() {
-    local secrets="$DOTFILES_DIR/fish/conf.d/secrets.fish"
-    local example="$DOTFILES_DIR/fish/conf.d/secrets.fish.example"
+link_claude() {
+    local target="$HOME/.claude"
+    local source="$DOTFILES_DIR/.claude"
 
-    if [[ -f "$secrets" ]]; then
-        log "secrets.fish 確認 OK"
+    if [[ -L "$target" ]] && [[ "$(readlink "$target")" == "$source" ]]; then
+        log "$target は既に正しくリンク済み"
         return
     fi
 
-    err "secrets.fish が存在しません"
-    err ""
-    err "セットアップ前に以下を実施してください:"
-    err "  1. cp $example $secrets"
-    err "  2. \$EDITOR $secrets  # API キー等を記入"
-    err "  3. ./install.sh を再実行"
-    exit 1
+    if [[ -L "$target" ]]; then
+        log "$target の既存リンクを削除"
+        rm "$target"
+        ln -s "$source" "$target"
+        log "$target -> $source"
+        return
+    fi
+
+    if [[ -d "$target" ]]; then
+        local backup="$target.bak.$TIMESTAMP"
+        log "既存の $target を $backup にバックアップ"
+        mv "$target" "$backup"
+        ln -s "$source" "$target"
+        log "$target -> $source"
+
+        # ランタイムデータ（gitignore 対象、history.jsonl/projects/ 等）を
+        # dotfiles 側にコピーして移行（既存ファイルは上書きしない）
+        log "ランタイムデータを移行（既存は保護）"
+        rsync -a --ignore-existing "$backup/" "$source/"
+        warn "→ $backup は確認後 \`rm -rf\` で削除可"
+        return
+    fi
+
+    ln -s "$source" "$target"
+    log "$target -> $source"
 }
 
 # ------------------------------------------------------------------
@@ -139,7 +190,10 @@ set_default_shell() {
         echo "$fish_path" | sudo tee -a /etc/shells >/dev/null
     fi
 
-    if [[ "${SHELL:-}" == "$fish_path" ]]; then
+    # ログインシェル確認（getent passwd の最終フィールド）
+    local current_shell
+    current_shell="$(getent passwd "$USER" | awk -F: '{print $NF}')"
+    if [[ "$current_shell" == "$fish_path" ]]; then
         log "デフォルトシェルは既に fish"
         return
     fi
@@ -154,11 +208,13 @@ main() {
     log "DOTFILES_DIR = $DOTFILES_DIR"
     log "CONFIG_DIR   = $CONFIG_DIR"
 
-    check_secrets
+    check_env
     install_packages
     link_config nvim
     link_config tmux
     link_config fish
+    link_claude
+    link_home_file .mcp.json
     install_fisher
     sync_nvim_plugins
     set_default_shell

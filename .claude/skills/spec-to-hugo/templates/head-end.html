@@ -1,0 +1,287 @@
+<style>
+  .mermaid-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-out;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  .mermaid-modal-overlay.active {
+    opacity: 1;
+  }
+  .mermaid-modal-content {
+    width: 95vw;
+    height: 95vh;
+    overflow: auto;
+    background: #1a1a2e;
+    border-radius: 8px;
+    padding: 32px;
+    cursor: default;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mermaid-modal-svg-wrap {
+    transition: transform 0.2s ease;
+    transform-origin: center center;
+  }
+  .mermaid-modal-content svg {
+    max-width: none;
+    height: auto;
+    min-width: 800px;
+  }
+  /* ズームコントロール */
+  .mermaid-modal-controls {
+    position: fixed;
+    bottom: 48px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .mermaid-modal-controls button {
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+  }
+  .mermaid-modal-controls button:hover {
+    background: rgba(255,255,255,0.3);
+  }
+  .mermaid-modal-zoom-label {
+    color: rgba(255,255,255,0.7);
+    font-size: 14px;
+    min-width: 48px;
+    text-align: center;
+    user-select: none;
+  }
+  /* ダークモード: SVGのテキスト・線を明るくする */
+  .mermaid-modal-content svg text {
+    fill: #e0e0e0 !important;
+  }
+  .mermaid-modal-content svg .nodeLabel,
+  .mermaid-modal-content svg .edgeLabel {
+    color: #e0e0e0 !important;
+    fill: #e0e0e0 !important;
+  }
+  .mermaid-modal-content svg .node rect,
+  .mermaid-modal-content svg .node circle,
+  .mermaid-modal-content svg .node polygon {
+    fill: #2d2d44 !important;
+    stroke: #6c6c9e !important;
+  }
+  .mermaid-modal-content svg .edgePath path {
+    stroke: #8888bb !important;
+  }
+  .mermaid-modal-content svg .cluster rect {
+    fill: #22223a !important;
+    stroke: #555577 !important;
+  }
+  .mermaid-modal-content svg .cluster span,
+  .mermaid-modal-content svg .cluster text {
+    fill: #c0c0e0 !important;
+    color: #c0c0e0 !important;
+  }
+  /* ER図対応 */
+  .mermaid-modal-content svg .er.entityBox {
+    fill: #2d2d44 !important;
+    stroke: #6c6c9e !important;
+  }
+  .mermaid-modal-content svg .er.attributeBoxEven,
+  .mermaid-modal-content svg .er.attributeBoxOdd {
+    fill: #252540 !important;
+    stroke: #555577 !important;
+  }
+  .mermaid-modal-content svg .er.relationshipLine {
+    stroke: #8888bb !important;
+  }
+  /* シーケンス図対応 */
+  .mermaid-modal-content svg .actor {
+    fill: #2d2d44 !important;
+    stroke: #6c6c9e !important;
+  }
+  .mermaid-modal-content svg .actor text,
+  .mermaid-modal-content svg text.actor {
+    fill: #e0e0e0 !important;
+  }
+  .mermaid-modal-content svg .messageLine0,
+  .mermaid-modal-content svg .messageLine1 {
+    stroke: #8888bb !important;
+  }
+  .mermaid-modal-content svg .messageText {
+    fill: #d0d0e8 !important;
+  }
+  .mermaid-modal-content svg .note {
+    fill: #33334a !important;
+    stroke: #6c6c9e !important;
+  }
+  .mermaid-modal-content svg .noteText {
+    fill: #d0d0e8 !important;
+  }
+  .mermaid-modal-content svg .activation0,
+  .mermaid-modal-content svg .activation1 {
+    fill: #3a3a55 !important;
+    stroke: #6c6c9e !important;
+  }
+  .mermaid-modal-content svg line {
+    stroke: #666688 !important;
+  }
+  .mermaid-modal-close {
+    position: fixed;
+    top: 16px;
+    right: 24px;
+    z-index: 10000;
+    color: #fff;
+    font-size: 36px;
+    cursor: pointer;
+    line-height: 1;
+    opacity: 0.8;
+    transition: opacity 0.15s;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+  }
+  .mermaid-modal-close:hover {
+    opacity: 1;
+  }
+  .mermaid-modal-hint {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+    color: rgba(255,255,255,0.4);
+    font-size: 12px;
+  }
+  .mermaid svg {
+    cursor: zoom-in;
+  }
+</style>
+
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    function openModal(svgEl) {
+      var scale = 1.0;
+      var SCALE_STEP = 0.25;
+      var SCALE_MIN = 0.25;
+      var SCALE_MAX = 5.0;
+
+      var overlay = document.createElement("div");
+      overlay.className = "mermaid-modal-overlay";
+
+      var closeBtn = document.createElement("span");
+      closeBtn.className = "mermaid-modal-close";
+      closeBtn.innerHTML = "&times;";
+
+      var controls = document.createElement("div");
+      controls.className = "mermaid-modal-controls";
+
+      var zoomOut = document.createElement("button");
+      zoomOut.textContent = "\u2212";
+      zoomOut.title = "\u7e2e\u5c0f";
+
+      var zoomLabel = document.createElement("span");
+      zoomLabel.className = "mermaid-modal-zoom-label";
+      zoomLabel.textContent = "100%";
+
+      var zoomIn = document.createElement("button");
+      zoomIn.textContent = "+";
+      zoomIn.title = "\u62e1\u5927";
+
+      var zoomReset = document.createElement("button");
+      zoomReset.textContent = "\u27f2";
+      zoomReset.title = "\u30ea\u30bb\u30c3\u30c8";
+
+      controls.appendChild(zoomOut);
+      controls.appendChild(zoomLabel);
+      controls.appendChild(zoomIn);
+      controls.appendChild(zoomReset);
+
+      var hint = document.createElement("div");
+      hint.className = "mermaid-modal-hint";
+      hint.textContent = "\u80cc\u666f\u30af\u30ea\u30c3\u30af\u307e\u305f\u306f ESC \u3067\u9589\u3058\u308b";
+
+      var content = document.createElement("div");
+      content.className = "mermaid-modal-content";
+
+      var svgWrap = document.createElement("div");
+      svgWrap.className = "mermaid-modal-svg-wrap";
+      svgWrap.innerHTML = svgEl.outerHTML;
+
+      content.appendChild(svgWrap);
+      overlay.appendChild(closeBtn);
+      overlay.appendChild(controls);
+      overlay.appendChild(hint);
+      overlay.appendChild(content);
+      document.body.appendChild(overlay);
+      document.body.style.overflow = "hidden";
+
+      function applyZoom() {
+        svgWrap.style.transform = "scale(" + scale + ")";
+        zoomLabel.textContent = Math.round(scale * 100) + "%";
+      }
+
+      requestAnimationFrame(function () {
+        overlay.classList.add("active");
+      });
+
+      zoomIn.addEventListener("click", function () {
+        if (scale < SCALE_MAX) { scale += SCALE_STEP; applyZoom(); }
+      });
+      zoomOut.addEventListener("click", function () {
+        if (scale > SCALE_MIN) { scale -= SCALE_STEP; applyZoom(); }
+      });
+      zoomReset.addEventListener("click", function () {
+        scale = 1.0; applyZoom();
+      });
+
+      content.addEventListener("wheel", function (e) {
+        e.preventDefault();
+        if (e.deltaY < 0 && scale < SCALE_MAX) { scale += SCALE_STEP; }
+        else if (e.deltaY > 0 && scale > SCALE_MIN) { scale -= SCALE_STEP; }
+        applyZoom();
+      }, { passive: false });
+
+      function close() {
+        overlay.classList.remove("active");
+        setTimeout(function () {
+          overlay.remove();
+          document.body.style.overflow = "";
+        }, 200);
+      }
+
+      overlay.addEventListener("click", function (e) {
+        if (e.target === overlay) close();
+      });
+      closeBtn.addEventListener("click", close);
+      document.addEventListener("keydown", function handler(e) {
+        if (e.key === "Escape") {
+          close();
+          document.removeEventListener("keydown", handler);
+        }
+      });
+    }
+
+    setTimeout(function () {
+      document.querySelectorAll(".mermaid svg").forEach(function (svg) {
+        svg.addEventListener("click", function () {
+          openModal(svg);
+        });
+      });
+    }, 1000);
+  });
+</script>

@@ -1,20 +1,70 @@
-# Fish runtime / machine-local state
-fish/fish_variables*
-fish/.claude/
-
-# Secrets - 各マシンで個別管理
-fish/conf.d/secrets.fish
-**/.env
+# ----------------------------------------------------------------
+# Secrets — マシン依存の機密値は ~/.env に集約
+# ----------------------------------------------------------------
+.env
 **/.env.local
 **/.env.*.local
 
-# Claude Code local settings
-**/.claude/settings.local.json
+# ----------------------------------------------------------------
+# Fish runtime / machine-local state
+# ----------------------------------------------------------------
+fish/fish_variables*
+fish/.claude/
 
+# ----------------------------------------------------------------
+# Claude Code runtime data（claude-config の .gitignore を踏襲）
+# ----------------------------------------------------------------
+# 認証情報
+.claude/.credentials.json
+
+# ローカル設定
+.claude/settings.local.json
+.claude/policy-limits.json
+
+# セッション・キャッシュ・一時データ
+.claude/sessions/
+.claude/history.jsonl
+.claude/stats-cache.json
+.claude/cache/
+.claude/debug/
+.claude/file-history/
+.claude/ide/
+.claude/paste-cache/
+.claude/plans/
+.claude/session-env/
+.claude/shell-snapshots/
+.claude/statsig/
+.claude/tasks/
+.claude/todos/
+.claude/projects/
+.claude/telemetry/
+.claude/mcp-needs-auth-cache.json
+
+# ランタイム状態
+.claude/backups/
+.claude/teams/
+.claude/llm/active
+.claude/usage-data/
+
+# プラグインローカル設定
+.claude/plugins/blocklist.json
+.claude/plugins/cache/
+.claude/plugins/installed_plugins.json
+.claude/plugins/config.json
+.claude/plugins/repos/
+.claude/plugins/marketplaces/
+
+# ビルド成果物
+.claude/tools/swm/swm
+
+# ----------------------------------------------------------------
 # OS / editor cruft
+# ----------------------------------------------------------------
 .DS_Store
 *.swp
 *.swo
 
+# ----------------------------------------------------------------
 # Backups created by install.sh
+# ----------------------------------------------------------------
 *.bak.*

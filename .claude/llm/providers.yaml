@@ -1,0 +1,22 @@
+providers:
+  claude:
+    api: anthropic
+    model: claude-sonnet-4-5-20250929
+    api_key_env: ANTHROPIC_API_KEY
+  glm:
+    api: openai
+    model: glm-4
+    base_url: https://open.bigmodel.cn/api/paas/v4
+    api_key_env: ZHIPU_API_KEY
+  deepseek:
+    api: openai
+    model: deepseek-chat
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY
+  local:
+    api: openai
+    model: llama3
+    base_url: http://localhost:11434/v1
+    api_key_env: ""
+
+default: claude
