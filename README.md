@@ -24,15 +24,21 @@ Ubuntu 環境向けの個人用設定ファイル群。`nvim` / `tmux` / `fish` 
 ```bash
 git clone git@github.com:ousiass/dotfiles.git ~/dotfiles
 cd ~/dotfiles
+
+# 1. secrets.fish を作成して API キー等を記入（install.sh の前に必須）
+cp fish/conf.d/secrets.fish.example fish/conf.d/secrets.fish
+$EDITOR fish/conf.d/secrets.fish
+
+# 2. セットアップ実行
 ./install.sh
 ```
 
 `install.sh` は以下を行う:
 
-1. `apt` で `fish` / `tmux` / `neovim` / `git` / `curl` / `xclip` をインストール
-2. 既存の `~/.config/{nvim,tmux,fish}` を `*.bak.<日付>` にバックアップ
-3. `~/dotfiles/{nvim,tmux,fish}` を `~/.config/` にシンボリックリンク
-4. `secrets.fish` が無ければ `.example` をコピー（要編集）
+1. `secrets.fish` の存在チェック（無ければエラーで停止）
+2. `apt` で `fish` / `tmux` / `neovim` / `git` / `curl` / `xclip` をインストール
+3. 既存の `~/.config/{nvim,tmux,fish}` を `*.bak.<日付>` にバックアップ
+4. `~/dotfiles/{nvim,tmux,fish}` を `~/.config/` にシンボリックリンク
 5. fisher（fish プラグインマネージャ）をインストール → `fish_plugins` の内容を反映
 6. nvim プラグインを headless で同期（`lazy.nvim`）
 7. ログインシェルを fish に変更（必要時のみ）

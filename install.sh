@@ -72,24 +72,24 @@ link_config() {
 }
 
 # ------------------------------------------------------------------
-# 3. secrets テンプレートのコピー
+# 3. secrets ファイルの存在チェック（事前準備が必要）
 # ------------------------------------------------------------------
-setup_secrets() {
+check_secrets() {
     local secrets="$DOTFILES_DIR/fish/conf.d/secrets.fish"
     local example="$DOTFILES_DIR/fish/conf.d/secrets.fish.example"
 
     if [[ -f "$secrets" ]]; then
-        log "secrets.fish は既に存在"
-        return
-    fi
-    if [[ ! -f "$example" ]]; then
-        warn "secrets.fish.example が見つからないためスキップ"
+        log "secrets.fish 確認 OK"
         return
     fi
 
-    cp "$example" "$secrets"
-    log "secrets.fish をテンプレートから作成しました"
-    warn "→ $secrets を編集して API キー等を記入してください"
+    err "secrets.fish が存在しません"
+    err ""
+    err "セットアップ前に以下を実施してください:"
+    err "  1. cp $example $secrets"
+    err "  2. \$EDITOR $secrets  # API キー等を記入"
+    err "  3. ./install.sh を再実行"
+    exit 1
 }
 
 # ------------------------------------------------------------------
@@ -154,18 +154,18 @@ main() {
     log "DOTFILES_DIR = $DOTFILES_DIR"
     log "CONFIG_DIR   = $CONFIG_DIR"
 
+    check_secrets
     install_packages
     link_config nvim
     link_config tmux
     link_config fish
-    setup_secrets
     install_fisher
     sync_nvim_plugins
     set_default_shell
 
     echo
     log "セットアップ完了"
-    log "secrets.fish にAPIキー等を記入後、新しいシェルで動作確認してください"
+    log "新しいシェルで動作確認してください"
 }
 
 main "$@"
