@@ -34,19 +34,19 @@ detect_os() {
 }
 
 # ------------------------------------------------------------------
-# 0. ~/.env 存在チェック
+# 0. ~/dotfiles/.env 存在チェック
 # ------------------------------------------------------------------
 check_env() {
-    if [[ -f "$HOME/.env" ]]; then
-        log "~/.env 確認 OK"
+    if [[ -f "$DOTFILES_DIR/.env" ]]; then
+        log "~/dotfiles/.env 確認 OK"
         return
     fi
 
-    err "~/.env が存在しません"
+    err "~/dotfiles/.env が存在しません"
     err ""
     err "セットアップ前に以下を実施してください:"
-    err "  1. cp $DOTFILES_DIR/.env.example $HOME/.env"
-    err "  2. \$EDITOR $HOME/.env  # API キー等を記入"
+    err "  1. cp $DOTFILES_DIR/.env.example $DOTFILES_DIR/.env"
+    err "  2. \$EDITOR $DOTFILES_DIR/.env  # API キー等を記入"
     err "  3. ./install.sh を再実行"
     exit 1
 }
@@ -267,8 +267,9 @@ link_config() {
 }
 
 link_home_file() {
-    local name="$1"
-    make_symlink "$HOME/$name" "$DOTFILES_DIR/$name" >/dev/null || true
+    local target_name="$1"
+    local source_path="${2:-$1}"
+    make_symlink "$HOME/$target_name" "$DOTFILES_DIR/$source_path" >/dev/null || true
 }
 
 # ------------------------------------------------------------------
@@ -400,7 +401,8 @@ main() {
     link_config fish
     link_config gh-dash
     link_claude
-    link_home_file .mcp.json
+    link_home_file .env
+    link_home_file .mcp.json claude-mcp/mcp.json
 
     setup_fish_paths
     install_fisher
