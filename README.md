@@ -1,6 +1,6 @@
 # dotfiles
 
-Ubuntu 環境向けの個人用設定ファイル群。複数マシン間で同期する。
+Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間で同期する。
 
 ## 構成
 
@@ -57,16 +57,26 @@ $EDITOR ~/.env
 
 `install.sh` は以下を行う:
 
-1. `~/.env` の存在チェック（無ければエラーで停止）
-2. `apt` で `fish` / `tmux` / `neovim` / `git` / `curl` / `xclip` / `rsync` をインストール
-3. 既存の `~/.config/{nvim,tmux,fish}`, `~/.claude`, `~/.mcp.json` を `*.bak.<日付>` にバックアップ
-4. dotfiles を該当パスにシンボリックリンク
-5. `~/.claude` のランタイムデータ（履歴・セッション等）をバックアップから dotfiles 側に移行（既存は上書きしない）
-6. fisher（fish プラグインマネージャ）をインストール → `fish_plugins` の内容を反映
-7. nvim プラグインを headless で同期（`lazy.nvim`）
-8. ログインシェルを fish に変更（必要時のみ）
+1. OS 検出（Ubuntu / macOS）
+2. `~/.env` の存在チェック（無ければエラーで停止）
+3. macOS の場合 Homebrew を未導入ならインストール
+4. システムパッケージ（fish, tmux, neovim, git, curl, rsync, Linux のみ xclip）を `apt` または `brew` で
+5. 言語ツールを公式インストーラで（未導入のもののみ）:
+   - **uv** (Python パッケージマネージャ)
+   - **bun** (JavaScript runtime/manager)
+   - **rustup** (Rust toolchain manager)
+   - **fnm** (Fast Node Manager, Rust 製の nvm 代替)
+   - **Go** (Linux: 公式 tarball を `/usr/local/go` へ / macOS: brew)
+6. 各ツールのバイナリパスを fish の `fish_user_paths` (universal) に追加
+7. 既存の `~/.config/{nvim,tmux,fish}`, `~/.claude`, `~/.mcp.json` を `*.bak.<日付>` にバックアップ
+8. dotfiles を該当パスにシンボリックリンク
+9. `~/.claude` のランタイムデータ（履歴・セッション等）をバックアップから dotfiles 側に移行（既存は上書きしない）
+10. fisher（fish プラグインマネージャ）をインストール → `fish_plugins` の内容を反映
+11. fnm 経由で Node.js LTS をインストールしデフォルトに設定
+12. nvim プラグインを headless で同期（`lazy.nvim`）
+13. ログインシェルを fish に変更（必要時のみ）
 
-何度実行しても安全（既にリンク済みなら再リンクのみ）。
+何度実行しても安全（既にインストール済 / リンク済みならスキップ）。
 
 ## 更新
 
@@ -82,3 +92,5 @@ git pull
 - `fish_variables*` はマシン依存の状態ファイルで git 管理外
 - `.claude/{history.jsonl,projects/,sessions/,...}` はランタイムデータで git 管理外（claude-config の `.gitignore` を踏襲）
 - `.mcp.json` の `${VAR}` 参照は Claude Code の env 展開機能を利用。fish 経由で起動した Claude Code は `~/.env` の値を引き継ぐ
+- Node.js は `fnm`（Rust 製、nvm 代替）で管理。`fish/conf.d/fnm.fish` が `fnm env --use-on-cd` を読み込み、`.nvmrc` / `.node-version` のあるディレクトリで自動切替
+- tmux クリップボードは OS 自動分岐（Linux: `xclip` / macOS: `pbcopy`）
