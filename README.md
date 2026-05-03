@@ -22,19 +22,24 @@ Ubuntu 環境向けの個人用設定ファイル群。複数マシン間で同�
     └── themes/
 ```
 
-## Secrets
+## 環境変数 (~/.env)
 
-API キー等のマシン依存値は **`~/.env`** に集約する（dotfiles 外）:
+シェルにセットしたい環境変数は **secret / 非secret を問わず すべて `~/.env` に集約する**:
 
 ```bash
-# ~/.env （gitignore 済み）
+# ~/.env （gitignore 済み、dotfiles 外）
 GEMINI_API_KEY=xxxxx
 OPENAI_API_KEY=xxxxx
 SUPABASE_ACCESS_TOKEN=xxxxx
+
+# 非secret も同様にここに
+EDITOR=nvim
+SOME_TOOL_HOME=/opt/some-tool
 ```
 
 - fish 起動時に `conf.d/secrets.fish` が `~/.env` を読み込んで `set -gx` する
 - `.mcp.json` の `${SUPABASE_ACCESS_TOKEN}` 等の参照もこの env から解決される
+- `config.fish` 等に env 変数を直書きせず、必ず `~/.env` 経由で設定する
 
 ## セットアップ（新規マシン）
 
