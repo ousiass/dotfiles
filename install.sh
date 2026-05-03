@@ -339,8 +339,8 @@ sync_nvim_plugins() {
         warn "nvim が見つからないためプラグイン同期をスキップ"
         return
     fi
-    log "nvim プラグインを同期 (lazy.nvim)"
-    nvim --headless "+Lazy! sync" +qa || warn "lazy.nvim の同期で問題あり（初回は無視可）"
+    log "nvim プラグインを同期 (lazy.nvim restore: lockfile に合わせて固定)"
+    nvim --headless "+Lazy! restore" +qa || warn "lazy.nvim の同期で問題あり（初回は無視可）"
 }
 
 # ------------------------------------------------------------------
