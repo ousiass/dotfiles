@@ -1,0 +1,20 @@
+# Fish runtime / machine-local state
+fish/fish_variables*
+fish/.claude/
+
+# Secrets - 各マシンで個別管理
+fish/conf.d/secrets.fish
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Claude Code local settings
+**/.claude/settings.local.json
+
+# OS / editor cruft
+.DS_Store
+*.swp
+*.swo
+
+# Backups created by install.sh
+*.bak.*
