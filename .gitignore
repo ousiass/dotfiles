@@ -11,6 +11,22 @@
 fish/fish_variables*
 fish/.claude/
 
+# fisher が管理するプラグインファイル（fish_plugins に基づき各マシンで再生成）
+# fisher: jorgebucaran/fisher
+fish/functions/fisher.fish
+fish/completions/fisher.fish
+# z: jethrokuan/z
+fish/functions/__z*.fish
+fish/conf.d/z.fish
+# tide: ilancosman/tide@v6
+fish/functions/_tide_*.fish
+fish/functions/tide.fish
+fish/functions/tide/
+fish/functions/fish_prompt.fish
+fish/functions/fish_mode_prompt.fish
+fish/conf.d/_tide_init.fish
+fish/completions/tide.fish
+
 # ----------------------------------------------------------------
 # Claude Code runtime data（claude-config の .gitignore を踏襲）
 # ----------------------------------------------------------------

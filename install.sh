@@ -17,6 +17,9 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 OS=""
 
+# 各種ツールのインストール先を PATH に先行追加（インストール後すぐ command -v で発見できるように）
+export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.local/share/fnm:/usr/local/go/bin:$PATH"
+
 log()  { printf '\033[1;34m[install]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[warn]\033[0m %s\n' "$*"; }
 err()  { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; }
@@ -325,7 +328,7 @@ install_fisher() {
             fisher install jorgebucaran/fisher
         end
         fisher update
-    '
+    ' || warn "fisher のセットアップで問題あり。手動で 'fisher update' を実行してください"
 }
 
 # ------------------------------------------------------------------
