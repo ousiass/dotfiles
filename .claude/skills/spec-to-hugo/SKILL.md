@@ -146,14 +146,14 @@ sidebar:
   make fix    → フォーマット＋リント修正
 
 ■ Netlifyデプロイ
-  netlify.tomlが設定済みです。
-  リポジトリをNetlifyに接続すれば自動デプロイされます。
+  Netlifyダッシュボードでリポジトリを接続するだけ。
+  ビルドコマンドと公開ディレクトリは netlify.toml から自動読み込みされます。
 
 ■ Cloudflare Workersデプロイ（Static Assets）
-  wrangler.jsoncが設定済みです。
-    npx wrangler login   → 初回のみブラウザ認証
-    make deploy-cf       → wrangler deploy で公開
-  または Workers Builds でリポジトリを接続して自動デプロイも可能。
+  Cloudflareダッシュボード → Workers & Pages → Create → Import a repository
+  ビルドコマンド: hugo --gc --minify
+  ビルド出力ディレクトリ: public
+  以降のpushで自動デプロイ。assets配信は wrangler.jsonc から読み込まれます。
   ※ Cloudflare Pages は Workers + Static Assets に統合されたため非推奨
 
 ■ ページの追加
