@@ -57,18 +57,75 @@ user-invocable: true
 ## フェーズ4: プレビューと出力先の確認
 
 1. 収集情報と調査結果から下書きを作成
-2. ユーザーにプレビュー表示（技術的内容 + 平易な説明）
+2. ユーザーにプレビュー表示。**必ず以下を含める**：
+   - **タイトル**（後述ルールに従う）
+   - **付与ラベル一覧**（新規作成が必要なものは `(NEW)` を明示）
+   - 本文（技術的内容 + 平易な説明）
 3. 修正があれば反映
 4. `AskUserQuestion` で出力先を確認：
    - **GitHub Issue**（推奨）
    - **ローカル MD ファイル**
 
+## タイトル・ラベルの統一ルール（GitHub Issue 出力時）
+
+### タイトル形式
+
+`[Bug] <機能>: <症状>` で固定。
+
+- **`<機能>`** — バグ発生箇所の画面・機能・モジュール名を 1〜3 語で。コード調査で確認した実際の名前を優先する。日本語可。
+- **`<症状>`** — 何が起きているかを簡潔に。終止形または体言止め。
+
+例:
+- `[Bug] ログイン: 正しいパスワードでも認証に失敗する`
+- `[Bug] 検索: 日本語入力で結果が0件になる`
+- `[Bug] 注文確認画面: 合計金額が二重表示される`
+
+### ラベル（必ず以下 4 種を付与）
+
+1. **`bug`** — 固定
+2. **`severity:<level>`** — フェーズ4 の重大度判定に対応:
+   - 🔴 Critical → `severity:critical`
+   - 🟠 High → `severity:high`
+   - 🟡 Medium → `severity:medium`
+   - 🟢 Low → `severity:low`
+3. **`area:<領域>`** — 機能領域。コード調査で特定したモジュール名・ディレクトリ名を kebab-case 英小文字で。例: `area:auth`, `area:search`, `area:checkout`
+4. **`type:<種類>`** — 次から 1 つ選ぶ:
+   - `type:ui` — 画面表示・スタイル
+   - `type:api` — API・バックエンド通信
+   - `type:data` — データ・DB・状態管理
+   - `type:auth` — 認証・認可
+   - `type:perf` — パフォーマンス
+   - `type:logic` — ビジネスロジック・計算
+   - `type:i18n` — 国際化・ローカライズ
+
+### ラベル存在チェック
+
+Issue 作成**前**に必ず実行：
+
+```bash
+gh label list --limit 200 --json name -q '.[].name'
+```
+
+- **存在する** → そのまま使用
+- **存在しない** → プレビューで `(NEW)` マークを付けて表示し、ユーザー承認を得てから `gh label create <name>` で作成。承認なしに作成しない
+
 ## フェーズ5: レポート出力
 
 #### GitHub Issue
-- `gh issue create` でタイトル `bug: <要約>`、ラベル `bug` で作成
-- テンプレートは `templates/issue.md` を参照
-- URL をユーザーに報告
+1. 「タイトル・ラベルの統一ルール」に従ってタイトル・ラベル 4 種を確定
+2. 不足ラベルがあればユーザー承認後に `gh label create` で先に作成
+3. 次の形で Issue 作成:
+   ```bash
+   gh issue create \
+     --title "[Bug] <機能>: <症状>" \
+     --label bug \
+     --label "severity:<level>" \
+     --label "area:<領域>" \
+     --label "type:<種類>" \
+     --body-file <本文>
+   ```
+4. 本文テンプレートは `templates/issue.md` を参照
+5. URL をユーザーに報告
 
 #### ローカル MD
 - `bug-report-<要約(kebab-case)>.md` を生成
