@@ -37,8 +37,10 @@ docs/**/*.md
 | `hugo.toml` | サイト設定（Hextraテーマ、日本語設定） |
 | `go.mod` | Hugo Modules 定義 |
 | `go.sum` | モジュールチェックサム |
-| `netlify.toml` | Netlifyデプロイ設定 |
+| `netlify.toml` | Netlifyデプロイ設定（Edge Function 経由で Basic 認証） |
 | `wrangler.jsonc` | Cloudflare Workers + Static Assetsデプロイ設定 |
+| `worker.js` | Cloudflare Worker エントリ（Basic 認証 → ASSETS 配信） |
+| `netlify/edge-functions/auth.ts` | Netlify Edge Function（Basic 認証） |
 | `Makefile` | ビルド・開発用コマンド |
 | `package.json` | Markdown lint/format ツール |
 | `.markdownlint-cli2.jsonc` | markdownlint設定（日本語ドキュメント向け） |
@@ -123,6 +125,15 @@ sidebar:
 - `layouts/shortcodes/pdf.html` — PDF埋め込み
 - `static/` ディレクトリ作成（PDFなどの静的アセット用）
 
+### Step 5b: Basic 認証スクリプトの配置
+
+両プラットフォームとも常に Basic 認証で全パスを保護する。env 未設定時は 503 を返す。
+
+`templates/` から以下を配置（`{{SITE_TITLE}}` を WWW-Authenticate realm に置換）:
+
+- `worker.js` — プロジェクトルートに配置（Cloudflare Worker エントリ）
+- `netlify/edge-functions/auth.ts` — `templates/edge-auth.ts.tmpl` をリネームして配置
+
 ### Step 6: 開発ツールのセットアップ
 
 1. `go mod init` → `go mod tidy` で Hugo Modules 初期化
@@ -148,12 +159,20 @@ sidebar:
 ■ Netlifyデプロイ
   Netlifyダッシュボードでリポジトリを接続するだけ。
   ビルドコマンドと公開ディレクトリは netlify.toml から自動読み込みされます。
+  Site configuration → Environment variables で以下を設定（必須）:
+    BASIC_AUTH_USER  = <ユーザー名>
+    BASIC_AUTH_PASS  = <パスワード>  (Sensitive variable で登録推奨)
+  未設定だと Edge Function が 503 を返してサイトが見られません。
 
 ■ Cloudflare Workersデプロイ（Static Assets）
   Cloudflareダッシュボード → Workers & Pages → Create → Import a repository
   ビルドコマンド: hugo --gc --minify
   ビルド出力ディレクトリ: public
   以降のpushで自動デプロイ。assets配信は wrangler.jsonc から読み込まれます。
+  プロジェクト Settings → Variables and Secrets で以下を設定（必須）:
+    BASIC_AUTH_USER  = <ユーザー名>  (Plaintext または Secret)
+    BASIC_AUTH_PASS  = <パスワード>  (Secret 推奨)
+  未設定だと Worker が 503 を返してサイトが見られません。
   ※ Cloudflare Pages は Workers + Static Assets に統合されたため非推奨
 
 ■ ページの追加
