@@ -38,6 +38,7 @@ docs/**/*.md
 | `go.mod` | Hugo Modules 定義 |
 | `go.sum` | モジュールチェックサム |
 | `netlify.toml` | Netlifyデプロイ設定 |
+| `wrangler.jsonc` | Cloudflare Workers + Static Assetsデプロイ設定 |
 | `Makefile` | ビルド・開発用コマンド |
 | `package.json` | Markdown lint/format ツール |
 | `.markdownlint-cli2.jsonc` | markdownlint設定（日本語ドキュメント向け） |
@@ -103,15 +104,16 @@ sidebar:
 セクションの概要（1〜2行）。
 ```
 
-### Step 4: hugo.toml の設定
+### Step 4: hugo.toml と wrangler.jsonc の設定
 
 テンプレートを元に、以下をユーザーに確認して設定:
 
 - **title**: サイトタイトル（例: 「○○システム 仕様書」）
 - **params.description**: サイトの説明文
 - メニュー項目の最初のリダイレクト先
+- **wrangler.jsonc の `name`**: Workers のプロジェクト名。サイトタイトルから kebab-case 英数字に変換（例: 「○○システム 仕様書」→ `marumaru-system-docs`）。`compatibility_date` は本日の日付（YYYY-MM-DD）に更新
 
-`templates/hugo.toml.tmpl` を参照して生成する。
+`templates/hugo.toml.tmpl` と `templates/wrangler.jsonc.tmpl` を参照して生成する。
 
 ### Step 5: レイアウト・静的ファイルの配置
 
@@ -147,6 +149,13 @@ sidebar:
   netlify.tomlが設定済みです。
   リポジトリをNetlifyに接続すれば自動デプロイされます。
 
+■ Cloudflare Workersデプロイ（Static Assets）
+  wrangler.jsoncが設定済みです。
+    npx wrangler login   → 初回のみブラウザ認証
+    make deploy-cf       → wrangler deploy で公開
+  または Workers Builds でリポジトリを接続して自動デプロイも可能。
+  ※ Cloudflare Pages は Workers + Static Assets に統合されたため非推奨
+
 ■ ページの追加
   content/docs/<セクション>/ にMarkdownファイルを追加するだけ。
   frontmatterにtitleとweightを指定してください。
@@ -157,7 +166,7 @@ sidebar:
 - 既存のMarkdownファイルは**移動**ではなく**コピーまたはシンボリックリンク**するか、ユーザーに移動の許可を得る
 - go.sumは `hugo mod tidy` で自動生成されるため、テンプレートの値は参考値
 - Hextraテーマのバージョンは最新安定版を使う（現時点: v0.12.1）
-- `.gitignore` に `public/`, `resources/_gen/`, `.hugo_build.lock`, `node_modules/` を追加
+- `.gitignore` に `public/`, `resources/_gen/`, `.hugo_build.lock`, `node_modules/`, `.wrangler/` を追加
 
 ## テンプレートファイル
 

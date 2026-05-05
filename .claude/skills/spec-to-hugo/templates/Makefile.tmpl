@@ -2,7 +2,7 @@
 
 CONTENT_DIR := content
 
-.PHONY: help serve build clean fmt fmt-check lint fix
+.PHONY: help serve build clean fmt fmt-check lint fix deploy-cf
 
 help: ## ヘルプを表示
 	@echo ""
@@ -33,3 +33,6 @@ lint: ## Markdownをリント（markdownlint）
 fix: ## フォーマット＋リント自動修正をまとめて実行
 	npx prettier --write "$(CONTENT_DIR)/**/*.md"
 	npx markdownlint-cli2 --fix "$(CONTENT_DIR)/**/*.md"
+
+deploy-cf: build ## Cloudflare Workers へデプロイ（要 wrangler login）
+	npx wrangler deploy
