@@ -11,6 +11,7 @@ if status is-interactive
     alias v='nvim'
     alias vo='nvim .'
     alias c='claude --dangerously-skip-permissions'
+    alias cc='claude --dangerously-skip-permissions --continue'
     alias cs='claude --dangerously-skip-permissions --settings '\''{"sandbox":{"enabled":true,"allowUnsandboxedCommands":false}}'\'''
 end
 
