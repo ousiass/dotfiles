@@ -63,6 +63,25 @@ Extract relevant information from the source Issue and specs:
 - **Body**: Follow `templates/sub-issue.md` format
 - **Labels**: Inherit from source Issue + add scope labels (e.g. `scope:backend`, `scope:frontend`) if available
 
+##### Filling the "Related Specs" section
+
+To prevent implementation drift, the `Related Specs` section must embed **only the spec content relevant to this sub-issue's scope**. Do not just link.
+
+Extraction rules:
+- Pick only the spec sections matching this scope (e.g. for backend: API spec / ER diagram / DB migration; for frontend: screen requirements / component design / UI flow)
+- Cross-cutting specs that apply to all sub-issues (non-functional requirements, overall architecture diagram) should be referenced in the key points list only — do not quote the full content
+- Do not include spec sections unrelated to this scope
+
+How to fill:
+1. **Key Points**: List `<spec file> › <section name>` with a one-line summary so the implementer can grasp at a glance what must be satisfied
+2. **Full Section Excerpts**: Read the section and quote it **verbatim** (headings, body, tables, Mermaid diagrams, code blocks) wrapped in Markdown blockquotes (`>`)
+3. **References**: Record the file path (with line numbers if possible, e.g. `docs/api.md:120-180`)
+
+Notes:
+- Do not summarize or rewrite the spec — quote the original (the goal is to prevent drift)
+- Always include the source file path and section name so the original can be traced
+- For scopes with no spec yet, write "No spec available. Decide during implementation."
+
 #### 3-2: User Confirmation
 
 Present draft via `AskUserQuestion` with preview:
@@ -104,3 +123,4 @@ Present draft via `AskUserQuestion` with preview:
 - Always get user approval before creating Issues
 - Do not modify the source Issue content (only append sub-issue section)
 - Track progress with TaskCreate/TaskUpdate
+- **Each sub-issue body must embed the relevant spec content as "key points + full quoted sections" — never just a link.** Quote the original verbatim without summarizing or rewriting (to prevent implementation drift)
