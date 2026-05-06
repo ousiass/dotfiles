@@ -15,6 +15,13 @@
 ## Language
 - User-facing responses must use the same language as the instructions used.
 
+## Asking the user
+- 不明点・前提条件が曖昧な点・複数の妥当な選択肢がある場合は、推測で進めずに `AskUserQuestion` で選択式に確認する。テキストだけで質問しない。
+- 各選択肢の `description` には判断材料（メリット・デメリット、影響範囲、推奨理由）を簡潔に書く。
+- 1回あたり最大4問にまとめる。確認漏れがあれば次のターンで再度 `AskUserQuestion` を出す。
+- すでに明示された指示や、コード/ドキュメントを読めば一意に決まる事項についてはわざわざ聞かない（読んで把握する）。
+- 自由入力が必要な場合は `AskUserQuestion` の `allowFreeText: true`（または「Other」選択肢）を使う。
+
 ## Git Commits
 - コミットメッセージは `<type>: <説明>` の形式で書く
 - type は英語（feat, fix, update, refactor, docs, test など）
