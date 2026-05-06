@@ -1,5 +1,5 @@
-.PHONY: pull
+.PHONY: update
 
 # ローカル変更を自動 stash → pull --rebase → 復元
-pull:
+update:
 	git pull --rebase --autostash
