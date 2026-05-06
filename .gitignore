@@ -66,6 +66,7 @@ fish/completions/tide.fish
 .claude/plugins/blocklist.json
 .claude/plugins/cache/
 .claude/plugins/installed_plugins.json
+.claude/plugins/known_marketplaces.json
 .claude/plugins/config.json
 .claude/plugins/repos/
 .claude/plugins/marketplaces/
