@@ -54,7 +54,9 @@ user-invocable: true
 
 仕様書とプロジェクト設定から技術スタックを整理し、ユーザーに確認:
 - 言語 / フレームワーク
-- パッケージマネージャ（TypeScript/JavaScript は **bun** を推奨）
+- パッケージマネージャ
+  - **TypeScript / JavaScript プロジェクトでは bun を必ず使用する**（npm / yarn / pnpm が候補に挙がっても bun に置き換える）
+  - 既存プロジェクトに `package-lock.json` / `yarn.lock` / `pnpm-lock.yaml` がある場合は、bun への移行をユーザーに提案する（既存ロックファイルを残すか、`bun.lockb` / `bun.lock` に切り替えるかを `AskUserQuestion` で確認）
 - 既存ツールの有無
 
 ## フェーズ2: ヒアリングと構成決定
@@ -207,3 +209,4 @@ Swagger UIの代わりに **Stoplight Elements** を推奨する。言語・FW�
 - 既存設定がある場合はそれを尊重し、上書きではなく拡張・統合を優先する
 - **既存の仕様書ディレクトリが見つかった場合、デフォルトパスではなく既存パスに配置する**
 - TaskCreate/TaskUpdate で進捗を管理する
+- **TypeScript / JavaScript プロジェクトのパッケージマネージャは bun に固定する。** 仕様書、CI、Git Hooks、Makefile、Swagger 関連、その他あらゆるドキュメントとコマンド例で `npm install` / `npm run` / `npx` / `yarn` / `pnpm` を使わず、`bun install` / `bun run` / `bunx` に統一する。既存設定で npm 系が使われていた場合も bun への置換を提案する
