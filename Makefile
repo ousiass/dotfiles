@@ -1,5 +1,9 @@
-.PHONY: update
+.DEFAULT_GOAL := help
 
-# ローカル変更を自動 stash → pull --rebase → 復元
-update:
+.PHONY: help update
+
+help: ## このヘルプを表示
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
+
+update: ## ローカル変更を stash しつつ git pull --rebase
 	git pull --rebase --autostash
