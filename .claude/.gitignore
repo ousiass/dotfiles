@@ -9,6 +9,7 @@ policy-limits.json
 sessions/
 history.jsonl
 stats-cache.json
+mcp-needs-auth-cache.json
 cache/
 debug/
 file-history/
@@ -35,6 +36,8 @@ plugins/cache/
 plugins/installed_plugins.json
 plugins/config.json
 plugins/repos/
+plugins/known_marketplaces.json
+plugins/marketplaces/
 
 # ビルド成果物
 tools/swm/swm
