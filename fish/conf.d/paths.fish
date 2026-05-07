@@ -4,8 +4,16 @@
 # .gitignore 対象なので、別マシンで clone しても再現されない。conf.d で毎回追加
 # することで、clone 直後から同じ PATH 構成になる。bash 側は shell/paths.sh が
 # 同じ集合を扱う。両者を同期して更新すること。
+#
+# システムパスは先頭に列挙する。ループは各要素を prepend するので、後ろの要素
+# ほど PATH の先頭に来る → 結果として「ユーザーパス → システムパス → /bin等」
+# の優先順になる。bash は /etc/profile が同等の処理をするのでこちらは fish 用。
 
 for _p in \
+    /sbin \
+    /usr/sbin \
+    /usr/local/bin \
+    /usr/local/sbin \
     $HOME/.local/bin \
     $HOME/.bun/bin \
     $HOME/.cargo/bin \
