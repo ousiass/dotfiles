@@ -203,21 +203,41 @@ install_gemini_cli() {
 }
 
 # ------------------------------------------------------------------
-# 各ツールのバイナリパスを fish の universal path に追加
+# ~/.profile に shell/paths.sh の source 行を冪等に挿入
+#
+# fish 側は fish/conf.d/paths.fish が起動時に PATH を設定するので、対応する
+# bash login shell (~/.profile) からも shell/paths.sh を読み込ませる。
+# これで bash interactive / non-interactive (Claude Code の Bash ツール等) /
+# IDE 経由の起動でも、go や fnm などのツールを発見できる状態になる。
 # ------------------------------------------------------------------
-setup_fish_paths() {
-    if ! command -v fish >/dev/null 2>&1; then
-        warn "fish が見つからないため fish_user_paths 設定をスキップ"
-        return
+setup_profile_paths() {
+    local profile="$HOME/.profile"
+    local marker_begin="# >>> dotfiles paths >>>"
+    local marker_end="# <<< dotfiles paths <<<"
+
+    if [[ ! -f "$profile" ]]; then
+        log "$profile を新規作成"
+        : > "$profile"
     fi
-    log "fish_user_paths にツールパスを追加"
-    fish -c '
-        for p in $HOME/.local/bin $HOME/.bun/bin $HOME/.cargo/bin $HOME/.local/share/fnm /usr/local/go/bin /opt/homebrew/bin /opt/homebrew/sbin
-            if test -d $p
-                fish_add_path -U $p
-            end
-        end
-    '
+
+    # 既存マーカーブロックがあれば一旦削除（GNU/BSD sed 両対応で -i.bak を使用）
+    if grep -qF "$marker_begin" "$profile"; then
+        sed -i.bak "/$marker_begin/,/$marker_end/d" "$profile"
+        rm -f "$profile.bak"
+    fi
+
+    # 末尾にマーカー付きで追記
+    cat >> "$profile" <<EOF
+
+$marker_begin
+# 自動生成 (install.sh): dotfiles/shell/paths.sh を source して PATH を統一する。
+# fish/conf.d/paths.fish と同じパス集合を bash login shell でも有効にする。
+if [ -f "$DOTFILES_DIR/shell/paths.sh" ]; then
+    . "$DOTFILES_DIR/shell/paths.sh"
+fi
+$marker_end
+EOF
+    log "$profile に dotfiles paths セクションを反映"
 }
 
 # ------------------------------------------------------------------
@@ -407,7 +427,7 @@ main() {
     link_home_file .env
     link_home_file .mcp.json claude-mcp/mcp.json
 
-    setup_fish_paths
+    setup_profile_paths
     install_fisher
     install_node_lts
     sync_nvim_plugins
