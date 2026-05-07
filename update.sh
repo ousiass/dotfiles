@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+#
+# update.sh - インストール済みツールを最新版へ
+#
+# install.sh が初回セットアップ用なのに対し、こちらは既にインストール済みの
+# 各ツールを最新版に更新する用途。各ツールごとに公式の update コマンドを呼ぶ。
+# 個別の失敗は warn を出して続行し、最後まで走り切る。
+#
+# 使い方:
+#   ./update.sh           # 全ツールを更新
+#   make update           # 同上 (Makefile 経由)
+
+set -uo pipefail
+
+DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OS=""
+
+# install.sh と同じ前置き PATH（update が走る前に各ツールを発見できるように）
+export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.local/share/fnm:/usr/local/go/bin:$PATH"
+
+# shellcheck source=lib/common.sh
+. "$DOTFILES_DIR/lib/common.sh"
+# shellcheck source=lib/install_lang.sh
+. "$DOTFILES_DIR/lib/install_lang.sh"
+# shellcheck source=lib/install_cli.sh
+. "$DOTFILES_DIR/lib/install_cli.sh"
+# shellcheck source=lib/setup_shell.sh
+. "$DOTFILES_DIR/lib/setup_shell.sh"
+
+main() {
+    log "DOTFILES_DIR = $DOTFILES_DIR"
+    detect_os
+
+    update_brew
+    update_packages
+
+    update_uv
+    update_bun
+    update_rustup
+    update_fnm
+    update_go
+    update_node_lts
+
+    update_claude_code
+    update_codex_cli
+    update_gemini_cli
+
+    update_gh
+    update_gcloud
+
+    update_moleport
+    update_linterly
+
+    update_fisher
+    update_nvim_plugins
+
+    echo
+    log "アップデート完了"
+}
+
+main "$@"

@@ -59,6 +59,16 @@ install_brew() {
     fi
 }
 
+update_brew() {
+    [[ "$OS" == "mac" ]] || return 0
+    if ! command -v brew >/dev/null 2>&1; then
+        warn "brew が無いため update をスキップ"
+        return
+    fi
+    log "Homebrew を更新"
+    brew update && brew upgrade || warn "brew の update に失敗"
+}
+
 # ------------------------------------------------------------------
 # システムパッケージ
 # ------------------------------------------------------------------
@@ -75,6 +85,28 @@ install_packages() {
     else
         log "brew パッケージをインストール"
         brew install fish tmux neovim git curl rsync
+    fi
+}
+
+update_packages() {
+    if [[ "$OS" == "linux" ]]; then
+        if ! command -v apt-get >/dev/null 2>&1; then
+            warn "apt-get が無いため packages の update をスキップ"
+            return
+        fi
+        log "apt パッケージを更新（対象のみ --only-upgrade）"
+        sudo apt-get update -qq
+        sudo apt-get install -y --only-upgrade \
+            fish tmux neovim git curl rsync xclip \
+            || warn "apt パッケージの update に失敗"
+    else
+        if ! command -v brew >/dev/null 2>&1; then
+            warn "brew が無いため packages の update をスキップ"
+            return
+        fi
+        log "brew パッケージを更新"
+        brew upgrade fish tmux neovim git curl rsync \
+            || warn "brew パッケージの update に失敗"
     fi
 }
 

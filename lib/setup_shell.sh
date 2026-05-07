@@ -63,8 +63,17 @@ install_fisher() {
     ' || warn "fisher のセットアップで問題あり。手動で 'fisher update' を実行してください"
 }
 
+update_fisher() {
+    if ! command -v fish >/dev/null 2>&1; then
+        warn "fish が無いため fisher の update をスキップ"
+        return
+    fi
+    log "fisher プラグインを更新 (fisher update)"
+    fish -c 'fisher update' || warn "fisher の update に失敗"
+}
+
 # ------------------------------------------------------------------
-# nvim プラグインの初期同期
+# nvim プラグインの同期
 # ------------------------------------------------------------------
 sync_nvim_plugins() {
     if ! command -v nvim >/dev/null 2>&1; then
@@ -73,6 +82,15 @@ sync_nvim_plugins() {
     fi
     log "nvim プラグインを同期 (lazy.nvim restore: lockfile に合わせて固定)"
     nvim --headless "+Lazy! restore" +qa || warn "lazy.nvim の同期で問題あり（初回は無視可）"
+}
+
+update_nvim_plugins() {
+    if ! command -v nvim >/dev/null 2>&1; then
+        warn "nvim が無いためプラグイン update をスキップ"
+        return
+    fi
+    log "nvim プラグインを最新へ (lazy.nvim sync)"
+    nvim --headless "+Lazy! sync" +qa || warn "lazy.nvim の update に失敗"
 }
 
 # ------------------------------------------------------------------
