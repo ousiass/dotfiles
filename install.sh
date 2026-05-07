@@ -57,6 +57,9 @@ main() {
     install_gh
     install_gcloud
 
+    install_moleport
+    install_linterly
+
     link_config nvim
     link_config tmux
     link_config fish

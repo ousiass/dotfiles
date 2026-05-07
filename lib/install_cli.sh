@@ -93,3 +93,32 @@ install_gcloud() {
     sudo apt-get update -qq
     sudo apt-get install -y google-cloud-cli
 }
+
+# ------------------------------------------------------------------
+# 自作 Go ツール (go install で取得、$HOME/go/bin に配置)
+# ------------------------------------------------------------------
+install_moleport() {
+    if command -v moleport >/dev/null 2>&1; then
+        log "MolePort は既にインストール済み"
+        return
+    fi
+    if ! command -v go >/dev/null 2>&1; then
+        warn "go が見つからないため MolePort インストールをスキップ"
+        return
+    fi
+    log "MolePort をインストール (go install)"
+    go install github.com/ousiassllc/moleport/cmd/moleport@latest
+}
+
+install_linterly() {
+    if command -v linterly >/dev/null 2>&1; then
+        log "Linterly は既にインストール済み"
+        return
+    fi
+    if ! command -v go >/dev/null 2>&1; then
+        warn "go が見つからないため Linterly インストールをスキップ"
+        return
+    fi
+    log "Linterly をインストール (go install)"
+    go install github.com/ousiassllc/linterly/cmd/linterly@latest
+}
