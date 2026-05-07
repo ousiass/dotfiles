@@ -203,6 +203,59 @@ install_gemini_cli() {
 }
 
 # ------------------------------------------------------------------
+# クラウド / 開発 CLI
+# ------------------------------------------------------------------
+install_gh() {
+    if command -v gh >/dev/null 2>&1; then
+        log "gh は既にインストール済み"
+        return
+    fi
+    log "gh (GitHub CLI) をインストール"
+    if [[ "$OS" == "mac" ]]; then
+        brew install gh
+        return
+    fi
+    if ! command -v apt-get >/dev/null 2>&1; then
+        warn "apt-get が見つからないため gh インストールをスキップ"
+        return
+    fi
+    # GitHub 公式手順: https://github.com/cli/cli/blob/trunk/docs/install_linux.md
+    local keyring=/usr/share/keyrings/githubcli-archive-keyring.gpg
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | sudo tee "$keyring" >/dev/null
+    sudo chmod go+r "$keyring"
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=$keyring] https://cli.github.com/packages stable main" \
+        | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+    sudo apt-get update -qq
+    sudo apt-get install -y gh
+}
+
+install_gcloud() {
+    if command -v gcloud >/dev/null 2>&1; then
+        log "gcloud は既にインストール済み"
+        return
+    fi
+    log "gcloud (Google Cloud SDK) をインストール"
+    if [[ "$OS" == "mac" ]]; then
+        brew install --cask google-cloud-sdk
+        return
+    fi
+    if ! command -v apt-get >/dev/null 2>&1; then
+        warn "apt-get が見つからないため gcloud インストールをスキップ"
+        return
+    fi
+    # Google 公式手順: https://cloud.google.com/sdk/docs/install#deb
+    sudo apt-get install -y apt-transport-https ca-certificates gnupg curl
+    local keyring=/usr/share/keyrings/cloud.google.gpg
+    curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+        | sudo gpg --batch --yes --dearmor -o "$keyring"
+    echo "deb [signed-by=$keyring] https://packages.cloud.google.com/apt cloud-sdk main" \
+        | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list >/dev/null
+    sudo apt-get update -qq
+    sudo apt-get install -y google-cloud-cli
+}
+
+# ------------------------------------------------------------------
 # ~/.profile に shell/paths.sh の source 行を冪等に挿入
 #
 # fish 側は fish/conf.d/paths.fish が起動時に PATH を設定するので、対応する
@@ -418,6 +471,9 @@ main() {
     install_claude_code
     install_codex_cli
     install_gemini_cli
+
+    install_gh
+    install_gcloud
 
     link_config nvim
     link_config tmux
