@@ -32,6 +32,8 @@ If any of the following occurs, redo that phase. Skipping for "context savings" 
 
 If scope reduction is needed, redo Phase 1 scope splitting and confirm with the user instead of skipping phases.
 
+If you discover **work independent of the current scope** during implementation (unrelated bugs, out-of-scope improvements, refactors that need their own PR), do NOT leave them as TODOs — split them out via `/spinoff-issue-en --parent <parent issue#> <summary>` and continue the current scope. Always pass the parent Issue number recorded in Phase 1 via `--parent` (omit only when there is no parent issue, e.g. text-driven runs).
+
 ## Phase 1: Requirements Analysis and Scope Splitting
 
 1. Retrieve requirements from arguments
