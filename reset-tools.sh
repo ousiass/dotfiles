@@ -6,7 +6,7 @@
 # する検証用スクリプト。新マシンの状態を再現したい時に便利。
 #
 # 削除対象:
-#   - uv, bun (グローバルパッケージ含む: codex, gemini も)
+#   - uv, bun (グローバルパッケージ含む: codex, gemini, wrangler, netlify-cli, pm2 も)
 #   - rustup / cargo
 #   - fnm + fnm 経由の Node 全バージョン
 #   - Go (Linux のみ /usr/local/go、要 sudo)
@@ -47,7 +47,7 @@ cat <<'EOF'
 以下のツールを削除して install.sh で再インストールします:
 
   - uv
-  - bun (グローバルパッケージ含む: codex, gemini)
+  - bun (グローバルパッケージ含む: codex, gemini, wrangler, netlify-cli, pm2)
   - rustup / cargo
   - fnm および fnm 経由でインストールした Node 全バージョン
   - Go (Linux のみ, /usr/local/go)

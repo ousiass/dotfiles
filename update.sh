@@ -47,6 +47,10 @@ main() {
 
     update_gh
     update_gcloud
+    update_cloudflared
+    update_wrangler
+    update_netlify_cli
+    update_pm2
 
     update_moleport
     update_linterly

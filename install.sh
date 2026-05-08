@@ -56,6 +56,10 @@ main() {
 
     install_gh
     install_gcloud
+    install_cloudflared
+    install_wrangler
+    install_netlify_cli
+    install_pm2
 
     install_moleport
     install_linterly
