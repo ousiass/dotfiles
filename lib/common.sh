@@ -84,7 +84,18 @@ install_packages() {
             fish tmux neovim git curl rsync xclip
     else
         log "brew パッケージをインストール"
-        brew install fish tmux neovim git curl rsync
+        # brew install を一括で呼ぶと、既に non-brew (公式 pkg / port / 自前ビルド)
+        # で入っているパッケージ 1 つの link 衝突等で全部止まるので per-package で。
+        # brew 管理下にある pkg はスキップ、失敗したものだけ warn を出して続行する。
+        local pkgs=(fish tmux neovim git curl rsync)
+        local pkg
+        for pkg in "${pkgs[@]}"; do
+            if brew list --formula "$pkg" >/dev/null 2>&1; then
+                log "$pkg は既にインストール済み"
+            else
+                brew install "$pkg" || warn "$pkg のインストールに失敗"
+            fi
+        done
     fi
 }
 
@@ -105,8 +116,17 @@ update_packages() {
             return
         fi
         log "brew パッケージを更新"
-        brew upgrade fish tmux neovim git curl rsync \
-            || warn "brew パッケージの update に失敗"
+        # brew で管理されている pkg だけ upgrade。未インストールに upgrade を
+        # 投げると失敗するし、一括だと 1 個失敗で全部止まるので per-package で。
+        local pkgs=(fish tmux neovim git curl rsync)
+        local pkg
+        for pkg in "${pkgs[@]}"; do
+            if brew list --formula "$pkg" >/dev/null 2>&1; then
+                brew upgrade "$pkg" || warn "$pkg の update に失敗"
+            else
+                log "$pkg は brew 管理外のためスキップ"
+            fi
+        done
     fi
 }
 
