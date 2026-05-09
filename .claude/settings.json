@@ -23,5 +23,6 @@
   "theme": "dark-daltonized",
   "feedbackSurveyState": {
     "lastShownTime": 1753948122944
-  }
+  },
+  "skipAutoPermissionPrompt": true
 }
