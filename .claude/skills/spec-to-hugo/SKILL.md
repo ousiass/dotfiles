@@ -39,15 +39,15 @@ docs/**/*.md
 | `go.sum` | モジュールチェックサム |
 | `netlify.toml` | Netlifyデプロイ設定（Edge Function 経由で Basic 認証） |
 | `wrangler.jsonc` | Cloudflare Workers + Static Assetsデプロイ設定 |
-| `worker.js` | Cloudflare Worker エントリ（Basic 認証 → ASSETS 配信） |
-| `netlify/edge-functions/auth.ts` | Netlify Edge Function（Basic 認証） |
+| `worker.js` | Cloudflare Worker エントリ（Basic 認証 → `/` を `/docs/` に 302 リダイレクト → ASSETS 配信） |
+| `netlify/edge-functions/auth.ts` | Netlify Edge Function（Basic 認証 → `/` を `/docs/` に 302 リダイレクト） |
 | `Makefile` | ビルド・開発用コマンド |
 | `package.json` | Markdown lint/format ツール |
 | `.markdownlint-cli2.jsonc` | markdownlint設定（日本語ドキュメント向け） |
 | `.prettierrc` | Prettier設定（必要なら） |
 | `layouts/partials/custom/head-end.html` | Mermaid図ズーム機能 |
 | `layouts/shortcodes/pdf.html` | PDF埋め込みショートコード |
-| `content/_index.md` | トップページ（docsへリダイレクト） |
+| `content/_index.md` | トップページ（ローカル `hugo server` 用に meta refresh で `/docs/` に飛ばす。本番のリダイレクトは Worker / Edge Function 側で処理） |
 | `content/docs/_index.md` | ドキュメントセクション定義 |
 
 ### Step 3: コンテンツ構造の変換
