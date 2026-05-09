@@ -22,14 +22,14 @@ clean: ## ビルド成果物を削除
 	rm -rf public resources/_gen .hugo_build.lock
 
 fmt: ## Markdownをフォーマット（prettier）
-	npx prettier --write "$(CONTENT_DIR)/**/*.md"
+	bunx prettier --write "$(CONTENT_DIR)/**/*.md"
 
 fmt-check: ## フォーマット差分チェック（CI用）
-	npx prettier --check "$(CONTENT_DIR)/**/*.md"
+	bunx prettier --check "$(CONTENT_DIR)/**/*.md"
 
 lint: ## Markdownをリント（markdownlint）
-	npx markdownlint-cli2 "$(CONTENT_DIR)/**/*.md"
+	bunx markdownlint-cli2 "$(CONTENT_DIR)/**/*.md"
 
 fix: ## フォーマット＋リント自動修正をまとめて実行
-	npx prettier --write "$(CONTENT_DIR)/**/*.md"
-	npx markdownlint-cli2 --fix "$(CONTENT_DIR)/**/*.md"
+	bunx prettier --write "$(CONTENT_DIR)/**/*.md"
+	bunx markdownlint-cli2 --fix "$(CONTENT_DIR)/**/*.md"

@@ -137,7 +137,7 @@ sidebar:
 ### Step 6: 開発ツールのセットアップ
 
 1. `go mod init` → `go mod tidy` で Hugo Modules 初期化
-2. `npm install` で prettier / markdownlint インストール
+2. `bun install` で prettier / markdownlint インストール（npm/yarn/pnpm ではなく bun を使う）
 3. `make serve` で動作確認を促す
 
 ### Step 7: ユーザーへの案内
@@ -166,9 +166,10 @@ sidebar:
 
 ■ Cloudflare Workersデプロイ（Static Assets）
   Cloudflareダッシュボード → Workers & Pages → Create → Import a repository
-  ビルドコマンド: hugo --gc --minify
+  ビルドコマンド: bun run build（package.json の scripts.build = "hugo --gc --minify" を自動検出）
   ビルド出力ディレクトリ: public
   以降のpushで自動デプロイ。assets配信は wrangler.jsonc から読み込まれます。
+  ※ package.json に build script が無いと Cloudflare 側で「Script not found "build"」エラーになるので注意。
   プロジェクト Settings → Variables and Secrets で以下を設定（必須）:
     BASIC_AUTH_USER  = <ユーザー名>  (Plaintext または Secret)
     BASIC_AUTH_PASS  = <パスワード>  (Secret 推奨)
