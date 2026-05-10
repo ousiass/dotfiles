@@ -22,7 +22,7 @@ return {
     { "<leader>gg", function() Snacks.lazygit() end, desc = "Lazygit" },
     { "<leader>gf", function() Snacks.lazygit.log_file() end, desc = "Lazygit File History" },
     { "<leader>gl", function() Snacks.lazygit.log() end, desc = "Lazygit Log" },
-    { "<leader>n", function() Snacks.notifier.show_history() end, desc = "Notification History" },
+    { "<leader>sn", function() Snacks.notifier.show_history() end, desc = "Notification History" },
     { "<leader>un", function() Snacks.notifier.hide() end, desc = "Dismiss Notifications" },
   },
 }

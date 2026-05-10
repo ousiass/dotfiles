@@ -117,7 +117,7 @@ return {
       "ts_ls",
       "vue_ls", -- Vue
       "gopls", -- Go
-      "solidity_ls", -- Solidity
+      "solidity", -- Solidity
       "html",
       "cssls",
       "tailwindcss",
