@@ -29,10 +29,11 @@ If any of the following occurs, redo that phase. Skipping for "context savings" 
 - Committing with unimplemented tests or dummy assertions (e.g., `expect(true).toBe(true)`)
 - Self-reviewing instead of calling the `review` agent
 - Skipping lint/format without attempting to run (skipping is allowed only after running and confirming no settings exist)
+- **Deferring out-of-scope findings to "report later", "list in PR body", or "mention in final summary"** (anything short of filing an issue on the spot is a violation; writing "discovered but not filed" in the PR body or final report is itself forbidden)
 
 If scope reduction is needed, redo Phase 1 scope splitting and confirm with the user instead of skipping phases.
 
-If you discover **work independent of the current scope** during implementation (unrelated bugs, out-of-scope improvements, refactors that need their own PR), do NOT leave them as TODOs — split them out via `/spinoff-issue-en --parent <parent issue#> <summary>` and continue the current scope. Always pass the parent Issue number recorded in Phase 1 via `--parent` (omit only when there is no parent issue, e.g. text-driven runs).
+If you discover **work independent of the current scope** during implementation (unrelated bugs, out-of-scope improvements, refactors that need their own PR), **stop work the moment you notice** and call `/spinoff-issue-en --parent <parent issue#> <summary>` to create the issue, then resume the current scope. Batching findings at the end of a sub-step, at the end of a scope, or at Phase 3 is not allowed (they get forgotten or substituted by PR-body lists). Always pass the parent Issue number recorded in Phase 1 via `--parent` (omit only when there is no parent issue, e.g. text-driven runs).
 
 ## Phase 1: Requirements Analysis and Scope Splitting
 
@@ -95,12 +96,13 @@ If you discover **work independent of the current scope** during implementation 
 
 1. Confirm all scopes are implemented
 2. Run full test suite
-3. Create PR with `gh pr create --base <base-branch>`
+3. **Out-of-scope findings self-check**: Explicitly verify and declare that no out-of-scope findings remain un-filed. If any remain, call `/spinoff-issue-en` now and create the issue(s) before proceeding. Writing "discovered but not filed" in the PR body or final report is forbidden.
+4. Create PR with `gh pr create --base <base-branch>`
    - **Use the base branch recorded in Phase 1. Never fall back to `main` or `master`.**
    - If unclear, check fork point with `git log --oneline --graph HEAD...main`
    - With Issue: Include Issue number in title, then link via `gh pr edit <PR#> --add-issue <Issue URL>` after creation (do not use Closes keyword)
    - PR body: Change summary + manual checklist (see `templates/pr-checklist.md`)
-4. Report implementation summary to user
+5. Report implementation summary to user
 
 ## Rules
 
