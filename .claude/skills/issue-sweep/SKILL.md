@@ -259,13 +259,65 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - ベースブランチを途中で変える
 - フェーズ0 の lock 取得をスキップする
 
+## テレメトリ（`.claude/sweep-metrics.jsonl`）
+
+各 Issue の処理完了時 / 失敗時に **JSON 1行を append** する。後で `jq` で集計可能。
+
+**書き出すタイミング:**
+- 正常マージ完了（2-5 の Issue close 直後）
+- agent failure（2-8 の失敗時挙動）
+- CI 諦め（respawn 上限到達時）
+
+**スキーマ:**
+
+```json
+{"ts":"<ISO8601>","issue":42,"skill":"impl-wt","duration_sec":423,"agent_attempts":1,"ci_respawns":0,"pr_number":127,"pr_url":"https://...","status":"merged"}
+{"ts":"<ISO8601>","issue":51,"skill":"bug-fix-wt","duration_sec":1820,"agent_attempts":3,"ci_respawns":2,"pr_number":131,"pr_url":"https://...","status":"ci_gave_up","failed_checks":"unit-tests,lint"}
+{"ts":"<ISO8601>","issue":53,"skill":null,"duration_sec":12,"agent_attempts":1,"ci_respawns":0,"pr_number":null,"pr_url":null,"status":"agent_failed","failure":"<理由>"}
+```
+
+**status 値:** `merged` / `ci_gave_up` / `agent_failed` / `aborted` / `manual_close`
+
+**実装:** 2-1 で `start_ts=$(date +%s)` を記録し、2-5 / 2-8 の直前で:
+
+```bash
+jq -nc \
+  --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --argjson issue "$n" \
+  --arg skill "$skill_used" \
+  --argjson dur "$(( $(date +%s) - start_ts ))" \
+  --argjson att "$agent_attempts" \
+  --argjson resp "$respawn_count" \
+  --argjson pr "$pr_number" \
+  --arg url "$pr_url" \
+  --arg status "$status" \
+  '{ts:$ts,issue:$issue,skill:$skill,duration_sec:$dur,agent_attempts:$att,ci_respawns:$resp,pr_number:$pr,pr_url:$url,status:$status}' \
+  >> .claude/sweep-metrics.jsonl
+```
+
+**集計例:**
+
+```bash
+# 直近 sweep の所要時間統計
+jq -s 'group_by(.skill) | map({skill: .[0].skill, avg: (map(.duration_sec) | add/length | floor), n: length})' .claude/sweep-metrics.jsonl
+
+# 失敗率
+jq -s '[.[] | select(.status != "merged")] | length' .claude/sweep-metrics.jsonl
+
+# CI respawn ヒートマップ
+jq -s 'map(select(.ci_respawns > 0)) | group_by(.ci_respawns) | map({respawns: .[0].ci_respawns, n: length})' .claude/sweep-metrics.jsonl
+```
+
+ファイルは `.gitignore` 対象。
+
 ## フェーズ3: 完了報告
 
 1. 処理した Issue 番号と PR URL の一覧を表でまとめる
-2. キューファイルが空（`wc -l .claude/issue-queue.txt` が 0）であることを確認
-3. `git worktree prune` で残存 worktree を全削除
-4. `rm -f .claude/issue-queue.lock` でロック解除
-5. ユーザーに最終サマリを返す
+2. **`.claude/sweep-metrics.jsonl` の今回 sweep 分から所要時間・失敗内訳を集計してユーザーに表示**
+3. キューファイルが空（`wc -l .claude/issue-queue.txt` が 0）であることを確認
+4. `git worktree prune` で残存 worktree を全削除
+5. `rm -f .claude/issue-queue.lock` でロック解除
+6. ユーザーに最終サマリを返す
 
 ## 失敗時の挙動
 
