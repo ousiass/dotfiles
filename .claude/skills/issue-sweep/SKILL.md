@@ -73,7 +73,20 @@ rm -f .sweep/queue.txt .sweep/lock
 
 ## フェーズ2: 1 Issue ずつ処理（キューが空になるまでループ）
 
-各反復で以下を完了させる。反復冒頭で **lock の heartbeat 更新** (`echo "$PPID:$(date +%s)" > .sweep/lock`) を必ず実行。Stop Hook がキューに残行がある限り停止をブロックするため途中で止まらず流し続ける。
+各反復で以下を完了させる。**反復冒頭で必ず以下を実行**:
+
+```bash
+# (1) lock の heartbeat 更新
+echo "$PPID:$(date +%s)" > .sweep/lock
+
+# (2) ベースブランチを最新化（直前のマージ分を取り込む）
+git fetch origin "$base_branch" 2>/dev/null || true
+git pull --ff-only origin "$base_branch" 2>/dev/null || true
+```
+
+これにより、各 Issue の worktree は**直前にマージされた変更を含む base から作られる**。同一 sweep 内で `develop` が次々進んでも、各 Issue は常に最新 base 上で実装される。fast-forward できない場合（local に余分なコミットがある等）は警告だけ出して続行する。
+
+Stop Hook がキューに残行がある限り停止をブロックするため途中で止まらず流し続ける。
 
 **重要 — context 設計:**
 **1 Issue 分の実装（Plan→Develop→Review→Commit→Push→PR 作成→auto-merge 予約）は必ず `Agent` ツールでサブエージェントに丸投げする。** メインスレッドは「キュー操作 / 冪等性チェック / agent 起動 / マージ完了ポーリング / 失敗判定」だけを行う。これによりメイン context は Issue 数に対して線形に汚れず、PR URL の一覧だけが積まれる。
@@ -260,6 +273,7 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - **メインスレッドで直接サブスキル（`/impl-wt` 等）を Skill ツール起動する**（context 汚染の根本原因。必ず `Agent` 経由）
 - **メインスレッド自身がコードを修正する / コミットする / PR を編集する**（CTO は実装に手を出さない。修正は必ず CI fix 起動プロンプトで agent に委譲）
 - **engineer agent 内で `/refine --no-merge` をスキップする**（4 観点レビューを通さず auto-merge に進むと品質ばらつきが出る）
+- **反復冒頭の base branch 最新化をスキップする**（前 Issue のマージ分を取り込まず古い base で次を実装すると競合・無駄作業の原因）
 - auto-merge 予約をスキップして手動マージを促す（ずっと自律稼働するのが目的）
 - マージ完了確認をスキップして次の Issue に進む（PR が closed/CI fail なまま埋もれる）
 - **CI 失敗を検知せずポーリングを継続する**（無限待機の原因）
