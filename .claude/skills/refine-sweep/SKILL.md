@@ -105,37 +105,55 @@ otherwise:
   → 2-5 へ
 ```
 
-### 2-5. fix → PR → auto-merge → 待機
+### 2-5. fix engineer agent に丸投げ（メインは JSON だけ受け取る）
+
+**CTO 原則**: メインスレッドはコード修正・コミット・PR 操作・CI 待ち、いずれにも直接タッチしない。すべて engineer agent に閉じ込めて context を線形に保つ。
 
 ```
 Agent({
   description: "refine-sweep iter <iter+1> fix",
   subagent_type: "claude",
   prompt: """
-コードベースの以下の指摘を修正してください:
+レビューで検出された以下の指摘を修正し、PR 作成→auto-merge 予約→**マージ完了まで内部でハンドリング**してください。
+メインスレッドには JSON 1 行だけを返します（develop / review / push ログをメインに流さない）。
 
-CRITICAL: <列挙>
+CRITICAL: <件数・file:line:msg 列挙>
 MAJOR: <列挙>
 （--include-minor 時は MINOR の優先度高い <minor - max_minor> 件以上も含める）
 
 手順:
 1. **base_branch を最新化**: `git fetch origin <base_branch> && git checkout <base_branch> && git pull --ff-only origin <base_branch>`（直前反復のマージ分を取り込んでから分岐する）
-2. 反復用ブランチ refine-sweep/<timestamp>-iter-<iter+1> を最新の base_branch から作成
-3. develop エージェント (Agent(develop)) で順に修正＋テスト
-4. git push -u origin <branch>
-5. gh pr create --base <base_branch> --title "refine-sweep iter <iter+1>: critical/major fixes" --body <findings 一覧>
-6. gh pr merge <PR> --auto --merge --delete-branch で auto-merge 予約
+2. 反復用ブランチ `refine-sweep/<timestamp>-iter-<iter+1>` を最新の base_branch から作成
+3. develop エージェント (`Agent(develop)`) で順に修正＋テスト
+4. `git push -u origin <branch>`
+5. `gh pr create --base <base_branch> --title "refine-sweep iter <iter+1>: critical/major fixes" --body <findings 一覧>`
+6. `gh pr merge <PR> --auto --merge --delete-branch` で auto-merge 予約
+7. **マージ完了をポーリング**: issue-sweep フェーズ2-4 と同じ statusCheckRollup 監視。`MERGED` まで待機。CI 失敗が確定したら同じ agent コンテキスト内で develop agent を再起動して修正 push（最大 3 回まで）。3 回連続失敗なら `ci_gave_up` で返す
+8. マージ完了したら最終 JSON を返す
 
 返答 JSON 1行:
-{"pr_number": <N>, "pr_url": "<URL>", "branch": "<branch>", "fixed_critical": <N>, "fixed_major": <N>, "fixed_minor": <N>}
-失敗時: {"failure": "<理由>"}
+{"pr_number": <N>, "pr_url": "<URL>", "branch": "<branch>", "fixed_critical": <N>, "fixed_major": <N>, "fixed_minor": <N>, "merged": true, "ci_respawns": <K>}
+
+CI 諦め時:
+{"pr_number": <N>, "pr_url": "<URL>", "failure": "ci_gave_up", "failed_checks": "<checks>", "ci_respawns": 3}
+
+その他失敗時:
+{"failure": "<1行で原因>", "phase": "<どのステップで失敗したか>"}
+
+返答ルール:
+- 上記 JSON 以外を最終メッセージに含めない
+- 内部 log（Plan / Develop / Review / Push の詳細）はメインに残さない（agent context 内で消える）
+- 「ユーザー確認」「次へ進めますか」等で停止しない
 """
 })
 ```
 
-agent 返答後、メインスレッドで PR マージ完了をポーリング（issue-sweep の 2-4 と同じ statusCheckRollup ロジック、CI 失敗時は 3 回まで fix 再起動）。
+メインスレッドは返答 JSON を parse:
+- `merged: true` → 次反復 (`iter += 1`) で 2-1 へ
+- `failure: "ci_gave_up"` または他 failure → フェーズ3 へ status=`agent_failed` で抜ける
+- 反復間で findings が減らないケース（同一 findings が 2 反復続いた）→ `fix_ineffective` で終了
 
-マージ完了したら次反復 (`iter += 1`) で 2-1 へ。**マージされた修正は次の review で消えるはず**なので、review→fix→merge の往復で findings を削っていく。
+**マージされた修正は次の review で消えるはず**なので、review→fix→merge の往復で findings を削っていく。
 
 ## フェーズ3: 完了処理とレポート
 
@@ -177,7 +195,9 @@ mkdir -p .sweep
 
 ## 禁止行動
 
-- **メインスレッド自身がコードを修正する**（CTO は実装に触らない）
+- **メインスレッド自身がコードを修正する / コミットする / PR を編集する**（CTO は実装に触らない）
+- **メインスレッドで PR マージ完了のポーリングや CI fix ループを直接回す**（コンテキスト線形保持のため fix engineer agent 内に閉じ込める。issue-sweep のフェーズ2-4 のようにメインで sleep するのではなく、refine-sweep では engineer agent が内部で待つ）
+- **fix agent の Plan/Develop/Review/Push log をメイン context に取り込もうとする**（JSON 1行のみ受け取る）
 - review agent と fix agent を同じ呼び出しで混ぜる
 - critical/major が残っているのにループを打ち切る
 - max_iter を超えても無限ループする
