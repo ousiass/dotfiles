@@ -26,7 +26,9 @@ review → 修正 → 再 review を回し、PR をレビュー観点で「軽�
 
 1. 引数が PR 番号: `gh pr view <n> --json number,headRefName,baseRefName,url`
 2. 引数なし: 現ブランチで `gh pr view --json ...` を試す。なければ現ブランチを直接対象に
-3. worktree が必要なら `references/worktree-setup.md`（impl-wt と共通） に従って作る
+3. **worktree 確保（必須）**: メイン作業ツリーを保護するため、以下のいずれかで refine 用の worktree を確保する:
+   - **既に worktree 内で起動された場合**（例: issue-sweep の engineer agent からの呼び出し）: `git rev-parse --show-toplevel` と `git worktree list --porcelain` を比較し、現在が worktree なら**再利用**（新規作成しない）
+   - **メイン作業ツリーで起動された場合**（例: ユーザーが `/refine #42` を直接叩く）: `impl-wt` の `references/worktree-setup.md` に従い PR ブランチ用の worktree を新規作成。以後フェーズ2/3 の全操作は worktree 内で実行
 4. `start_ts=$(date +%s)`, `iter=0`, `max_minor=5`, `max_iter=10` を初期化
 5. **HALT プロジェクト検知**（初回のみ、結果は変数に保持）:
    ```bash
@@ -253,6 +255,7 @@ echo "Report written to $report"
 - **HALT プロジェクトで halt-review をスキップする**（フェーズ1 で HAS_HALT=true なら必ず並列起動）
 - **status=clean なのに auto-merge をスキップする**（`--no-merge` 明示時を除く。研磨だけでマージしないとループの意味がない）
 - マージ完了確認をスキップしてレポート生成に進む
+- **メイン作業ツリーで checkout して PR ブランチに切り替える**（worktree 隔離を破ってメインを汚す原因。フェーズ1-3 で必ず worktree を確保すること）
 
 ## 失敗時の挙動
 
