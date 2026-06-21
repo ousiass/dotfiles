@@ -242,7 +242,15 @@ echo "Report written to $report"
 ```
 
 5. **通知**: `sweep_notify "refine done" "PR #${pr_number}: ${status}, ${iter} iters" "<emoji>"` （issue-sweep と同じ `sweep_notify` 関数を流用、`.sweep/notify.url` が読まれる）
-6. レポートパスをユーザーに最終表示
+6. **呼び出し元への返答**: 最終メッセージとして以下の JSON 1行を出力（issue-sweep の engineer agent などが parse できるよう、Markdown レポートのパス案内に**先行して** JSON 行を出すこと）:
+
+```json
+{"status":"<clean|iter_limit|agent_failed|merge_failed>","pr_number":<N>,"iter":<K>,"critical_remaining":<N>,"major_remaining":<N>,"minor_remaining":<N>,"merged":<true|false>,"report_path":".sweep/report-refine-<ts>.md"}
+```
+
+- `--no-merge` 指定時は `merged: false` で固定（auto-merge をしていないため）
+- `iter_limit` でも `critical_remaining=0 ∧ major_remaining=0` のときは呼び出し元が「軽微残りで OK」と判定できる
+- レポートパスはユーザー向けの最終表示と JSON 両方に含める
 
 ## 禁止行動
 

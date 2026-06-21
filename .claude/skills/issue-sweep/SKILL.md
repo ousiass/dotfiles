@@ -143,18 +143,22 @@ Issue #<n> を1件、最後まで自律的に処理してください。メイ�
    - それ以外 → /impl-wt #<n>
 2. 選択したスキルを Skill ツールで起動し、Plan→Develop→Review→Commit→Push→PR 作成まで完了させる。
    各サブスキルの禁止行動（フェーズスキップ・テスト省略・サイレントスキップ・スコープ外発見の未 issue 化）は厳守。
-3. **PR 作成後、続けて `/refine --no-merge` を Skill ツールで起動し、4 観点（code-review / doc-drift / spec-audit、HALT 検知時は halt-review）で並列レビューして critical/major=0 ∧ minor≤5 まで研磨させる。マージは行わせない（--no-merge）**。
-4. refine 完了後に `gh pr merge <PR番号> --auto --merge --delete-branch` で auto-merge を予約する。
+3. **PR 作成後、続けて `/refine --no-merge` を Skill ツールで起動し、4 観点（code-review / doc-drift / spec-audit、HALT 検知時は halt-review）で並列レビューして critical/major=0 ∧ minor≤5 まで研磨させる。マージは行わせない（--no-merge）**。refine の最終結果から `refine_status` / `critical_remaining` / `major_remaining` / `minor_remaining` を取得する。
+4. **マージゲート判定**（必須）:
+   - `critical_remaining == 0 ∧ major_remaining == 0` を満たす場合のみ `gh pr merge <PR番号> --auto --merge --delete-branch` で auto-merge を予約する
+   - 上記を満たさない（refine が iter_limit や agent_failed で critical/major が残った）場合は **auto-merge せず、failure として返す**（手動対応が必要）
 5. 完了したら以下の JSON 1行だけを最終メッセージとして返す:
-   {"pr_number": <N>, "pr_url": "<URL>", "branch": "<branch>", "skill": "<使ったスキル名>", "refine_status": "<clean|iter_limit|agent_failed>", "refine_iters": <K>}
-6. 失敗した場合は以下を返す:
+   {"pr_number": <N>, "pr_url": "<URL>", "branch": "<branch>", "skill": "<使ったスキル名>", "refine_status": "<clean|iter_limit|agent_failed>", "refine_iters": <K>, "critical_remaining": <N>, "major_remaining": <N>, "minor_remaining": <N>}
+6. マージゲート不合格時の failure JSON:
+   {"failure": "refine threshold not met (critical=<C>, major=<M>)", "phase": "refine-gate", "pr_number": <N>, "pr_url": "<URL>"}
+7. その他の失敗（実装失敗、PR 作成失敗等）:
    {"failure": "<1行で原因>", "phase": "<どのフェーズで失敗したか>"}
 
 返答ルール:
 - 上記 JSON 以外を最終メッセージに含めない（メインスレッドが parse する）。
 - 「ユーザーに確認してから次へ進みます」等で停止しない。失敗または完了まで進める。
 - マージ完了の待機はメインスレッドが行うので、agent は auto-merge 予約までで返す。
-- refine が iter_limit / agent_failed で終わっても failure 扱いにしない（軽微指摘残りでもマージへ進める）。メインスレッドは refine_status を見て判断する。
+- **critical/major が残った状態で auto-merge を予約してはならない**（4 のゲート判定を必ず通す）。
 ```
 
 **CI fix 起動プロンプト**（メインスレッドが 2-4 ポーリング中に CI 失敗を検知した場合に使用）:
