@@ -14,7 +14,7 @@ user-invocable: true
 - `/issue-sweep label:<name>` — ラベルで絞り込み（例: `label:sprint-1`）
 - `/issue-sweep #<n1> #<n2> ...` — Issue 番号を直接指定
 - `/issue-sweep --abort` — 実行中の sweep を中止しキュー / ロックを削除（後述）
-- `/issue-sweep --parallel <N>` — 同時に処理する Issue 数（デフォルト 1、上限 5）。依存関係のない Issue を最大 N 件並列で agent に渡す
+- `/issue-sweep --parallel <N>` — 同時に処理する Issue 数（**デフォルト 5**、上限 5）。依存関係のない Issue を最大 N 件並列で agent に渡す。ユーザーに値を確認せず常にこのデフォルトで起動する
 
 ## 前提条件
 
@@ -52,9 +52,16 @@ rm -f .sweep/queue.txt .sweep/lock
    - 引数なし: `gh issue list --state open --json number,labels,title --limit 200`
    - `label:<name>`: `gh issue list --state open --label <name> --json number,labels,title --limit 200`
    - `#<n>` 列挙: 各 Issue を `gh issue view <n> --json number,labels,title`
-2. 順序を決定する
-   - Issue 本文の「依存: #N」「blocked by #N」を尊重し、依存先を先に処理する
-   - `priority:p0` / `p1` 等のラベルがあれば優先する
+2. 順序と**並列可否**を決定する（ユーザーには確認しない、デフォルト 5 並列を最大限活かしつつ並列不可ケースを自動検知）
+   - **明示的依存**: 本文の「依存: #N」「blocked by #N」「Depends on #N」「Blocked by #N」「Closes/Fixes #N」を依存とみなし、依存先を先に処理する
+   - **優先度**: `priority:p0` / `p1` 等のラベルを優先
+   - **並列禁止フラグ**: 以下のいずれかに該当する Issue は `serial-only` としてマークし、**他 Issue と並列起動しない**（その Issue は単独で処理。前後の Issue とは普通に進む）
+     - `serial-only` / `no-parallel` / `isolated` ラベルが付いている
+     - 本文に「並列禁止」「sequential only」「do not parallelize」等の明示記述
+     - `migration` / `schema-change` / `breaking-change` ラベル（スキーマ変更や破壊的変更は他作業と競合しやすい）
+     - 本文に DB マイグレーション・依存パッケージのメジャー更新・設定ファイル（CI / Lint / package.json 等）変更が含まれる旨の記述
+   - **同一 parent の split-from**: `split-from:#<parent>` で同じ親を持つサブ Issue 群は、互いに関連コード変更する可能性が高いので **同一 parent 内では sequential**（別 parent の Issue とは並列可）
+   - 上記すべて自動判定で、不明な場合は安全側に倒して sequential 化する（誤判定で並列にして失敗するより、保守的に処理した方が結果的に速い）
 3. **巨大 Issue の自動分割（fan-out）**: 各 Issue について以下を満たすものは `/issue-split-auto #<n>` を `Agent(subagent_type=claude)` 経由で呼び出す:
    - 本文が 1500 文字以上 **かつ** H2 セクション (`## `) が 3 個以上
    - `bug` ラベルが付いていない
@@ -91,12 +98,14 @@ Stop Hook がキューに残行がある限り停止をブロックするため�
 **重要 — context 設計:**
 **1 Issue 分の実装（Plan→Develop→Review→Commit→Push→PR 作成→auto-merge 予約）は必ず `Agent` ツールでサブエージェントに丸投げする。** メインスレッドは「キュー操作 / 冪等性チェック / agent 起動 / マージ完了ポーリング / 失敗判定」だけを行う。これによりメイン context は Issue 数に対して線形に汚れず、PR URL の一覧だけが積まれる。
 
-**並列実行モード（`--parallel N`）:**
-- 各反復の冒頭で「依存関係のない先頭 N 件」を取得（依存先がキューに残っているものは並列対象から外す）
+**並列実行モード（`--parallel N`、デフォルト N=5）:**
+- 各反復の冒頭で「依存関係なし ∧ `serial-only` フラグなし ∧ 同 parent 並列でない先頭 N 件」を取得
+- フェーズ1 で `serial-only` 判定された Issue は **必ず単独反復で処理**（他の Issue と同じバッチに入れない）
 - N 件の Agent を **同一メッセージ内で並列起動**（`Agent` ツールを N 回呼ぶ）
 - 全 agent の返答を集めた後、各 PR を順にポーリング（2-4）→ Issue close（2-5）→ キューから該当行を削除（2-6）
-- N=1 がデフォルトで完全 sequential。worktree は branch 名で分離されるので衝突しない前提
+- worktree は branch 名で分離されるので衝突しない前提
 - 上限は 5。それ以上は API rate limit と CI スロット競合のリスクが高い
+- **ユーザーに並列度を確認しない**。デフォルト 5 で常に起動する。明示的に `--parallel N` が指定されたときだけその値を使う
 
 ### 2-1. キュー先頭の Issue 番号を取得
 `head -n<N> .sweep/queue.txt`（`--parallel N` 指定時。デフォルト N=1）。依存先がキューに残っているものは除外する
@@ -274,6 +283,7 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - **メインスレッド自身がコードを修正する / コミットする / PR を編集する**（CTO は実装に手を出さない。修正は必ず CI fix 起動プロンプトで agent に委譲）
 - **engineer agent 内で `/refine --no-merge` をスキップする**（4 観点レビューを通さず auto-merge に進むと品質ばらつきが出る）
 - **反復冒頭の base branch 最新化をスキップする**（前 Issue のマージ分を取り込まず古い base で次を実装すると競合・無駄作業の原因）
+- **ユーザーに並列度（--parallel）を確認する**（デフォルト 5 で常に起動。必要なら明示指定された値を使う）
 - auto-merge 予約をスキップして手動マージを促す（ずっと自律稼働するのが目的）
 - マージ完了確認をスキップして次の Issue に進む（PR が closed/CI fail なまま埋もれる）
 - **CI 失敗を検知せずポーリングを継続する**（無限待機の原因）
