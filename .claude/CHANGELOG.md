@@ -45,7 +45,8 @@ review → 修正 → 再 review を回し、critical/major=0 ∧ minor≤閾値
 - 引数なし: 現ブランチ / PR を対象、`#<N>` で特定 PR
 - `--max-minor N`（デフォルト 5）/ `--max-iter N`（デフォルト 10）で閾値・反復上限を調整
 - `--no-merge` で研磨のみ実行（マージしない）
-- **複数 review スキルを並列実行して集約**: 各反復で `/code-review-git` / `/doc-drift-git` / `/spec-audit` を必ず並列起動、HALT プロジェクト検知時は `/halt-review` も追加
+- **複数 review スキルを並列実行して集約**: 各反復で `/code-review` / `/doc-drift` / `/spec-audit` を必ず並列起動、HALT プロジェクト検知時は `/halt-review` も追加（diff 限定の `-git` 版ではなく全体版を使用してカバレッジを最大化）
+- **issue-sweep にも `/refine --no-merge` を組み込み**: engineer agent が PR 作成後に refine を実行してから auto-merge を予約する。これにより sweep 経由でも 4 観点レビューを通過した PR のみがマージされる
 - HALT 検知ロジック: `*.templ` ファイル存在 or 仕様書に「HALT / HTMX+Atomic+Lit+Templ」記述
 - review agent と fix agent を別 `Agent(claude)` で起動し独立性を確保
 - status=clean なら `gh pr merge --auto --merge --delete-branch` → CI 緑待ち → リンク Issue を自動 close

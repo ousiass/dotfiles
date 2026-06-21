@@ -38,7 +38,7 @@ review → 修正 → 再 review を回し、PR をレビュー観点で「軽�
    fi
    ```
 6. **レビュー対象スキル一覧**を決定:
-   - 常に: `code-review-git`, `doc-drift-git`, `spec-audit`
+   - 常に: `code-review`, `doc-drift`, `spec-audit`
    - `HAS_HALT=true` のみ: `halt-review` を追加
 
 ## フェーズ2: review → 修正ループ
@@ -51,22 +51,22 @@ review → 修正 → 再 review を回し、PR をレビュー観点で「軽�
 
 ```
 Agent({
-  description: "Refine iter <iter+1> — code-review-git",
+  description: "Refine iter <iter+1> — code-review",
   subagent_type: "claude",
   prompt: """
-PR #<n>（branch: <branch>）に対して /code-review-git を Skill ツールで起動して実行。
+PR #<n>（branch: <branch>）に対して /code-review を Skill ツールで起動して実行。
 得られた指摘を以下の severity で分類し、JSON 1行で最終メッセージとして返す:
 - critical: バグ・セキュリティ問題・データ破壊・テスト失敗
 - major: 設計の重大欠陥・パフォーマンス劣化・公開 API の不整合
 - minor: 命名・コメント・微細な readability・スタイル
 
-{"source": "code-review-git", "critical": [{"file":"...", "line": N, "msg":"..."}], "major": [...], "minor": [...]}
+{"source": "code-review", "critical": [{"file":"...", "line": N, "msg":"..."}], "major": [...], "minor": [...]}
 """
 })
 
 Agent({
-  description: "Refine iter <iter+1> — doc-drift-git",
-  ... 同様、/doc-drift-git を実行、 "source": "doc-drift-git" で返す
+  description: "Refine iter <iter+1> — doc-drift",
+  ... 同様、/doc-drift を実行、 "source": "doc-drift" で返す
 })
 
 Agent({
@@ -249,7 +249,7 @@ echo "Report written to $report"
 - 閾値到達してないのに「もういいでしょう」とループを打ち切る
 - `max_iter` を超えても無限ループする
 - minor の修正で副作用バグを入れない（修正後の review で critical が出たら反復継続）
-- **必須レビュー（code-review-git / doc-drift-git / spec-audit）の一部をスキップする**（全 4 観点を統合して判定するため）
+- **必須レビュー（code-review / doc-drift / spec-audit）の一部をスキップする**（全 4 観点を統合して判定するため）
 - **HALT プロジェクトで halt-review をスキップする**（フェーズ1 で HAS_HALT=true なら必ず並列起動）
 - **status=clean なのに auto-merge をスキップする**（`--no-merge` 明示時を除く。研磨だけでマージしないとループの意味がない）
 - マージ完了確認をスキップしてレポート生成に進む

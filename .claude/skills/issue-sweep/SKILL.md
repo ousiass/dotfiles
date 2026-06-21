@@ -121,16 +121,18 @@ Issue #<n> を1件、最後まで自律的に処理してください。メイ�
    - それ以外 → /impl-wt #<n>
 2. 選択したスキルを Skill ツールで起動し、Plan→Develop→Review→Commit→Push→PR 作成まで完了させる。
    各サブスキルの禁止行動（フェーズスキップ・テスト省略・サイレントスキップ・スコープ外発見の未 issue 化）は厳守。
-3. PR 作成後に `gh pr merge <PR番号> --auto --merge --delete-branch` で auto-merge を予約する。
-4. 完了したら以下の JSON 1行だけを最終メッセージとして返す:
-   {"pr_number": <N>, "pr_url": "<URL>", "branch": "<branch>", "skill": "<使ったスキル名>"}
-5. 失敗した場合は以下を返す:
+3. **PR 作成後、続けて `/refine --no-merge` を Skill ツールで起動し、4 観点（code-review / doc-drift / spec-audit、HALT 検知時は halt-review）で並列レビューして critical/major=0 ∧ minor≤5 まで研磨させる。マージは行わせない（--no-merge）**。
+4. refine 完了後に `gh pr merge <PR番号> --auto --merge --delete-branch` で auto-merge を予約する。
+5. 完了したら以下の JSON 1行だけを最終メッセージとして返す:
+   {"pr_number": <N>, "pr_url": "<URL>", "branch": "<branch>", "skill": "<使ったスキル名>", "refine_status": "<clean|iter_limit|agent_failed>", "refine_iters": <K>}
+6. 失敗した場合は以下を返す:
    {"failure": "<1行で原因>", "phase": "<どのフェーズで失敗したか>"}
 
 返答ルール:
 - 上記 JSON 以外を最終メッセージに含めない（メインスレッドが parse する）。
 - 「ユーザーに確認してから次へ進みます」等で停止しない。失敗または完了まで進める。
 - マージ完了の待機はメインスレッドが行うので、agent は auto-merge 予約までで返す。
+- refine が iter_limit / agent_failed で終わっても failure 扱いにしない（軽微指摘残りでもマージへ進める）。メインスレッドは refine_status を見て判断する。
 ```
 
 **CI fix 起動プロンプト**（メインスレッドが 2-4 ポーリング中に CI 失敗を検知した場合に使用）:
@@ -257,6 +259,7 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - **PR マージ完了前にキューから Issue 番号を削除する**（最重要 — マージ忘れの根本原因）
 - **メインスレッドで直接サブスキル（`/impl-wt` 等）を Skill ツール起動する**（context 汚染の根本原因。必ず `Agent` 経由）
 - **メインスレッド自身がコードを修正する / コミットする / PR を編集する**（CTO は実装に手を出さない。修正は必ず CI fix 起動プロンプトで agent に委譲）
+- **engineer agent 内で `/refine --no-merge` をスキップする**（4 観点レビューを通さず auto-merge に進むと品質ばらつきが出る）
 - auto-merge 予約をスキップして手動マージを促す（ずっと自律稼働するのが目的）
 - マージ完了確認をスキップして次の Issue に進む（PR が closed/CI fail なまま埋もれる）
 - **CI 失敗を検知せずポーリングを継続する**（無限待機の原因）
