@@ -14,6 +14,7 @@ user-invocable: true
 - `/issue-sweep label:<name>` — ラベルで絞り込み（例: `label:sprint-1`）
 - `/issue-sweep #<n1> #<n2> ...` — Issue 番号を直接指定
 - `/issue-sweep --abort` — 実行中の sweep を中止しキュー / ロックを削除（後述）
+- `/issue-sweep --parallel <N>` — 同時に処理する Issue 数（デフォルト 1、上限 5）。依存関係のない Issue を最大 N 件並列で agent に渡す
 
 ## 前提条件
 
@@ -35,14 +36,15 @@ rm -f .claude/issue-queue.txt .claude/issue-queue.lock
 
 ## フェーズ0: 多重起動チェック（lock 取得）
 
-フェーズ1の前に必ず実行する。
+フェーズ1の前に必ず実行する。lock は **heartbeat 方式**で stale を判定する（PID 比較は Bash 子プロセス起動関係に左右されて脆いため使わない）。
 
 1. `.claude/issue-queue.lock` の存在確認
-2. 存在する場合: ファイル内容 `<PID>:<unix-ts>` を読み取り、`kill -0 <PID> 2>/dev/null` でプロセス生存を確認
-   - 生きている → 「他セッション (PID=<PID>) が sweep 実行中。停止するには `/issue-sweep --abort` を実行してください」と表示し終了
-   - 死んでいる → stale lock として `rm .claude/issue-queue.lock` で削除して続行
-3. ロック書き込み: `echo "$$:$(date +%s)" > .claude/issue-queue.lock`
-4. フェーズ3完了時 / 中断時 / `--abort` 時に必ず `rm -f .claude/issue-queue.lock` する
+2. 存在する場合: ファイル内容 `<owner_pid>:<unix-ts>` を読み取り、`unix-ts` と現在時刻を比較
+   - **2時間以内** → 他セッションが sweep 実行中。`echo "他セッションが sweep 実行中（lock の最終更新は <時刻>）。停止するには /issue-sweep --abort を実行"` と表示して終了
+   - **2時間以上経過** → stale lock として `rm .claude/issue-queue.lock` で削除して続行
+3. ロック書き込み: `echo "$PPID:$(date +%s)" > .claude/issue-queue.lock`
+4. フェーズ2の各反復冒頭で **heartbeat 更新**: `echo "$PPID:$(date +%s)" > .claude/issue-queue.lock`（lock の鮮度を保つ）
+5. フェーズ3完了時 / 中断時 / `--abort` 時に必ず `rm -f .claude/issue-queue.lock` する
 
 ## フェーズ1: Issue キューの構築
 
@@ -71,13 +73,20 @@ rm -f .claude/issue-queue.txt .claude/issue-queue.lock
 
 ## フェーズ2: 1 Issue ずつ処理（キューが空になるまでループ）
 
-各反復で以下を完了させる。Stop Hook がキューに残行がある限り停止をブロックするため途中で止まらず流し続ける。
+各反復で以下を完了させる。反復冒頭で **lock の heartbeat 更新** (`echo "$PPID:$(date +%s)" > .claude/issue-queue.lock`) を必ず実行。Stop Hook がキューに残行がある限り停止をブロックするため途中で止まらず流し続ける。
 
 **重要 — context 設計:**
 **1 Issue 分の実装（Plan→Develop→Review→Commit→Push→PR 作成→auto-merge 予約）は必ず `Agent` ツールでサブエージェントに丸投げする。** メインスレッドは「キュー操作 / 冪等性チェック / agent 起動 / マージ完了ポーリング / 失敗判定」だけを行う。これによりメイン context は Issue 数に対して線形に汚れず、PR URL の一覧だけが積まれる。
 
+**並列実行モード（`--parallel N`）:**
+- 各反復の冒頭で「依存関係のない先頭 N 件」を取得（依存先がキューに残っているものは並列対象から外す）
+- N 件の Agent を **同一メッセージ内で並列起動**（`Agent` ツールを N 回呼ぶ）
+- 全 agent の返答を集めた後、各 PR を順にポーリング（2-4）→ Issue close（2-5）→ キューから該当行を削除（2-6）
+- N=1 がデフォルトで完全 sequential。worktree は branch 名で分離されるので衝突しない前提
+- 上限は 5。それ以上は API rate limit と CI スロット競合のリスクが高い
+
 ### 2-1. キュー先頭の Issue 番号を取得
-`head -n1 .claude/issue-queue.txt`
+`head -n<N> .claude/issue-queue.txt`（`--parallel N` 指定時。デフォルト N=1）。依存先がキューに残っているものは除外する
 
 ### 2-2. 既存 PR の冪等性チェック（メインスレッド）
 
@@ -91,6 +100,8 @@ gh pr list --search "#<n> in:title,body" --state all --json number,state,mergedA
 - それ以外 → 通常フロー（2-3）
 
 ### 2-3. サブエージェントで Issue を1件丸ごと処理
+
+**worktree スナップショット**: agent 起動前に `git worktree list --porcelain | grep '^worktree ' | awk '{print $2}' | sort > /tmp/wt-before` を実行（2-7 の差分検知で使用）。
 
 `Agent` ツールを以下の指定で呼ぶ:
 
@@ -170,10 +181,13 @@ while true; do
   if [[ -n "$failed_checks" && "$pending" -eq 0 ]]; then
     # CI 確定失敗 → CI fix 起動プロンプトで agent 再 spawn
     if (( respawn_count >= 2 )); then
+      gh pr comment <PR> --body "sweep: CI が 3 回連続で失敗（checks: $failed_checks）。自動修正を諦めユーザー判断を仰ぎます。"
       echo "CI が3回連続で失敗。ユーザー判断を仰ぐ。失敗 checks: $failed_checks" >&2
       exit 1
     fi
     respawn_count=$((respawn_count+1))
+    # 監査ログとして PR にコメント
+    gh pr comment <PR> --body "sweep: CI 失敗を検知（attempt ${respawn_count}/3、checks: $failed_checks）。修正 agent を再起動します。"
     # 2-3 の「CI fix 起動プロンプト」を使って agent 起動。返答 fixed=true なら continue
     # ポーリングを継続（auto-merge 予約は残っているので、修正 push → CI 緑 → MERGED まで自動）
     continue
@@ -192,10 +206,10 @@ done
 
 ### 2-5. Issue を close（sweep 限定の振る舞い）
 
-マージ完了後、対応する Issue を明示的に close する:
+マージ完了後、対応する Issue を明示的に close する。CI 再実行回数も併記して監査性を上げる:
 
 ```bash
-gh issue close <n> --comment "Closed by PR #<PR番号> (auto-merged via /issue-sweep)"
+gh issue close <n> --comment "Closed by PR #<PR番号> (auto-merged via /issue-sweep, CI respawns=${respawn_count})"
 ```
 
 - 親 sub-skill 群（impl-wt 等）は意図的に `Closes #N` を使わない設計だが、sweep ではマージ → close を直結したいので sweep 側で補う
@@ -208,9 +222,28 @@ gh issue close <n> --comment "Closed by PR #<PR番号> (auto-merged via /issue-s
 sed -i '1d' .claude/issue-queue.txt
 ```
 
-### 2-7. 次の反復 / 失敗時
+### 2-7. orphan worktree 掃除（毎反復末尾）
+
+agent が成功/失敗どちらでも、その反復で作られた worktree が残っていれば掃除する:
+
+```bash
+# agent 起動前後の worktree 差分から「この反復で作られた」 path を特定
+git worktree list --porcelain | grep '^worktree ' | awk '{print $2}' > /tmp/wt-after
+# 比較対象は反復開始前にスナップショットした /tmp/wt-before
+new_paths=$(comm -13 <(sort /tmp/wt-before) <(sort /tmp/wt-after))
+
+# agent が failure を返したとき: 作成した worktree を強制削除
+# agent が success を返し PR がマージ完了したとき: branch ごと削除（--delete-branch で remote 側は処理済み、local worktree のみ掃除）
+for wt in $new_paths; do
+  git worktree remove --force "$wt" 2>/dev/null || true
+done
+```
+
+agent が `failure` を返した場合は同じ Issue で次回再起動時に worktree 衝突しないよう **必ず** 削除する。
+
+### 2-8. 次の反復 / 失敗時
 - 正常完了: 2-1 に戻る。停止しようとしても Stop Hook が押し戻す
-- agent が `failure` を返した: キューはそのまま、ロックは削除してユーザーに報告して終了
+- agent が `failure` を返した: 該当 Issue にコメント `gh issue comment <n> --body "sweep: 実装失敗（$failure）。手動対応が必要です。"` を残し、キューはそのまま、ロックは削除してユーザーに報告して終了
 
 ## 禁止行動
 
@@ -230,8 +263,9 @@ sed -i '1d' .claude/issue-queue.txt
 
 1. 処理した Issue 番号と PR URL の一覧を表でまとめる
 2. キューファイルが空（`wc -l .claude/issue-queue.txt` が 0）であることを確認
-3. `rm -f .claude/issue-queue.lock` でロック解除
-4. ユーザーに最終サマリを返す
+3. `git worktree prune` で残存 worktree を全削除
+4. `rm -f .claude/issue-queue.lock` でロック解除
+5. ユーザーに最終サマリを返す
 
 ## 失敗時の挙動
 

@@ -63,7 +63,7 @@ graph TD
 |--------|------|
 | `/impl` | 要件→スコープ分割→実装→レビュー→コミット→PRを小スコープで反復 |
 | `/impl-wt` | git worktree で隔離した環境で実装サイクルを回し、PRを作成 |
-| `/issue-sweep` | 複数 Issue をキュー化し Stop Hook と連動して端から自律連続実装・PR マージまで進める |
+| `/issue-sweep` | 複数 Issue をキュー化し Stop Hook と連動して端から自律連続実装・PR マージまで進める。`--parallel N` で並列、`--abort` で中止。実行中の同一プロジェクトでの並行作業は別 worktree から行うこと |
 
 ### バグ
 
