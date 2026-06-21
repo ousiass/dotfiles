@@ -1,6 +1,6 @@
 ---
 name: refine-sweep
-description: 全コードベースを 4 観点で連続レビューし、critical/major の指摘を反復 PR で修正→マージしてゼロまで持っていく。
+description: 全コードベースを 4 観点で連続レビューし、ドメイン別並列 PR で critical/major を反復修正→マージしてゼロまで持っていく。
 user-invocable: true
 ---
 
@@ -31,7 +31,7 @@ user-invocable: true
 2. それ以外は `echo "$PPID:$(date +%s)" > .sweep/lock`
 3. フェーズ3 / 中断 / `--abort` 時に `rm -f .sweep/lock`
 
-## フェーズ1: 環境準備
+## フェーズ1: 環境準備とドメイン一覧抽出
 
 1. `base_branch=$(git branch --show-current)` を記録
 2. HALT 検知（refine と同じロジック）:
@@ -39,8 +39,17 @@ user-invocable: true
 3. レビュー対象スキル一覧:
    - 常に: `/code-review`, `/doc-drift`, `/spec-audit`
    - HAS_HALT=true: `/halt-review` も追加
-4. 反復用 worktree を `refine-sweep/<timestamp>` ブランチで作成（meta 作業用、各反復ではここに修正コミットして PR を作る）
-5. `start_ts=$(date +%s)`, `iter=0`, `max_iter=5`, `include_minor=false`, `max_minor=20` を初期化
+4. **ドメイン一覧を仕様書から抽出**（ステージ分けの軸として使用）:
+   - 仕様書の場所を CLAUDE.md または Glob (`docs/spec/**/*.md`, `specs/**/*.md`, `SPEC.md`) で特定
+   - 仕様書本文から「Frontend / Backend / DB / Database / CI / CD / Infra / Shared / Common / Mobile / Admin」等の H2 セクションや「## ドメイン」配下の項目を抽出
+   - 該当見出しが無ければ標準セットにフォールバック: `["db", "backend", "frontend", "ci"]`
+   - 抽出結果を `DOMAINS=(db backend frontend ci ...)` として保持。**順序は依存順**（db → backend → frontend → ci）を仕様書記述順から推定。明示的依存記述があれば優先
+   - **`other` ドメインを末尾に必ず追加**（どのドメインにも振り分けられない指摘の受け皿）
+5. 各ドメインの**ファイルパスマッピング**も仕様書から取得（記述があれば）:
+   - 例: `frontend: apps/web/**, src/components/**` のような記述があれば使う
+   - 無ければ標準推測: `frontend: apps/web/* | web/* | src/components/* | *.tsx | *.jsx | *.vue`、`backend: apps/api/* | api/* | src/server/* | *.go`、`db: migrations/* | schema.sql | db/* | prisma/*`、`ci: .github/workflows/* | ci/* | Dockerfile`
+6. `start_ts=$(date +%s)`, `iter=0`, `max_iter=5`, `include_minor=false`, `max_minor=20` を初期化
+7. ユーザーに「検出ドメイン: db, backend, frontend, ci, other」と並びをそのまま表示（確認は取らない）
 
 ## フェーズ2: review → fix → merge ループ
 
@@ -91,7 +100,31 @@ jq -nc \
   >> .sweep/refine-metrics.jsonl
 ```
 
-### 2-4. 閾値判定
+### 2-4. ドメイン振り分けと閾値判定
+
+**指摘を `DOMAINS` 配列の各要素に振り分ける**（findings の各 file path をマッピングと照合し、最初にマッチしたドメインへ。どこにもマッチしなければ `other`）:
+
+```bash
+echo "$findings" | jq -c '
+  def classify(f):
+    if   (f|test("apps/web|web/|src/components|\\.tsx$|\\.jsx$|\\.vue$")) then "frontend"
+    elif (f|test("apps/api|^api/|src/server|\\.go$")) then "backend"
+    elif (f|test("migrations/|schema\\.sql|^db/|prisma/")) then "db"
+    elif (f|test("\\.github/workflows|^ci/|Dockerfile")) then "ci"
+    else "other" end;
+  {
+    domains: (
+      [.critical[], .major[], .minor[]]
+      | group_by(classify(.file // ""))
+      | map({ key: classify(.[0].file // ""), value: . })
+      | from_entries
+    )
+  }'
+```
+
+（実際にはフェーズ1 で取得したマッピング規則と DOMAINS 順を反映する。上記は標準セットの例）
+
+**閾値判定:**
 
 ```
 target_count = critical + major
@@ -105,55 +138,69 @@ otherwise:
   → 2-5 へ
 ```
 
-### 2-5. fix engineer agent に丸投げ（メインは JSON だけ受け取る）
+### 2-5. ドメイン別並列 fix engineer agent（メインは JSON だけ受け取る）
 
-**CTO 原則**: メインスレッドはコード修正・コミット・PR 操作・CI 待ち、いずれにも直接タッチしない。すべて engineer agent に閉じ込めて context を線形に保つ。
+**CTO 原則**: メインスレッドはコード修正・コミット・PR 操作・CI 待ち、いずれにも直接タッチしない。各ドメインの fix を **engineer agent ごとに 1 つ立て、同一メッセージで並列起動**する（issue-sweep の `--parallel` と同じ発想）。
+
+**並列ポリシー:**
+- `DOMAINS` 配列の順序が **依存順**（db → backend → frontend → ci）
+- 依存があるドメイン群は**順に sequential**、独立同士は並列起動可
+- 標準セット `[db, backend, frontend, ci, other]` の場合:
+  - 第 1 ウェーブ: `db` のみ単独実行（スキーマ変更は他に波及するため）
+  - 第 1 ウェーブのマージ完了後、第 2 ウェーブ: `backend, frontend, ci, other` を並列起動
+- 仕様書から別の依存順が読み取れた場合はそれに従う
+- **指摘が 0 件のドメインは agent 起動せずスキップ**
+
+各 ウェーブ内の各ドメイン agent プロンプト:
 
 ```
 Agent({
-  description: "refine-sweep iter <iter+1> fix",
+  description: "refine-sweep iter <iter+1> fix [<DOMAIN>]",
   subagent_type: "claude",
   prompt: """
-レビューで検出された以下の指摘を修正し、PR 作成→auto-merge 予約→**マージ完了まで内部でハンドリング**してください。
-メインスレッドには JSON 1 行だけを返します（develop / review / push ログをメインに流さない）。
+ドメイン `<DOMAIN>` に分類された以下の指摘を修正し、PR 作成 → auto-merge 予約 → マージ完了まで内部でハンドリングしてください。
 
-CRITICAL: <件数・file:line:msg 列挙>
-MAJOR: <列挙>
-（--include-minor 時は MINOR の優先度高い <minor - max_minor> 件以上も含める）
+CRITICAL: <このドメインの critical 一覧>
+MAJOR: <このドメインの major 一覧>
+（--include-minor 時は MINOR も）
+
+このドメインのファイル範囲: <フェーズ1 で取得したマッピング、例: apps/web/**, src/components/**>
+**範囲外のファイルは絶対に変更しない**（他ドメイン agent と競合するため）。範囲外の修正が必要と判断したら failure で返す。
 
 手順:
-1. **base_branch を最新化**: `git fetch origin <base_branch> && git checkout <base_branch> && git pull --ff-only origin <base_branch>`（直前反復のマージ分を取り込んでから分岐する）
-2. 反復用ブランチ `refine-sweep/<timestamp>-iter-<iter+1>` を最新の base_branch から作成
-3. develop エージェント (`Agent(develop)`) で順に修正＋テスト
+1. base_branch を最新化: `git fetch origin <base_branch> && git checkout <base_branch> && git pull --ff-only origin <base_branch>`
+2. 反復用ブランチ `refine-sweep/<timestamp>-iter-<iter+1>-<DOMAIN>` を最新の base_branch から作成
+3. `Agent(develop)` で順に修正＋テスト（範囲外のファイルを触らない厳守）
 4. `git push -u origin <branch>`
-5. `gh pr create --base <base_branch> --title "refine-sweep iter <iter+1>: critical/major fixes" --body <findings 一覧>`
+5. `gh pr create --base <base_branch> --title "refine-sweep iter <iter+1> [<DOMAIN>]: critical/major fixes" --body <findings 一覧>`
 6. `gh pr merge <PR> --auto --merge --delete-branch` で auto-merge 予約
-7. **マージ完了をポーリング**: issue-sweep フェーズ2-4 と同じ statusCheckRollup 監視。`MERGED` まで待機。CI 失敗が確定したら同じ agent コンテキスト内で develop agent を再起動して修正 push（最大 3 回まで）。3 回連続失敗なら `ci_gave_up` で返す
-8. マージ完了したら最終 JSON を返す
+7. statusCheckRollup ポーリング → MERGED まで待機。CI 失敗時は内部で fix 再起動（最大 3 回）
 
-返答 JSON 1行:
-{"pr_number": <N>, "pr_url": "<URL>", "branch": "<branch>", "fixed_critical": <N>, "fixed_major": <N>, "fixed_minor": <N>, "merged": true, "ci_respawns": <K>}
+返答 JSON:
+{"domain": "<DOMAIN>", "pr_number": <N>, "pr_url": "<URL>", "branch": "<branch>", "fixed_critical": <N>, "fixed_major": <N>, "fixed_minor": <N>, "merged": true, "ci_respawns": <K>}
 
-CI 諦め時:
-{"pr_number": <N>, "pr_url": "<URL>", "failure": "ci_gave_up", "failed_checks": "<checks>", "ci_respawns": 3}
-
-その他失敗時:
-{"failure": "<1行で原因>", "phase": "<どのステップで失敗したか>"}
+該当指摘 0 件で skip した場合: {"domain": "<DOMAIN>", "skipped": true}
+CI 諦め: {"domain": "<DOMAIN>", "pr_number": <N>, "failure": "ci_gave_up", "failed_checks": "<checks>"}
+範囲外修正が必要: {"domain": "<DOMAIN>", "failure": "scope_violation", "needed_files": [...]}
+その他: {"domain": "<DOMAIN>", "failure": "<理由>"}
 
 返答ルール:
-- 上記 JSON 以外を最終メッセージに含めない
-- 内部 log（Plan / Develop / Review / Push の詳細）はメインに残さない（agent context 内で消える）
-- 「ユーザー確認」「次へ進めますか」等で停止しない
+- JSON 1 行以外を最終メッセージに含めない
+- 内部 log はメインに残さない
+- ユーザー確認で停止しない
 """
 })
 ```
 
-メインスレッドは返答 JSON を parse:
-- `merged: true` → 次反復 (`iter += 1`) で 2-1 へ
-- `failure: "ci_gave_up"` または他 failure → フェーズ3 へ status=`agent_failed` で抜ける
-- 反復間で findings が減らないケース（同一 findings が 2 反復続いた）→ `fix_ineffective` で終了
+**メインスレッドの集約:**
+- ウェーブ内の全 agent の JSON を集める
+- 1 つでも `failure` があれば次反復に進まず、フェーズ3 へ status=`agent_failed` で抜ける
+- ただし `scope_violation` は次反復で別ドメインに振り直されるので fatal にしない（その分だけキューに残す）
+- 全 merged ならウェーブ完了 → 次ウェーブへ
+- 全ウェーブ完了 → `iter += 1` で 2-1 へ
+- 反復間で findings 合計が減らない（連続 2 反復で同数以上）→ `fix_ineffective` で終了
 
-**マージされた修正は次の review で消えるはず**なので、review→fix→merge の往復で findings を削っていく。
+**マージされた修正は次の review で消えるはず**なので、review→domain fix→merge の往復で findings を削っていく。
 
 ## フェーズ3: 完了処理とレポート
 
@@ -199,6 +246,8 @@ mkdir -p .sweep
 - **メインスレッドで PR マージ完了のポーリングや CI fix ループを直接回す**（コンテキスト線形保持のため fix engineer agent 内に閉じ込める。issue-sweep のフェーズ2-4 のようにメインで sleep するのではなく、refine-sweep では engineer agent が内部で待つ）
 - **fix agent の Plan/Develop/Review/Push log をメイン context に取り込もうとする**（JSON 1行のみ受け取る）
 - review agent と fix agent を同じ呼び出しで混ぜる
+- **ドメイン分けせず 1 PR に全 critical+major 修正を詰める**（差分肥大化・レビュー困難・競合多発の元）
+- **fix agent がドメインのファイル範囲を超えて他ドメインの src を編集する**（scope_violation で返すべき）
 - critical/major が残っているのにループを打ち切る
 - max_iter を超えても無限ループする
 - `--include-minor` なしで minor を修正する（暴走防止）

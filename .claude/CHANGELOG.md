@@ -45,6 +45,7 @@
 - 各反復で `/code-review` / `/doc-drift` / `/spec-audit`（+HALT 検知時 `/halt-review`）を並列実行
 - critical + major の指摘を 1 PR にまとめて修正→push→auto-merge
 - 反復間で base branch を毎回 pull で最新化（直前のマージ分を取り込んでから次の修正を始める）
+- **ドメイン別ステージ分け**: フェーズ1 で仕様書からドメイン一覧（frontend / backend / db / ci 等）を抽出し、findings をドメイン振り分け。各反復で**ドメインごとに別 PR を並列起動**して develop にマージ。db → backend/frontend/ci の依存ウェーブで実行。仕様書になければ標準セット + ファイルパス推測にフォールバック
 - minor はデフォルト報告のみ、`--include-minor` で fix 対象に追加（`--max-minor N` で残許容数）
 - `--max-iter N`（デフォルト 5）で反復上限、`--abort` で中止
 - 終了時に `.sweep/report-refine-sweep-<ts>.md` を生成
