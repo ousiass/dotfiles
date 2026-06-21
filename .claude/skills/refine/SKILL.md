@@ -22,40 +22,80 @@ review → 修正 → 再 review を回し、PR をレビュー観点で「軽�
 - 対象 PR / ブランチが checkout 可能
 - `.sweep/` ディレクトリへの書き込み権限（テレメトリ用）
 
-## フェーズ1: ターゲット特定
+## フェーズ1: ターゲット特定とレビュー対象スキル決定
 
 1. 引数が PR 番号: `gh pr view <n> --json number,headRefName,baseRefName,url`
 2. 引数なし: 現ブランチで `gh pr view --json ...` を試す。なければ現ブランチを直接対象に
 3. worktree が必要なら `references/worktree-setup.md`（impl-wt と共通） に従って作る
 4. `start_ts=$(date +%s)`, `iter=0`, `max_minor=5`, `max_iter=10` を初期化
+5. **HALT プロジェクト検知**（初回のみ、結果は変数に保持）:
+   ```bash
+   HAS_HALT=false
+   if find . -name "*.templ" -not -path "./node_modules/*" -not -path "./.git/*" 2>/dev/null | grep -q .; then
+     HAS_HALT=true
+   elif grep -rli "HALT\|HTMX+Atomic+Lit+Templ" docs/ SPEC.md README.md 2>/dev/null | grep -q .; then
+     HAS_HALT=true
+   fi
+   ```
+6. **レビュー対象スキル一覧**を決定:
+   - 常に: `code-review-git`, `doc-drift-git`, `spec-audit`
+   - `HAS_HALT=true` のみ: `halt-review` を追加
 
 ## フェーズ2: review → 修正ループ
 
-各反復で `Agent(subagent_type=claude)` を起動。**メインスレッドはコードに触れない**。
+各反復で `Agent(subagent_type=claude)` を**レビュースキルごとに並列起動**。**メインスレッドはコードに触れない**。
 
-### 2-1. review agent
+### 2-1. レビュー集約（並列）
+
+決定したスキル群を**同一メッセージで並列に**起動する。各 agent は専門スキルを 1 つだけ実行し、JSON で指摘を返す。
 
 ```
 Agent({
-  description: "Refine iteration <iter+1> review",
+  description: "Refine iter <iter+1> — code-review-git",
   subagent_type: "claude",
   prompt: """
-PR #<n>（branch: <branch>）をレビューしてください。
+PR #<n>（branch: <branch>）に対して /code-review-git を Skill ツールで起動して実行。
+得られた指摘を以下の severity で分類し、JSON 1行で最終メッセージとして返す:
+- critical: バグ・セキュリティ問題・データ破壊・テスト失敗
+- major: 設計の重大欠陥・パフォーマンス劣化・公開 API の不整合
+- minor: 命名・コメント・微細な readability・スタイル
 
-タスク:
-1. `git checkout <branch>` で対象に切り替える
-2. review エージェント (Skill ツール経由ではなく直接 Agent(review)) を起動して全変更をレビュー
-3. 指摘を以下の severity で分類:
-   - critical: バグ・セキュリティ問題・データ破壊・テスト失敗
-   - major: 設計の重大欠陥・パフォーマンス劣化・公開 API の不整合
-   - minor: 命名・コメント・微細な readability・スタイル
-4. 最終メッセージとして以下の JSON 1行のみを返す:
-   {"critical": [{"file":"...", "line": N, "msg":"..."}], "major": [...], "minor": [...]}
+{"source": "code-review-git", "critical": [{"file":"...", "line": N, "msg":"..."}], "major": [...], "minor": [...]}
 """
+})
+
+Agent({
+  description: "Refine iter <iter+1> — doc-drift-git",
+  ... 同様、/doc-drift-git を実行、 "source": "doc-drift-git" で返す
+})
+
+Agent({
+  description: "Refine iter <iter+1> — spec-audit",
+  ... 同様、/spec-audit を実行、 "source": "spec-audit" で返す
+  # spec-audit は通常 Issue を作成するスキル。refine からの呼び出し時は --report-only や --dry-run 相当で「Issue 化せず指摘リストだけ返す」モードで呼ぶこと。spec-audit 側にそのモードがなければ「Issue は作らず指摘 JSON のみ返してください」とプロンプトで明示
+})
+
+# HAS_HALT=true のときのみ追加
+Agent({
+  description: "Refine iter <iter+1> — halt-review",
+  ... 同様、/halt-review を実行、 "source": "halt-review" で返す
 })
 ```
 
-返答 JSON を parse して各 severity の件数を取得。
+各 agent の返答 JSON を集約:
+
+```bash
+# 全 source の critical / major / minor を結合
+findings=$(printf '%s\n' "$resp_code" "$resp_doc" "$resp_spec" "$resp_halt" | \
+  jq -s '{
+    critical: map(.critical // []) | flatten,
+    major:    map(.major // [])    | flatten,
+    minor:    map(.minor // [])    | flatten,
+    by_source: map({(.source): {c:(.critical|length), m:(.major|length), mn:(.minor|length)}}) | add
+  }')
+```
+
+返答 JSON を parse して各 severity の合計件数を取得。
 
 ### 2-2. テレメトリ追記
 
@@ -67,7 +107,9 @@ jq -nc \
   --argjson c "$(echo "$findings" | jq '.critical | length')" \
   --argjson m "$(echo "$findings" | jq '.major | length')" \
   --argjson mn "$(echo "$findings" | jq '.minor | length')" \
-  '{ts:$ts,source:"refine",pr_number:$pr,iter:$iter,critical:$c,major:$m,minor:$mn}' \
+  --argjson by_src "$(echo "$findings" | jq '.by_source')" \
+  --argjson halt "$HAS_HALT" \
+  '{ts:$ts,source:"refine",pr_number:$pr,iter:$iter,critical:$c,major:$m,minor:$mn,by_source:$by_src,halt:$halt}' \
   >> .sweep/refine-metrics.jsonl
 ```
 
@@ -207,6 +249,8 @@ echo "Report written to $report"
 - 閾値到達してないのに「もういいでしょう」とループを打ち切る
 - `max_iter` を超えても無限ループする
 - minor の修正で副作用バグを入れない（修正後の review で critical が出たら反復継続）
+- **必須レビュー（code-review-git / doc-drift-git / spec-audit）の一部をスキップする**（全 4 観点を統合して判定するため）
+- **HALT プロジェクトで halt-review をスキップする**（フェーズ1 で HAS_HALT=true なら必ず並列起動）
 - **status=clean なのに auto-merge をスキップする**（`--no-merge` 明示時を除く。研磨だけでマージしないとループの意味がない）
 - マージ完了確認をスキップしてレポート生成に進む
 
