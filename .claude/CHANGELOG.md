@@ -37,6 +37,19 @@
 - フェーズ3 終了時に `.sweep/report-sweep-<timestamp>.md` を自動生成
 - Summary（処理件数・所要時間・ベースブランチ・並列度）/ Per-Issue 表 / Failures / 直近 24h の refine 履歴を含む
 
+#### `/refine-sweep` — 全コードベース継続研磨スキル
+
+`/refine` の全体版。特定 PR ではなくリポジトリ全体に対して 4 観点 review→fix→PR→auto-merge を反復し、critical+major=0 まで持っていく。
+
+**主な機能:**
+- 各反復で `/code-review` / `/doc-drift` / `/spec-audit`（+HALT 検知時 `/halt-review`）を並列実行
+- critical + major の指摘を 1 PR にまとめて修正→push→auto-merge
+- 反復間で base branch を毎回 pull で最新化（直前のマージ分を取り込んでから次の修正を始める）
+- minor はデフォルト報告のみ、`--include-minor` で fix 対象に追加（`--max-minor N` で残許容数）
+- `--max-iter N`（デフォルト 5）で反復上限、`--abort` で中止
+- 終了時に `.sweep/report-refine-sweep-<ts>.md` を生成
+- issue-sweep / refine と同じ lock / 通知 / テレメトリ機構を共有
+
 #### `/refine` — レビュー反復による自動研磨＋マージスキル
 
 review → 修正 → 再 review を回し、critical/major=0 ∧ minor≤閾値 になるまで PR を磨き上げ、**閾値到達後は auto-merge と Issue close まで実行**する独立スキル。issue-sweep の各サブスキル内部の改善サイクルとは別に、既存 PR にも適用できる。
