@@ -16,6 +16,8 @@ user-invocable: true
 - `/issue-sweep #<parent>` — 指定した **フェーズ Issue**（`split-from:#<parent>` ラベル付き子 Issue を持つ親）に対しては、子 Issue 群に自動展開してそれだけ処理する。親本体は実装対象にしない（フェーズ単位の一括実装に使える）
 - `/issue-sweep --abort` — 実行中の sweep を中止しキュー / ロックを削除（後述）
 - `/issue-sweep --parallel <N>` — 同時に処理する Issue 数（**デフォルト 5**、上限 5）。依存関係のない Issue を最大 N 件並列で agent に渡す。ユーザーに値を確認せず常にこのデフォルトで起動する
+- `/issue-sweep --no-follow-spinoffs` — sweep 中に spinoff された Issue を最後に再 sweep するのを抑止（デフォルトは自動 2 周まで）
+- `/issue-sweep --max-rounds <N>` — spinoff 追跡の上限周回数（デフォルト 2、最大 5）
 
 ## 前提条件
 
@@ -293,6 +295,7 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - **engineer agent 内で `/refine --no-merge` をスキップする**（4 観点レビューを通さず auto-merge に進むと品質ばらつきが出る）
 - **反復冒頭の base branch 最新化をスキップする**（前 Issue のマージ分を取り込まず古い base で次を実装すると競合・無駄作業の原因）
 - **ユーザーに並列度（--parallel）を確認する**（デフォルト 5 で常に起動。必要なら明示指定された値を使う）
+- **spinoff 検出をスキップして sweep を終わらせる**（実装中に作られた子 Issue を放置すると「自律連続実装」の意味が薄れる。デフォルト 2 周まで自動追跡）
 - auto-merge 予約をスキップして手動マージを促す（ずっと自律稼働するのが目的）
 - マージ完了確認をスキップして次の Issue に進む（PR が closed/CI fail なまま埋もれる）
 - **CI 失敗を検知せずポーリングを継続する**（無限待機の原因）
@@ -415,9 +418,52 @@ jq -s 'map(select(.ci_respawns > 0)) | group_by(.ci_respawns) | map({respawns: .
 
 ファイルは `.gitignore` 対象。
 
-## フェーズ3: 完了報告
+## フェーズ3: 完了報告と spinoff 追跡
 
-1. 処理した Issue 番号と PR URL の一覧を表でまとめる
+### 3-0. spinoff 検出と再 sweep 判定
+
+実装中に `/spinoff-issue --parent #N` で作成された Issue が **キュー構築後** に生成されているため、それらを拾い直す:
+
+```bash
+# 今回 sweep が処理した親 Issue 番号一覧（フェーズ1 で展開した子 Issue を含む）
+PROCESSED_IDS=$(jq -r --arg since "$sweep_start_iso" \
+  'select(.ts >= $since and .source != "refine" and (.issue|tostring) != "") | .issue' \
+  .sweep/metrics.jsonl | sort -u | tr '\n' ',' | sed 's/,$//')
+
+# sweep 開始以降に作成された OPEN Issue を取得
+new_issues=$(gh issue list --state open \
+  --search "created:>=${sweep_start_iso}" \
+  --json number,title,body,labels --limit 200)
+
+# spinoff 由来を判定: 本文 "Parent: #N" / "parent:#N" / "Spun off from #N" or ラベル "parent:#N"
+# のいずれかで PROCESSED_IDS と一致するものを抽出
+spinoff_ids=$(echo "$new_issues" | jq -r --arg ids "$PROCESSED_IDS" '
+  ($ids | split(",") | map(tonumber)) as $parents
+  | .[]
+  | select(
+      (.labels[]?.name | tostring | capture("parent:#?(?<n>[0-9]+)")? | .n? | tonumber? // -1) as $lbl_parent
+      | ((.body // "") | scan("[Pp]arent:\\s*#?([0-9]+)")[0]? // empty | tonumber) as $body_parent
+      | ($lbl_parent != -1 and ($parents | index($lbl_parent)) != null)
+        or ($body_parent != null and ($parents | index($body_parent)) != null)
+    )
+  | .number
+')
+```
+
+判定:
+- `spinoff_ids` が **空** → 通常の終了処理（3-1 以降）
+- `spinoff_ids` がある かつ `--no-follow-spinoffs` 指定なし かつ `round_count < max_rounds`:
+  - 通知 `sweep_notify "spinoffs detected" "${#spinoff_ids} 件を再 sweep" ":arrows_counterclockwise:"`
+  - `round_count += 1` をインクリメント
+  - `spinoff_ids` を新規キューとして `.sweep/queue.txt` に書き出す
+  - **フェーズ2 に戻る**（ロック / 通知 URL / メトリクスは引き継ぎ、`sweep_start_iso` のみ次周開始時刻に更新）
+- 上限到達または `--no-follow-spinoffs` 指定時:
+  - レポートに「未処理 spinoffs」セクションを追加して列挙
+  - 通知 `sweep_notify "spinoffs left unprocessed" "${#spinoff_ids} 件、要手動 sweep" ":warning:"`
+
+### 3-1. 完了報告
+
+1. 処理した Issue 番号と PR URL の一覧を表でまとめる（**全 round 通算**）
 2. **`.sweep/metrics.jsonl` の今回 sweep 分から所要時間・失敗内訳を集計してユーザーに表示**
 3. キューファイルが空（`wc -l .sweep/queue.txt` が 0）であることを確認
 4. `git worktree prune` で残存 worktree を全削除

@@ -204,6 +204,27 @@ CI 諦め: {"domain": "<DOMAIN>", "pr_number": <N>, "failure": "ci_gave_up", "fa
 
 ## フェーズ3: 完了処理とレポート
 
+### 3-0. spinoff Issue 検出
+
+refine-sweep 中に develop agent が `/spinoff-issue` で作成した Issue を検出して `/issue-sweep` への投入候補としてレポートする（refine-sweep 自身は Issue 駆動ではないため、自動で再 sweep はしない。代わりにユーザーに「次に `/issue-sweep #<spinoffs>` を実行してください」と促す形）:
+
+```bash
+sweep_start_iso="<フェーズ1 で記録した開始時刻>"
+new_issues=$(gh issue list --state open --search "created:>=${sweep_start_iso}" --json number,title,labels,body --limit 200)
+spinoffs=$(echo "$new_issues" | jq -r '[.[] | select(
+  ((.labels[]?.name // "") | test("^spunoff|^spin-off")) or
+  ((.body // "") | test("Spun off|spunoff|spin-off"; "i"))
+)] | map(.number)')
+```
+
+- spinoffs が空でなければ:
+  - レポートに「## Detected spinoffs（refine-sweep 中に作成された Issue）」セクションを追加し番号と title を列挙
+  - 通知 `sweep_notify "spinoffs to triage" "${#spinoffs} 件: /issue-sweep ${spinoffs[*]} を検討" ":mailbox_with_mail:"`
+
+refine-sweep は Issue を消化するスキルではなく**コード品質を引き上げるスキル**なので、自動再 sweep はしない。
+
+### 3-1. 完了処理
+
 1. status を確定（`clean` / `iter_limit` / `agent_failed`）
 2. `git worktree prune` で残存 worktree 整理
 3. レポート生成 `.sweep/report-refine-sweep-<ts>.md`:
