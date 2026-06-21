@@ -76,8 +76,14 @@
       "Skill(impl-wt)",
       "Skill(bug-fix-wt)",
       "Skill(design-fix)",
-      "Skill(spinoff-issue)"
-    ]
+      "Skill(spinoff-issue)",
+      "Skill(refine)",
+      "Skill(code-review)",
+      "Skill(doc-drift)",
+      "Skill(spec-audit)",
+      "Skill(halt-review)"
+    ],
+    "defaultMode": "bypassPermissions"
   },
   "enabledPlugins": {
     "gopls-lsp@claude-plugins-official": true
