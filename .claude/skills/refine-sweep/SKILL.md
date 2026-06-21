@@ -1,6 +1,6 @@
 ---
 name: refine-sweep
-description: 全コードベースを 4 観点で連続レビューし、ドメイン別並列 PR で critical/major を反復修正→マージしてゼロまで持っていく。
+description: 全コードベースを 4 観点で連続レビューし、ドメイン別並列 PR で critical/major/minor をゼロまで磨く。spinoff Issue も自動 /issue-sweep に委譲して実装まで完了。
 user-invocable: true
 ---
 
@@ -12,10 +12,12 @@ user-invocable: true
 
 ## 引数
 
-- `/refine-sweep` — 全コードベース対象、critical + major を fix
+- `/refine-sweep` — 全コードベース対象、**critical + major + minor すべて**を fix（デフォルト挙動）
 - `/refine-sweep --max-iter N` — 反復上限（デフォルト 5）
-- `/refine-sweep --include-minor` — minor も fix 対象に加える（デフォルトは critical + major のみ）
-- `/refine-sweep --max-minor N` — `--include-minor` 時の minor 残許容数（デフォルト 20）
+- `/refine-sweep --no-minor` — minor を fix 対象から外し critical + major のみ修正（軽量モード）
+- `/refine-sweep --max-minor N` — minor 残許容数（デフォルト 0、つまり minor=0 まで磨く）
+- `/refine-sweep --no-follow-spinoffs` — spinoff Issue を自動 sweep するのを抑止
+- `/refine-sweep --max-rounds N` — spinoff 追跡の上限周回数（デフォルト 2、最大 5）
 - `/refine-sweep --abort` — 実行中の sweep を中止し lock を削除
 
 ## 前提
@@ -48,7 +50,7 @@ user-invocable: true
 5. 各ドメインの**ファイルパスマッピング**も仕様書から取得（記述があれば）:
    - 例: `frontend: apps/web/**, src/components/**` のような記述があれば使う
    - 無ければ標準推測: `frontend: apps/web/* | web/* | src/components/* | *.tsx | *.jsx | *.vue`、`backend: apps/api/* | api/* | src/server/* | *.go`、`db: migrations/* | schema.sql | db/* | prisma/*`、`ci: .github/workflows/* | ci/* | Dockerfile`
-6. `start_ts=$(date +%s)`, `iter=0`, `max_iter=5`, `include_minor=false`, `max_minor=20` を初期化
+6. `start_ts=$(date +%s)`, `iter=0`, `max_iter=5`, `include_minor=true`, `max_minor=0`, `round=0`, `max_rounds=2`, `follow_spinoffs=true` を初期化（`--no-minor` 指定時のみ `include_minor=false`、`--no-follow-spinoffs` 指定時のみ `follow_spinoffs=false`）
 7. ユーザーに「検出ドメイン: db, backend, frontend, ci, other」と並びをそのまま表示（確認は取らない）
 
 ## フェーズ2: review → fix → merge ループ
@@ -204,9 +206,9 @@ CI 諦め: {"domain": "<DOMAIN>", "pr_number": <N>, "failure": "ci_gave_up", "fa
 
 ## フェーズ3: 完了処理とレポート
 
-### 3-0. spinoff Issue 検出
+### 3-0. spinoff Issue 検出と自動実装
 
-refine-sweep 中に develop agent が `/spinoff-issue` で作成した Issue を検出して `/issue-sweep` への投入候補としてレポートする（refine-sweep 自身は Issue 駆動ではないため、自動で再 sweep はしない。代わりにユーザーに「次に `/issue-sweep #<spinoffs>` を実行してください」と促す形）:
+refine-sweep 中に develop agent が `/spinoff-issue` で作成した Issue を検出し、**自動で `/issue-sweep` に委譲して全部実装する**（デフォルト挙動）:
 
 ```bash
 sweep_start_iso="<フェーズ1 で記録した開始時刻>"
@@ -214,14 +216,31 @@ new_issues=$(gh issue list --state open --search "created:>=${sweep_start_iso}" 
 spinoffs=$(echo "$new_issues" | jq -r '[.[] | select(
   ((.labels[]?.name // "") | test("^spunoff|^spin-off")) or
   ((.body // "") | test("Spun off|spunoff|spin-off"; "i"))
-)] | map(.number)')
+)] | map(.number) | join(" ")')
 ```
 
-- spinoffs が空でなければ:
-  - レポートに「## Detected spinoffs（refine-sweep 中に作成された Issue）」セクションを追加し番号と title を列挙
-  - 通知 `sweep_notify "spinoffs to triage" "${#spinoffs} 件: /issue-sweep ${spinoffs[*]} を検討" ":mailbox_with_mail:"`
+判定:
+- spinoffs が**空** → 3-1 へ
+- spinoffs があり、`--no-follow-spinoffs` 指定なし、`round < max_rounds`:
+  - `round += 1` をインクリメント
+  - 通知 `sweep_notify "refine-sweep: spinoffs detected" "${#spinoffs} 件を /issue-sweep に委譲" ":arrows_counterclockwise:"`
+  - **`Agent(claude)` で `/issue-sweep <spinoff番号 列挙>` を起動**してすべて実装させる:
+    ```
+    Agent({
+      description: "refine-sweep round <round>: spinoff issue-sweep",
+      subagent_type: "claude",
+      prompt: """
+      /issue-sweep <spinoffs> を Skill ツールで起動し、すべての spinoff Issue を実装・マージ完了させてください。
+      issue-sweep の標準フロー（impl-wt → refine → auto-merge → close）に従う。
+      完了したら以下の JSON 1 行を返す:
+      {"merged": <N>, "failed": <N>, "report_path": "<path>"}
+      """
+    })
+    ```
+  - issue-sweep が完了したら、それ自身が新たな spinoff を発生させている可能性があるので **3-0 に戻ってループ**（同じ round カウンタを共有して暴走を防ぐ）
+  - `round >= max_rounds` 到達時 or `follow_spinoffs=false`: レポートに残 spinoff を列挙 + warning 通知して終了
 
-refine-sweep は Issue を消化するスキルではなく**コード品質を引き上げるスキル**なので、自動再 sweep はしない。
+これにより refine-sweep → 改善 PR → spinoff 検出 → issue-sweep → 実装完了 → 再度 refine-sweep からチェーンする運用が無人化される。
 
 ### 3-1. 完了処理
 
@@ -271,7 +290,8 @@ mkdir -p .sweep
 - **fix agent がドメインのファイル範囲を超えて他ドメインの src を編集する**（scope_violation で返すべき）
 - critical/major が残っているのにループを打ち切る
 - max_iter を超えても無限ループする
-- `--include-minor` なしで minor を修正する（暴走防止）
+- **デフォルトで minor をスキップする**（`--no-minor` 明示時のみ minor 修正を省略可能。それ以外は全 severity をゼロに磨く）
+- **spinoff の自動 issue-sweep 委譲をスキップする**（`--no-follow-spinoffs` 明示時のみ。それ以外は spinoff も最大 2 周まで自動で全実装させる）
 - fix agent が `--no-merge` で済ませる（必ず auto-merge 予約まで実行）
 - ユーザーに「続けますか」と聞く（Stop Hook が押し戻す）
 

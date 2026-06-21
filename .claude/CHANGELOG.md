@@ -63,7 +63,10 @@ review → 修正 → 再 review を回し、critical/major=0 ∧ minor≤閾値
 - **issue-sweep にも `/refine --no-merge` を組み込み**: engineer agent が PR 作成後に refine を実行してから auto-merge を予約する。これにより sweep 経由でも 4 観点レビューを通過した PR のみがマージされる
 - **マージゲート（critical+major=0）追加**: refine 結果を見て critical/major 残ありなら auto-merge を予約せず failure として手動対応へ falls back
 - **親 Issue（フェーズ Issue）の自動展開**: `/issue-sweep #<parent>` 指定時、`split-from:#<parent>` ラベル付き子 Issue を持つなら子に展開し、そのフェーズだけ実装する運用が可能
-- **spinoff Issue の自動追跡**: sweep 実行中に `/spinoff-issue` で作成された Issue を sweep 開始時刻以降の created date で検出し、デフォルト 2 周まで自動再 sweep。`--max-rounds N`（最大 5）で調整、`--no-follow-spinoffs` で抑制。refine-sweep 側は再 sweep せず「次に `/issue-sweep #<spinoffs>` を」とレポート＋通知で促す形
+- **spinoff Issue の自動追跡**:
+  - issue-sweep: sweep 開始時刻以降の created Issue を「Parent: #N」「parent:#N」ラベル / 「Spun off from #N」本文 から spinoff 判定し、デフォルト 2 周まで自動再 sweep。`--max-rounds N`（最大 5）/ `--no-follow-spinoffs` で制御
+  - refine-sweep: フェーズ3 で spinoff を検出し、**`Agent(claude)` 経由で `/issue-sweep <番号列挙>` を自動起動して全部実装**まで委譲。デフォルト 2 周（同一 round カウンタ）
+- **refine-sweep のデフォルトを minor=0 まで磨く挙動に変更**: `--no-minor` で軽量モード（critical+major のみ）に切り替え可能
 - HALT 検知ロジック: `*.templ` ファイル存在 or 仕様書に「HALT / HTMX+Atomic+Lit+Templ」記述
 - review agent と fix agent を別 `Agent(claude)` で起動し独立性を確保
 - status=clean なら `gh pr merge --auto --merge --delete-branch` → CI 緑待ち → リンク Issue を自動 close
