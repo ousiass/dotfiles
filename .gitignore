@@ -62,6 +62,10 @@ fish/completions/tide.fish
 .claude/llm/active
 .claude/usage-data/
 
+# issue-sweep のキュー / ロックファイル（実行中の一時状態）
+.claude/issue-queue.txt
+.claude/issue-queue.lock
+
 # プラグインローカル設定
 .claude/plugins/blocklist.json
 .claude/plugins/cache/

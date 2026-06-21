@@ -1,0 +1,241 @@
+---
+name: issue-sweep
+description: 複数のオープン Issue をキュー化し、Stop Hook と連動して端から自律的に実装・PR auto-merge まで進める。
+user-invocable: true
+---
+
+# issue-sweep
+
+複数の GitHub Issue を端から自律的に連続実装するスキル。`.claude/issue-queue.txt` にキューを書き出し、Stop Hook (`hooks/check-issue-queue.sh`) と連動してキューが空になるまで Claude が停止できないようにする。
+
+## 引数
+
+- `/issue-sweep` — ラベル指定なし（全オープン Issue）
+- `/issue-sweep label:<name>` — ラベルで絞り込み（例: `label:sprint-1`）
+- `/issue-sweep #<n1> #<n2> ...` — Issue 番号を直接指定
+- `/issue-sweep --abort` — 実行中の sweep を中止しキュー / ロックを削除（後述）
+
+## 前提条件
+
+- `gh` CLI が認証済み
+- `.claude/hooks/check-issue-queue.sh` が実行可能
+- `settings.json` の Stop / SessionStart Hook が有効
+- ベースブランチ（例: `develop`）にチェックアウト済み。各サブスキルはそのブランチをベースに PR を作る
+- リポジトリで auto-merge が有効化されている（Settings → General → Allow auto-merge）
+
+## --abort 処理
+
+引数が `--abort` の場合は以下を実行して終了する（他フェーズに進まない）:
+
+```bash
+rm -f .claude/issue-queue.txt .claude/issue-queue.lock
+```
+
+完了後「sweep を中止しキュー / ロックを削除しました」とユーザーに報告。
+
+## フェーズ0: 多重起動チェック（lock 取得）
+
+フェーズ1の前に必ず実行する。
+
+1. `.claude/issue-queue.lock` の存在確認
+2. 存在する場合: ファイル内容 `<PID>:<unix-ts>` を読み取り、`kill -0 <PID> 2>/dev/null` でプロセス生存を確認
+   - 生きている → 「他セッション (PID=<PID>) が sweep 実行中。停止するには `/issue-sweep --abort` を実行してください」と表示し終了
+   - 死んでいる → stale lock として `rm .claude/issue-queue.lock` で削除して続行
+3. ロック書き込み: `echo "$$:$(date +%s)" > .claude/issue-queue.lock`
+4. フェーズ3完了時 / 中断時 / `--abort` 時に必ず `rm -f .claude/issue-queue.lock` する
+
+## フェーズ1: Issue キューの構築
+
+1. 引数を解釈する
+   - 引数なし: `gh issue list --state open --json number,labels,title --limit 200`
+   - `label:<name>`: `gh issue list --state open --label <name> --json number,labels,title --limit 200`
+   - `#<n>` 列挙: 各 Issue を `gh issue view <n> --json number,labels,title`
+2. 順序を決定する
+   - Issue 本文の「依存: #N」「blocked by #N」を尊重し、依存先を先に処理する
+   - `priority:p0` / `p1` 等のラベルがあれば優先する
+3. **巨大 Issue の自動分割（fan-out）**: 各 Issue について以下を満たすものは `/issue-split-auto #<n>` を `Agent(subagent_type=claude)` 経由で呼び出す:
+   - 本文が 1500 文字以上 **かつ** H2 セクション (`## `) が 3 個以上
+   - `bug` ラベルが付いていない
+   - `split-from:#<m>` ラベルが付いていない（既に分割された子ではない）
+
+   呼び出し prompt 例:
+   ```
+   /issue-split-auto #<n> を実行し、結果の JSON 1行だけを返してください。
+   ```
+
+   返ってきた JSON の `children` がある場合、キュー内の親番号 `<n>` を `children` の配列に置換する。`children` が空（分割不要判定）または `created: false` の場合は親のまま維持。
+4. `.claude/issue-queue.txt` に Issue 番号を1行ずつ書き出す（空行・コメント禁止）
+5. キュー件数とラベル別内訳をユーザーに表示する
+6. 現在のブランチ（`git branch --show-current`）を「ベースブランチ」として表示する。違うブランチで進めたい場合はここでチェックアウトし直してから続行する
+7. 「中止したい時は `/issue-sweep --abort` または `rm .claude/issue-queue.txt`」を1行案内する
+
+## フェーズ2: 1 Issue ずつ処理（キューが空になるまでループ）
+
+各反復で以下を完了させる。Stop Hook がキューに残行がある限り停止をブロックするため途中で止まらず流し続ける。
+
+**重要 — context 設計:**
+**1 Issue 分の実装（Plan→Develop→Review→Commit→Push→PR 作成→auto-merge 予約）は必ず `Agent` ツールでサブエージェントに丸投げする。** メインスレッドは「キュー操作 / 冪等性チェック / agent 起動 / マージ完了ポーリング / 失敗判定」だけを行う。これによりメイン context は Issue 数に対して線形に汚れず、PR URL の一覧だけが積まれる。
+
+### 2-1. キュー先頭の Issue 番号を取得
+`head -n1 .claude/issue-queue.txt`
+
+### 2-2. 既存 PR の冪等性チェック（メインスレッド）
+
+```bash
+gh pr list --search "#<n> in:title,body" --state all --json number,state,mergedAt
+```
+
+判定:
+- `state == MERGED` or `mergedAt != null` → **マージ済み**。2-5（キュー削除）へ
+- `state == OPEN` → **既存 PR あり**。agent 起動（2-3）はスキップし、PR 番号を引き継いで 2-4（ポーリング）へ
+- それ以外 → 通常フロー（2-3）
+
+### 2-3. サブエージェントで Issue を1件丸ごと処理
+
+`Agent` ツールを以下の指定で呼ぶ:
+
+- `subagent_type`: `claude`（catch-all、全ツール利用可）
+- `description`: `"Issue #<n> implementation"`
+- `prompt`: 自己完結したプロンプトを渡す。**初回起動**と **CI fix 起動** の2モード:
+
+**初回起動プロンプト:**
+
+```
+Issue #<n> を1件、最後まで自律的に処理してください。メインスレッドには PR 情報だけを返します。
+
+手順:
+1. `gh issue view <n> --json labels` でラベルを取得し、以下のマッピングでスキル選択:
+   - bug → /bug-fix-wt #<n>
+   - design → /design-fix #<n>
+   - それ以外 → /impl-wt #<n>
+2. 選択したスキルを Skill ツールで起動し、Plan→Develop→Review→Commit→Push→PR 作成まで完了させる。
+   各サブスキルの禁止行動（フェーズスキップ・テスト省略・サイレントスキップ・スコープ外発見の未 issue 化）は厳守。
+3. PR 作成後に `gh pr merge <PR番号> --auto --merge --delete-branch` で auto-merge を予約する。
+4. 完了したら以下の JSON 1行だけを最終メッセージとして返す:
+   {"pr_number": <N>, "pr_url": "<URL>", "branch": "<branch>", "skill": "<使ったスキル名>"}
+5. 失敗した場合は以下を返す:
+   {"failure": "<1行で原因>", "phase": "<どのフェーズで失敗したか>"}
+
+返答ルール:
+- 上記 JSON 以外を最終メッセージに含めない（メインスレッドが parse する）。
+- 「ユーザーに確認してから次へ進みます」等で停止しない。失敗または完了まで進める。
+- マージ完了の待機はメインスレッドが行うので、agent は auto-merge 予約までで返す。
+```
+
+**CI fix 起動プロンプト**（メインスレッドが 2-4 ポーリング中に CI 失敗を検知した場合に使用）:
+
+```
+PR #<PR番号>（branch: <branch>）の CI で以下の check が失敗しました:
+- <check名1>: <概要>
+- <check名2>: <概要>
+
+タスク:
+1. `git fetch && git checkout <branch>` で対象 branch に切り替える（既存 worktree があれば再利用）。
+2. 失敗 check のログを `gh run view --log-failed --job <job-id>` 等で取得し、原因を特定する。
+3. 修正コミットを push する。テストが必要なら追加する。
+4. auto-merge 予約は維持されるので、push すれば CI 再走 → 緑になり次第サーバが自動マージする。
+5. 完了したら以下を返す:
+   {"pr_number": <N>, "fixed": true, "commit": "<sha>"}
+   修正不能なら:
+   {"pr_number": <N>, "failure": "<1行で原因>"}
+
+返答ルール: 上記 JSON 以外を最終メッセージに含めない。
+```
+
+agent の返答 JSON を parse して PR 番号を取得する。`failure` が返ったら 2-7（失敗時挙動）へ。
+
+### 2-4. マージ完了をポーリング（メインスレッド）
+
+`statusCheckRollup` と `mergeStateStatus` を含めて CI 失敗を確定検知する:
+
+```bash
+respawn_count=0
+while true; do
+  payload=$(gh pr view <PR> --json state,mergedAt,statusCheckRollup,mergeStateStatus)
+  state=$(echo "$payload" | jq -r .state)
+  merged=$(echo "$payload" | jq -r '.mergedAt // "null"')
+  failed_checks=$(echo "$payload" | jq -r '[.statusCheckRollup[]? | select(.conclusion == "FAILURE") | .name] | join(",")')
+  pending=$(echo "$payload" | jq '[.statusCheckRollup[]? | select(.conclusion == null and .status != "COMPLETED")] | length')
+
+  if [[ "$state" == "MERGED" ]]; then break; fi
+
+  if [[ "$state" == "CLOSED" && "$merged" == "null" ]]; then
+    # 手動 close 検知 → 1回目は agent 再起動、2回目はユーザー判断
+    if (( respawn_count >= 1 )); then exit 1; fi
+    respawn_count=$((respawn_count+1))
+    # 2-3 の「初回起動プロンプト」で再 spawn → 2-2 冪等性チェックで既存 PR を処理
+    continue
+  fi
+
+  if [[ -n "$failed_checks" && "$pending" -eq 0 ]]; then
+    # CI 確定失敗 → CI fix 起動プロンプトで agent 再 spawn
+    if (( respawn_count >= 2 )); then
+      echo "CI が3回連続で失敗。ユーザー判断を仰ぐ。失敗 checks: $failed_checks" >&2
+      exit 1
+    fi
+    respawn_count=$((respawn_count+1))
+    # 2-3 の「CI fix 起動プロンプト」を使って agent 起動。返答 fixed=true なら continue
+    # ポーリングを継続（auto-merge 予約は残っているので、修正 push → CI 緑 → MERGED まで自動）
+    continue
+  fi
+
+  sleep 60
+done
+```
+
+- ポーリング間隔 60s、上限なし
+- ポーリング中はメインスレッドは sleep + `gh`/`jq` 呼び出しのみで「思考」しないので context は増えない
+- 待ち中も Stop Hook がキューを見るのでメインは止まらない
+- **CI 失敗判定**: `conclusion == FAILURE` の check が1つ以上 **かつ** `conclusion == null` の pending check が 0（全 check 完了）でのみ確定。pending があれば待ち続ける
+- **respawn 上限**: 同一 PR で agent 再起動を **2回まで**。3回目で `gh run view` ログを添えてユーザーに判断を仰ぐ
+- **CLOSED null**（手動 close）: 1回目は agent 再起動、2回目で諦める
+
+### 2-5. Issue を close（sweep 限定の振る舞い）
+
+マージ完了後、対応する Issue を明示的に close する:
+
+```bash
+gh issue close <n> --comment "Closed by PR #<PR番号> (auto-merged via /issue-sweep)"
+```
+
+- 親 sub-skill 群（impl-wt 等）は意図的に `Closes #N` を使わない設計だが、sweep ではマージ → close を直結したいので sweep 側で補う
+- `split-from:#<parent>` ラベルが付いた子 Issue の場合、すべての兄弟 Issue が close されたかチェックし、全 close なら親 Issue も `gh issue close <parent> --comment "All split children merged"` で閉じる
+- close に失敗（権限・既に closed 等）してもキュー処理は続行する
+
+### 2-6. キューから先頭行を削除
+**Issue close 完了後に実行**:
+```bash
+sed -i '1d' .claude/issue-queue.txt
+```
+
+### 2-7. 次の反復 / 失敗時
+- 正常完了: 2-1 に戻る。停止しようとしても Stop Hook が押し戻す
+- agent が `failure` を返した: キューはそのまま、ロックは削除してユーザーに報告して終了
+
+## 禁止行動
+
+- **PR マージ完了前にキューから Issue 番号を削除する**（最重要 — マージ忘れの根本原因）
+- **メインスレッドで直接サブスキル（`/impl-wt` 等）を Skill ツール起動する**（context 汚染の根本原因。必ず `Agent` 経由）
+- **メインスレッド自身がコードを修正する / コミットする / PR を編集する**（CTO は実装に手を出さない。修正は必ず CI fix 起動プロンプトで agent に委譲）
+- auto-merge 予約をスキップして手動マージを促す（ずっと自律稼働するのが目的）
+- マージ完了確認をスキップして次の Issue に進む（PR が closed/CI fail なまま埋もれる）
+- **CI 失敗を検知せずポーリングを継続する**（無限待機の原因）
+- **失敗 check 名を agent に伝えず「とりあえず再実行」を頼む**（agent が原因不明のまま盲目的に手を入れる事故を防ぐ）
+- agent の返答 JSON 以外をメイン context に取り込もうとする（agent 内部の Plan/Develop/Review ログをメインに残すのは禁止）
+- 「ここで停止します」「次に進む前に確認してください」とユーザー判断を待って止まる（Stop Hook が押し戻す）
+- ベースブランチを途中で変える
+- フェーズ0 の lock 取得をスキップする
+
+## フェーズ3: 完了報告
+
+1. 処理した Issue 番号と PR URL の一覧を表でまとめる
+2. キューファイルが空（`wc -l .claude/issue-queue.txt` が 0）であることを確認
+3. `rm -f .claude/issue-queue.lock` でロック解除
+4. ユーザーに最終サマリを返す
+
+## 失敗時の挙動
+
+- サブスキル失敗 / PR 作成失敗 / auto-merge 予約失敗のいずれも、Issue 番号をキューに残したまま中断し、ロック (`.claude/issue-queue.lock`) は削除してユーザーに報告する
+- ポーリング中の `CLOSED null` は1回目はサブスキル再実行、2回連続でユーザー判断
+- キューファイルが壊れた場合は `--abort` で全削除してフェーズ1からやり直す
+- 同じ Issue で2回連続して同じエラーが出たらユーザーに判断を仰ぐ（無限ループ防止）

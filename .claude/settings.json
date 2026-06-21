@@ -24,5 +24,27 @@
   "feedbackSurveyState": {
     "lastShownTime": 1753948122944
   },
-  "skipAutoPermissionPrompt": true
+  "skipAutoPermissionPrompt": true,
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-issue-queue.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "gh issue list --state open --json number,title,labels --limit 20 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
 }

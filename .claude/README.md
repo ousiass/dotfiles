@@ -48,6 +48,7 @@ graph TD
 |--------|------|
 | `/spec-gen` | 新規プロジェクトの設計ドキュメント一式を対話的に作成。既存仕様書への追記にも対応 |
 | `/spec-review` | 仕様書をレビューし、指摘を1件ずつユーザー確認しながら修正 |
+| `/issue-split-auto` | 大きな Issue を非対話でスコープ単位のサブ Issue に自動分割（issue-sweep 連携用） |
 | `/spec-to-hugo` | 既存の仕様書ディレクトリをHextraテーマのHugoサイトに変換。Mermaid図ズーム・PDF埋め込み・Netlifyデプロイ対応 |
 | `/design-spec` | 対話的にデザイン仕様書（UI/UX）を作成・既存ドキュメントに追記 |
 | `/design-review` | UIコンポーネントのデザイン品質をレビューし、Issueまたはレポートとして生成 |
@@ -62,6 +63,7 @@ graph TD
 |--------|------|
 | `/impl` | 要件→スコープ分割→実装→レビュー→コミット→PRを小スコープで反復 |
 | `/impl-wt` | git worktree で隔離した環境で実装サイクルを回し、PRを作成 |
+| `/issue-sweep` | 複数 Issue をキュー化し Stop Hook と連動して端から自律連続実装・PR マージまで進める |
 
 ### バグ
 
