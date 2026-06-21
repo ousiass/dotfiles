@@ -37,14 +37,17 @@
 - フェーズ3 終了時に `.sweep/report-sweep-<timestamp>.md` を自動生成
 - Summary（処理件数・所要時間・ベースブランチ・並列度）/ Per-Issue 表 / Failures / 直近 24h の refine 履歴を含む
 
-#### `/refine` — レビュー反復による自動研磨スキル
+#### `/refine` — レビュー反復による自動研磨＋マージスキル
 
-review → 修正 → 再 review を回し、critical/major=0 ∧ minor≤閾値 になるまで PR を磨き上げる独立スキル。issue-sweep の各サブスキル内部の改善サイクルとは別に、既存 PR にも適用できる。
+review → 修正 → 再 review を回し、critical/major=0 ∧ minor≤閾値 になるまで PR を磨き上げ、**閾値到達後は auto-merge と Issue close まで実行**する独立スキル。issue-sweep の各サブスキル内部の改善サイクルとは別に、既存 PR にも適用できる。
 
 **主な機能:**
 - 引数なし: 現ブランチ / PR を対象、`#<N>` で特定 PR
 - `--max-minor N`（デフォルト 5）/ `--max-iter N`（デフォルト 10）で閾値・反復上限を調整
+- `--no-merge` で研磨のみ実行（マージしない）
 - review agent と fix agent を別 `Agent(claude)` で起動し独立性を確保
+- status=clean なら `gh pr merge --auto --merge --delete-branch` → CI 緑待ち → リンク Issue を自動 close
+- マージ前 CI 失敗時は失敗 check 名を添えて fix agent を再起動（最大 3 回）
 - 各反復を `.sweep/refine-metrics.jsonl` にテレメトリ追記
 - 終了時に `.sweep/report-refine-<timestamp>.md` を生成
 - `sweep_notify` 共通関数で通知発火（`.sweep/notify.url` を共有）

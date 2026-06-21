@@ -79,7 +79,7 @@ graph TD
 |--------|------|
 | `/code-review` | コードベース全体の品質チェックとリファクタリングレビュー。レポート生成 |
 | `/code-review-git` | gitリモートとの差分を対象にコード品質チェック＋ドキュメント乖離検出 |
-| `/refine` | review→修正→再review を反復し critical/major=0 ∧ minor≤閾値 まで自動研磨。終了時に Markdown レポート生成 |
+| `/refine` | review→修正→再review を反復し critical/major=0 ∧ minor≤閾値 まで研磨後、auto-merge + Issue close まで実行（`--no-merge` で研磨のみ） |
 | `/doc-drift` | ドキュメントと実装コードの整合性をチェックし、乖離レポートを生成 |
 | `/doc-drift-git` | gitリモートとの差分を対象にドキュメントとコードの整合性チェック |
 

@@ -1,6 +1,6 @@
 ---
 name: refine
-description: review agent を反復起動し critical/major=0 ∧ minor≤閾値 になるまで自動修正→再レビューを繰り返す。
+description: review→修正→再review を反復し critical/major=0 ∧ minor≤閾値 まで研磨後、auto-merge と Issue close まで実行する。
 user-invocable: true
 ---
 
@@ -14,6 +14,7 @@ review → 修正 → 再 review を回し、PR をレビュー観点で「軽�
 - `/refine #<PR番号>` — 特定 PR を対象
 - `/refine --max-minor <N>` — minor 指摘の上限（デフォルト 5）
 - `/refine --max-iter <N>` — レビューループ反復上限（デフォルト 10）
+- `/refine --no-merge` — 研磨のみで auto-merge しない（デフォルトはマージまで実行）
 
 ## 前提
 
@@ -115,15 +116,59 @@ MINOR (excess minor が <minor - max_minor> 件あるので優先度高いもの
 ### 2-5. 次の反復
 `iter+=1` してフェーズ2-1 に戻る。
 
-## フェーズ3: レポート生成と終了
+## フェーズ3: マージ → レポート生成と終了
 
 1. `total_dur=$(( $(date +%s) - start_ts ))` を計算
 2. **最終 status を確定**:
-   - 閾値到達 → `clean` (success)
-   - max_iter 到達 → `iter_limit`
-   - agent failure → `agent_failed`
-3. **テレメトリ最終行を追記**（status 込み）
-4. **Markdown レポート生成**:
+   - 閾値到達 → `clean`（マージへ進む）
+   - max_iter 到達 → `iter_limit`（マージしない）
+   - agent failure → `agent_failed`（マージしない）
+
+3. **auto-merge → ポーリング → Issue close**（status=clean かつ `--no-merge` 未指定の場合のみ）:
+
+```bash
+gh pr merge <PR> --auto --merge --delete-branch
+sweep_notify "refine: auto-merge queued" "PR #${pr_number}" ":hourglass:"
+
+# issue-sweep と同じポーリング（statusCheckRollup 監視）
+respawn=0
+while true; do
+  payload=$(gh pr view <PR> --json state,mergedAt,statusCheckRollup)
+  state=$(echo "$payload" | jq -r .state)
+  merged=$(echo "$payload" | jq -r '.mergedAt // "null"')
+  failed=$(echo "$payload" | jq -r '[.statusCheckRollup[]? | select(.conclusion == "FAILURE") | .name] | join(",")')
+  pending=$(echo "$payload" | jq '[.statusCheckRollup[]? | select(.conclusion == null and .status != "COMPLETED")] | length')
+
+  [[ "$state" == "MERGED" ]] && break
+
+  if [[ "$state" == "CLOSED" && "$merged" == "null" ]]; then
+    status="merge_failed"; break
+  fi
+
+  if [[ -n "$failed" && "$pending" -eq 0 ]]; then
+    if (( respawn >= 2 )); then status="ci_gave_up"; merge_failure="$failed"; break; fi
+    respawn=$((respawn+1))
+    gh pr comment <PR> --body "refine: マージ前 CI 失敗を検知（attempt ${respawn}/3、checks: $failed）。修正 agent を再起動します。"
+    # 2-3 と同じ CI fix プロンプトで Agent(claude) 起動
+    continue
+  fi
+  sleep 60
+done
+
+# マージ成功時、リンクされた Issue を close
+if [[ "$state" == "MERGED" ]]; then
+  closing_issues=$(gh pr view <PR> --json closingIssuesReferences -q '.closingIssuesReferences[].number')
+  for issue in $closing_issues; do
+    gh issue close "$issue" --comment "Closed by PR #${pr_number} (refined and auto-merged via /refine, iters=${iter})"
+  done
+fi
+```
+
+`--no-merge` 指定時はこのステップを完全スキップして直接 4 へ。
+
+4. **テレメトリ最終行を追記**（status 込み）
+
+5. **Markdown レポート生成**:
 
 ```bash
 ts=$(date -u +%Y%m%dT%H%M%SZ)
@@ -162,6 +207,8 @@ echo "Report written to $report"
 - 閾値到達してないのに「もういいでしょう」とループを打ち切る
 - `max_iter` を超えても無限ループする
 - minor の修正で副作用バグを入れない（修正後の review で critical が出たら反復継続）
+- **status=clean なのに auto-merge をスキップする**（`--no-merge` 明示時を除く。研磨だけでマージしないとループの意味がない）
+- マージ完了確認をスキップしてレポート生成に進む
 
 ## 失敗時の挙動
 
