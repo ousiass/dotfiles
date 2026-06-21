@@ -6,7 +6,7 @@ user-invocable: true
 
 # issue-sweep
 
-複数の GitHub Issue を端から自律的に連続実装するスキル。`.claude/issue-queue.txt` にキューを書き出し、Stop Hook (`hooks/check-issue-queue.sh`) と連動してキューが空になるまで Claude が停止できないようにする。
+複数の GitHub Issue を端から自律的に連続実装するスキル。`.sweep/queue.txt` にキューを書き出し、Stop Hook (`hooks/check-issue-queue.sh`) と連動してキューが空になるまで Claude が停止できないようにする。
 
 ## 引数
 
@@ -29,7 +29,7 @@ user-invocable: true
 引数が `--abort` の場合は以下を実行して終了する（他フェーズに進まない）:
 
 ```bash
-rm -f .claude/issue-queue.txt .claude/issue-queue.lock
+rm -f .sweep/queue.txt .sweep/lock
 ```
 
 完了後「sweep を中止しキュー / ロックを削除しました」とユーザーに報告。
@@ -38,13 +38,13 @@ rm -f .claude/issue-queue.txt .claude/issue-queue.lock
 
 フェーズ1の前に必ず実行する。lock は **heartbeat 方式**で stale を判定する（PID 比較は Bash 子プロセス起動関係に左右されて脆いため使わない）。
 
-1. `.claude/issue-queue.lock` の存在確認
+1. `.sweep/lock` の存在確認
 2. 存在する場合: ファイル内容 `<owner_pid>:<unix-ts>` を読み取り、`unix-ts` と現在時刻を比較
    - **2時間以内** → 他セッションが sweep 実行中。`echo "他セッションが sweep 実行中（lock の最終更新は <時刻>）。停止するには /issue-sweep --abort を実行"` と表示して終了
-   - **2時間以上経過** → stale lock として `rm .claude/issue-queue.lock` で削除して続行
-3. ロック書き込み: `echo "$PPID:$(date +%s)" > .claude/issue-queue.lock`
-4. フェーズ2の各反復冒頭で **heartbeat 更新**: `echo "$PPID:$(date +%s)" > .claude/issue-queue.lock`（lock の鮮度を保つ）
-5. フェーズ3完了時 / 中断時 / `--abort` 時に必ず `rm -f .claude/issue-queue.lock` する
+   - **2時間以上経過** → stale lock として `rm .sweep/lock` で削除して続行
+3. ロック書き込み: `echo "$PPID:$(date +%s)" > .sweep/lock`
+4. フェーズ2の各反復冒頭で **heartbeat 更新**: `echo "$PPID:$(date +%s)" > .sweep/lock`（lock の鮮度を保つ）
+5. フェーズ3完了時 / 中断時 / `--abort` 時に必ず `rm -f .sweep/lock` する
 
 ## フェーズ1: Issue キューの構築
 
@@ -66,14 +66,14 @@ rm -f .claude/issue-queue.txt .claude/issue-queue.lock
    ```
 
    返ってきた JSON の `children` がある場合、キュー内の親番号 `<n>` を `children` の配列に置換する。`children` が空（分割不要判定）または `created: false` の場合は親のまま維持。
-4. `.claude/issue-queue.txt` に Issue 番号を1行ずつ書き出す（空行・コメント禁止）
+4. `.sweep/queue.txt` に Issue 番号を1行ずつ書き出す（空行・コメント禁止）
 5. キュー件数とラベル別内訳をユーザーに表示する
 6. 現在のブランチ（`git branch --show-current`）を「ベースブランチ」として表示する。違うブランチで進めたい場合はここでチェックアウトし直してから続行する
-7. 「中止したい時は `/issue-sweep --abort` または `rm .claude/issue-queue.txt`」を1行案内する
+7. 「中止したい時は `/issue-sweep --abort` または `rm .sweep/queue.txt`」を1行案内する
 
 ## フェーズ2: 1 Issue ずつ処理（キューが空になるまでループ）
 
-各反復で以下を完了させる。反復冒頭で **lock の heartbeat 更新** (`echo "$PPID:$(date +%s)" > .claude/issue-queue.lock`) を必ず実行。Stop Hook がキューに残行がある限り停止をブロックするため途中で止まらず流し続ける。
+各反復で以下を完了させる。反復冒頭で **lock の heartbeat 更新** (`echo "$PPID:$(date +%s)" > .sweep/lock`) を必ず実行。Stop Hook がキューに残行がある限り停止をブロックするため途中で止まらず流し続ける。
 
 **重要 — context 設計:**
 **1 Issue 分の実装（Plan→Develop→Review→Commit→Push→PR 作成→auto-merge 予約）は必ず `Agent` ツールでサブエージェントに丸投げする。** メインスレッドは「キュー操作 / 冪等性チェック / agent 起動 / マージ完了ポーリング / 失敗判定」だけを行う。これによりメイン context は Issue 数に対して線形に汚れず、PR URL の一覧だけが積まれる。
@@ -86,7 +86,7 @@ rm -f .claude/issue-queue.txt .claude/issue-queue.lock
 - 上限は 5。それ以上は API rate limit と CI スロット競合のリスクが高い
 
 ### 2-1. キュー先頭の Issue 番号を取得
-`head -n<N> .claude/issue-queue.txt`（`--parallel N` 指定時。デフォルト N=1）。依存先がキューに残っているものは除外する
+`head -n<N> .sweep/queue.txt`（`--parallel N` 指定時。デフォルト N=1）。依存先がキューに残っているものは除外する
 
 ### 2-2. 既存 PR の冪等性チェック（メインスレッド）
 
@@ -223,7 +223,7 @@ sweep_notify "Merged" "#${n} (PR #${PR}, $(( $(date +%s) - start_ts ))s)" ":whit
 ### 2-6. キューから先頭行を削除
 **Issue close 完了後に実行**:
 ```bash
-sed -i '1d' .claude/issue-queue.txt
+sed -i '1d' .sweep/queue.txt
 ```
 
 ### 2-7. orphan worktree 掃除（毎反復末尾）
@@ -266,14 +266,14 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - ベースブランチを途中で変える
 - フェーズ0 の lock 取得をスキップする
 
-## 通知（`.claude/sweep-notify.url`）
+## 通知（`.sweep/notify.url`）
 
 プロジェクトごとに異なる Slack / Discord / ntfy.sh に通知できる。
 
 **セットアップ:** リポジトリ直下に1行の URL を保存（`.gitignore` 対象）:
 
 ```bash
-echo "https://hooks.slack.com/services/T0XXX/B0XXX/xxxx" > .claude/sweep-notify.url
+echo "https://hooks.slack.com/services/T0XXX/B0XXX/xxxx" > .sweep/notify.url
 ```
 
 ファイルが**存在しなければ通知は何もしない**（CI 等で誤発火しない）。
@@ -301,7 +301,7 @@ echo "https://hooks.slack.com/services/T0XXX/B0XXX/xxxx" > .claude/sweep-notify.
 ```bash
 sweep_notify() {
   local title="$1" msg="$2" emoji="${3:-}"
-  local url_file=".claude/sweep-notify.url"
+  local url_file=".sweep/notify.url"
   [[ -f "$url_file" ]] || return 0  # URL 未設定 → 無音
   local url
   url=$(head -n1 "$url_file")
@@ -328,7 +328,7 @@ sweep_notify() {
 
 通知失敗（network エラー等）は sweep 本体を止めない (`|| true`)。
 
-## テレメトリ（`.claude/sweep-metrics.jsonl`）
+## テレメトリ（`.sweep/metrics.jsonl`）
 
 各 Issue の処理完了時 / 失敗時に **JSON 1行を append** する。後で `jq` で集計可能。
 
@@ -361,20 +361,20 @@ jq -nc \
   --arg url "$pr_url" \
   --arg status "$status" \
   '{ts:$ts,issue:$issue,skill:$skill,duration_sec:$dur,agent_attempts:$att,ci_respawns:$resp,pr_number:$pr,pr_url:$url,status:$status}' \
-  >> .claude/sweep-metrics.jsonl
+  >> .sweep/metrics.jsonl
 ```
 
 **集計例:**
 
 ```bash
 # 直近 sweep の所要時間統計
-jq -s 'group_by(.skill) | map({skill: .[0].skill, avg: (map(.duration_sec) | add/length | floor), n: length})' .claude/sweep-metrics.jsonl
+jq -s 'group_by(.skill) | map({skill: .[0].skill, avg: (map(.duration_sec) | add/length | floor), n: length})' .sweep/metrics.jsonl
 
 # 失敗率
-jq -s '[.[] | select(.status != "merged")] | length' .claude/sweep-metrics.jsonl
+jq -s '[.[] | select(.status != "merged")] | length' .sweep/metrics.jsonl
 
 # CI respawn ヒートマップ
-jq -s 'map(select(.ci_respawns > 0)) | group_by(.ci_respawns) | map({respawns: .[0].ci_respawns, n: length})' .claude/sweep-metrics.jsonl
+jq -s 'map(select(.ci_respawns > 0)) | group_by(.ci_respawns) | map({respawns: .[0].ci_respawns, n: length})' .sweep/metrics.jsonl
 ```
 
 ファイルは `.gitignore` 対象。
@@ -382,16 +382,16 @@ jq -s 'map(select(.ci_respawns > 0)) | group_by(.ci_respawns) | map({respawns: .
 ## フェーズ3: 完了報告
 
 1. 処理した Issue 番号と PR URL の一覧を表でまとめる
-2. **`.claude/sweep-metrics.jsonl` の今回 sweep 分から所要時間・失敗内訳を集計してユーザーに表示**
-3. キューファイルが空（`wc -l .claude/issue-queue.txt` が 0）であることを確認
+2. **`.sweep/metrics.jsonl` の今回 sweep 分から所要時間・失敗内訳を集計してユーザーに表示**
+3. キューファイルが空（`wc -l .sweep/queue.txt` が 0）であることを確認
 4. `git worktree prune` で残存 worktree を全削除
-5. `rm -f .claude/issue-queue.lock` でロック解除
+5. `rm -f .sweep/lock` でロック解除
 6. **完了通知**: `sweep_notify "Sweep done" "${merged} merged, ${failed} failed, elapsed ${duration}" ":checkered_flag:"`
 7. ユーザーに最終サマリを返す
 
 ## 失敗時の挙動
 
-- サブスキル失敗 / PR 作成失敗 / auto-merge 予約失敗のいずれも、Issue 番号をキューに残したまま中断し、ロック (`.claude/issue-queue.lock`) は削除してユーザーに報告する
+- サブスキル失敗 / PR 作成失敗 / auto-merge 予約失敗のいずれも、Issue 番号をキューに残したまま中断し、ロック (`.sweep/lock`) は削除してユーザーに報告する
 - ポーリング中の `CLOSED null` は1回目はサブスキル再実行、2回連続でユーザー判断
 - キューファイルが壊れた場合は `--abort` で全削除してフェーズ1からやり直す
 - 同じ Issue で2回連続して同じエラーが出たらユーザーに判断を仰ぐ（無限ループ防止）

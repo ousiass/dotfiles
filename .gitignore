@@ -62,11 +62,8 @@ fish/completions/tide.fish
 .claude/llm/active
 .claude/usage-data/
 
-# issue-sweep のキュー / ロック / メトリクス / 通知 URL
-.claude/issue-queue.txt
-.claude/issue-queue.lock
-.claude/sweep-metrics.jsonl
-.claude/sweep-notify.url
+# issue-sweep のランタイム状態（キュー / ロック / メトリクス / 通知 URL）
+.sweep/
 
 # プラグインローカル設定
 .claude/plugins/blocklist.json

@@ -6,9 +6,9 @@
 
 set -u
 
-DIR="${CLAUDE_PROJECT_DIR:-$PWD}/.claude"
-QUEUE="$DIR/issue-queue.txt"
-LOCK="$DIR/issue-queue.lock"
+DIR="${CLAUDE_PROJECT_DIR:-$PWD}/.sweep"
+QUEUE="$DIR/queue.txt"
+LOCK="$DIR/lock"
 STALE_THRESHOLD=7200  # 2時間 (sec)
 
 # キューなし / 空 → 通常停止 OK
