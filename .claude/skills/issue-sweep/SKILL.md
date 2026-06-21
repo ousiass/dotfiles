@@ -13,6 +13,7 @@ user-invocable: true
 - `/issue-sweep` — ラベル指定なし（全オープン Issue）
 - `/issue-sweep label:<name>` — ラベルで絞り込み（例: `label:sprint-1`）
 - `/issue-sweep #<n1> #<n2> ...` — Issue 番号を直接指定
+- `/issue-sweep #<parent>` — 指定した **フェーズ Issue**（`split-from:#<parent>` ラベル付き子 Issue を持つ親）に対しては、子 Issue 群に自動展開してそれだけ処理する。親本体は実装対象にしない（フェーズ単位の一括実装に使える）
 - `/issue-sweep --abort` — 実行中の sweep を中止しキュー / ロックを削除（後述）
 - `/issue-sweep --parallel <N>` — 同時に処理する Issue 数（**デフォルト 5**、上限 5）。依存関係のない Issue を最大 N 件並列で agent に渡す。ユーザーに値を確認せず常にこのデフォルトで起動する
 
@@ -52,6 +53,10 @@ rm -f .sweep/queue.txt .sweep/lock
    - 引数なし: `gh issue list --state open --json number,labels,title --limit 200`
    - `label:<name>`: `gh issue list --state open --label <name> --json number,labels,title --limit 200`
    - `#<n>` 列挙: 各 Issue を `gh issue view <n> --json number,labels,title`
+   - **親 Issue 自動展開**: 列挙された各 `#<n>` について、`gh issue list --state open --search "label:split-from:#<n>" --json number,labels,title` で子 Issue を検索:
+     - **子が見つかった場合**: その親 `#<n>` は **トラッカーとみなしキューから除外**し、代わりに子 Issue 群をキューに含める（親本体は実装対象にしない）
+     - **子が見つからない場合**: その `#<n>` 自身をキューに残す
+     - これにより `/issue-sweep #100`（#100 が 5 子持ちのフェーズ Issue）で「そのフェーズに属する 5 件だけ」を端から処理する運用が可能
 2. 順序と**並列可否**を決定する（ユーザーには確認しない、デフォルト 5 並列を最大限活かしつつ並列不可ケースを自動検知）
    - **明示的依存**: 本文の「依存: #N」「blocked by #N」「Depends on #N」「Blocked by #N」「Closes/Fixes #N」を依存とみなし、依存先を先に処理する
    - **優先度**: `priority:p0` / `p1` 等のラベルを優先
