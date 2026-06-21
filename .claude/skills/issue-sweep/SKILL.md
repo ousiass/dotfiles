@@ -182,12 +182,15 @@ while true; do
     # CI 確定失敗 → CI fix 起動プロンプトで agent 再 spawn
     if (( respawn_count >= 2 )); then
       gh pr comment <PR> --body "sweep: CI が 3 回連続で失敗（checks: $failed_checks）。自動修正を諦めユーザー判断を仰ぎます。"
+      sweep_notify "Manual intervention needed" "Issue #${n} PR #${PR}: CI 3回連続失敗 ($failed_checks)" ":rotating_light:"
       echo "CI が3回連続で失敗。ユーザー判断を仰ぐ。失敗 checks: $failed_checks" >&2
       exit 1
     fi
     respawn_count=$((respawn_count+1))
     # 監査ログとして PR にコメント
     gh pr comment <PR> --body "sweep: CI 失敗を検知（attempt ${respawn_count}/3、checks: $failed_checks）。修正 agent を再起動します。"
+    # 通知
+    sweep_notify "CI failed" "PR #${PR} attempt ${respawn_count}/3: $failed_checks" ":warning:"
     # 2-3 の「CI fix 起動プロンプト」を使って agent 起動。返答 fixed=true なら continue
     # ポーリングを継続（auto-merge 予約は残っているので、修正 push → CI 緑 → MERGED まで自動）
     continue
@@ -210,6 +213,7 @@ done
 
 ```bash
 gh issue close <n> --comment "Closed by PR #<PR番号> (auto-merged via /issue-sweep, CI respawns=${respawn_count})"
+sweep_notify "Merged" "#${n} (PR #${PR}, $(( $(date +%s) - start_ts ))s)" ":white_check_mark:"
 ```
 
 - 親 sub-skill 群（impl-wt 等）は意図的に `Closes #N` を使わない設計だが、sweep ではマージ → close を直結したいので sweep 側で補う
@@ -243,7 +247,10 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 
 ### 2-8. 次の反復 / 失敗時
 - 正常完了: 2-1 に戻る。停止しようとしても Stop Hook が押し戻す
-- agent が `failure` を返した: 該当 Issue にコメント `gh issue comment <n> --body "sweep: 実装失敗（$failure）。手動対応が必要です。"` を残し、キューはそのまま、ロックは削除してユーザーに報告して終了
+- agent が `failure` を返した:
+  - `gh issue comment <n> --body "sweep: 実装失敗（$failure）。手動対応が必要です。"`
+  - `sweep_notify "Agent failed" "Issue #${n}: $failure" ":x:"`
+  - キューはそのまま、ロックは削除してユーザーに報告して終了
 
 ## 禁止行動
 
@@ -258,6 +265,68 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - 「ここで停止します」「次に進む前に確認してください」とユーザー判断を待って止まる（Stop Hook が押し戻す）
 - ベースブランチを途中で変える
 - フェーズ0 の lock 取得をスキップする
+
+## 通知（`.claude/sweep-notify.url`）
+
+プロジェクトごとに異なる Slack / Discord / ntfy.sh に通知できる。
+
+**セットアップ:** リポジトリ直下に1行の URL を保存（`.gitignore` 対象）:
+
+```bash
+echo "https://hooks.slack.com/services/T0XXX/B0XXX/xxxx" > .claude/sweep-notify.url
+```
+
+ファイルが**存在しなければ通知は何もしない**（CI 等で誤発火しない）。
+
+**送信先の自動判別:** URL の文字列パターンで使い分ける:
+
+| URL に含まれる文字列 | サービス | フォーマット |
+|---|---|---|
+| `hooks.slack.com` | Slack | `{"text": "..."}` JSON POST |
+| `discord.com/api/webhooks` | Discord | `{"content": "..."}` JSON POST |
+| `ntfy.sh` | ntfy.sh | POST body 平文 + `Title` / `Priority` ヘッダ |
+| その他 | ntfy 互換 | 同上 |
+
+**通知タイミング:**
+
+| イベント | 通知内容 | 絵文字 |
+|---|---|---|
+| Issue マージ完了（2-5 直後） | `Merged #<n> (PR #<P>, <duration>)` | `:white_check_mark:` |
+| CI 失敗検知（2-4 内） | `CI failed on PR #<P> (attempt <k>/3): <checks>` | `:warning:` |
+| sweep が諦め（2-4 上限到達 / 2-8 agent failure） | `Manual intervention needed: #<n> — <理由>` | `:rotating_light:` |
+| sweep 全完了（フェーズ3） | `Sweep done: <merged> merged, <failed> failed, elapsed <duration>` | `:checkered_flag:` |
+
+**送信関数の実装例:**
+
+```bash
+sweep_notify() {
+  local title="$1" msg="$2" emoji="${3:-}"
+  local url_file=".claude/sweep-notify.url"
+  [[ -f "$url_file" ]] || return 0  # URL 未設定 → 無音
+  local url
+  url=$(head -n1 "$url_file")
+  [[ -z "$url" ]] && return 0
+
+  case "$url" in
+    *hooks.slack.com*)
+      curl -sf -X POST -H 'Content-Type: application/json' \
+        --data "$(jq -nc --arg t "$emoji $title: $msg" '{text:$t}')" \
+        "$url" >/dev/null 2>&1 || true
+      ;;
+    *discord.com/api/webhooks*)
+      curl -sf -X POST -H 'Content-Type: application/json' \
+        --data "$(jq -nc --arg c "$emoji **$title**: $msg" '{content:$c}')" \
+        "$url" >/dev/null 2>&1 || true
+      ;;
+    *)
+      curl -sf -X POST -H "Title: $title" -H "Tags: robot" \
+        -d "$msg" "$url" >/dev/null 2>&1 || true
+      ;;
+  esac
+}
+```
+
+通知失敗（network エラー等）は sweep 本体を止めない (`|| true`)。
 
 ## テレメトリ（`.claude/sweep-metrics.jsonl`）
 
@@ -317,7 +386,8 @@ jq -s 'map(select(.ci_respawns > 0)) | group_by(.ci_respawns) | map({respawns: .
 3. キューファイルが空（`wc -l .claude/issue-queue.txt` が 0）であることを確認
 4. `git worktree prune` で残存 worktree を全削除
 5. `rm -f .claude/issue-queue.lock` でロック解除
-6. ユーザーに最終サマリを返す
+6. **完了通知**: `sweep_notify "Sweep done" "${merged} merged, ${failed} failed, elapsed ${duration}" ":checkered_flag:"`
+7. ユーザーに最終サマリを返す
 
 ## 失敗時の挙動
 
