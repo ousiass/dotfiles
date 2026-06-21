@@ -385,9 +385,55 @@ jq -s 'map(select(.ci_respawns > 0)) | group_by(.ci_respawns) | map({respawns: .
 2. **`.sweep/metrics.jsonl` の今回 sweep 分から所要時間・失敗内訳を集計してユーザーに表示**
 3. キューファイルが空（`wc -l .sweep/queue.txt` が 0）であることを確認
 4. `git worktree prune` で残存 worktree を全削除
-5. `rm -f .sweep/lock` でロック解除
-6. **完了通知**: `sweep_notify "Sweep done" "${merged} merged, ${failed} failed, elapsed ${duration}" ":checkered_flag:"`
-7. ユーザーに最終サマリを返す
+5. **Markdown レポート生成** — `.sweep/report-sweep-<timestamp>.md` に書き出す:
+
+```bash
+ts=$(date -u +%Y%m%dT%H%M%SZ)
+report=".sweep/report-sweep-${ts}.md"
+sweep_start_iso=$(date -u -d @${sweep_start_ts} +%Y-%m-%dT%H:%M:%SZ)
+mkdir -p .sweep
+{
+  echo "# issue-sweep report — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo
+  echo "## Summary"
+  echo "- Started: $sweep_start_iso"
+  echo "- Processed: $processed_count"
+  echo "- Merged: $merged_count"
+  echo "- Failed: $failed_count"
+  echo "- Elapsed: ${total_dur}s"
+  echo "- Base branch: $base_branch"
+  echo "- Parallel: $parallel_n"
+  echo
+  echo "## Per-Issue"
+  echo
+  echo "| Issue | Skill | Duration | Status | PR | Respawns |"
+  echo "|---|---|---|---|---|---|"
+  jq -r --arg since "$sweep_start_iso" \
+    'select(.ts >= $since and .source != "refine") |
+     "| #\(.issue) | \(.skill // "-") | \(.duration_sec)s | \(.status) | \(.pr_url // "-") | \(.ci_respawns // 0) |"' \
+    .sweep/metrics.jsonl
+  echo
+  echo "## Failures & Manual Intervention"
+  jq -r --arg since "$sweep_start_iso" \
+    'select(.ts >= $since and .status != "merged") |
+     "- **#\(.issue)** (\(.status)): \(.failure // .failed_checks // "-") — PR \(.pr_url // "n/a")"' \
+    .sweep/metrics.jsonl
+  if [[ -f .sweep/refine-metrics.jsonl ]]; then
+    echo
+    echo "## Recent refine runs（直近 24h）"
+    cutoff=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-24H +%Y-%m-%dT%H:%M:%SZ)
+    jq -r --arg c "$cutoff" \
+      'select(.ts >= $c and .source == "refine") |
+       "- PR #\(.pr_number) iter \(.iter): critical=\(.critical) major=\(.major) minor=\(.minor)"' \
+      .sweep/refine-metrics.jsonl
+  fi
+} > "$report"
+echo "Report: $report"
+```
+
+6. `rm -f .sweep/lock` でロック解除
+7. **完了通知**: `sweep_notify "Sweep done" "${merged_count} merged, ${failed_count} failed (report: ${report})" ":checkered_flag:"`
+8. ユーザーに最終サマリと**レポートパス**を返す
 
 ## 失敗時の挙動
 
