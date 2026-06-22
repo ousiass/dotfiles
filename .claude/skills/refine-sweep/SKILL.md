@@ -266,9 +266,38 @@ CI 諦め: {"domain": "<DOMAIN>", "pr_number": <N>, "failure": "ci_gave_up", "fa
 - ただし `scope_violation` は次反復で別ドメインに振り直されるので fatal にしない（その分だけキューに残す）
 - 全 merged ならウェーブ完了 → 次ウェーブへ
 - 全ウェーブ完了 → `iter += 1` で 2-1 へ
-- 反復間で findings 合計が減らない（連続 2 反復で同数以上）→ `fix_ineffective` で終了
+- 反復間で **同一の findings 集合**（`file:line:msg` の fingerprint set）が連続 2 反復で完全一致 → `fix_ineffective` で終了。**件数だけ見て判定しない**（fix が新規 finding を生んでいる場合は前 iter とは集合が異なるので継続する）
 
 **マージされた修正は次の review で消えるはず**なので、review→domain fix→merge の往復で findings を削っていく。
+
+**fix_ineffective 判定の fingerprint 比較:**
+
+各反復の review 集計直後に以下を実行して findings の fingerprint set を保存・比較する。前 iter と完全一致した時だけ打ち切る:
+
+```bash
+# 現 iter の fingerprint set を保存
+echo "$findings" | jq -c '
+  [.critical[], .major[], .minor[]
+   | "\(.file // "?"):\(.line // 0):\(.msg // "")"]
+  | sort | unique
+' > ".sweep/findings-iter-${iter}.json"
+
+# 前 iter と完全一致 → fix_ineffective
+prev_file=".sweep/findings-iter-$((iter-1)).json"
+if [[ "$iter" -ge 1 && -f "$prev_file" ]]; then
+  curr=$(cat ".sweep/findings-iter-${iter}.json")
+  prev=$(cat "$prev_file")
+  if [[ "$curr" == "$prev" && "$curr" != "[]" ]]; then
+    status="fix_ineffective"
+    break
+  fi
+fi
+```
+
+これにより:
+- iter N で 5 件 → iter N+1 で同じ 5 件残っている: 打ち切り（本当に効いてない）
+- iter N で 5 件 → iter N+1 で 2 件直して 3 件新規発見（計 6 件）: **継続**（新規 finding が出てきても fix 中とみなす）
+- iter N で 5 件 → iter N+1 で 5 件中 3 件直して 3 件新規（計 5 件、件数同じ）: **継続**（fingerprint set が違うため）
 
 ## フェーズ3: 完了処理とレポート
 
@@ -386,4 +415,4 @@ mkdir -p .sweep
 - review agent failure: テレメトリに `agent_failed` を記録しレポート生成して終了
 - fix agent failure: 反復ブランチを削除（`git push origin --delete <branch>`、可能なら）してテレメトリ記録・レポート生成・終了
 - CI 失敗が 3 回連続: ユーザー判断を仰ぐ（refine と同じ）
-- 同じ findings が連続 2 反復で減らない: 「fix が効いていない」と判定して終了
+- 同じ findings 集合（fingerprint set）が連続 2 反復で完全一致: 「fix が効いていない」と判定して終了。**件数比較ではなく fingerprint 一致で判定するので、fix で新規 finding が生じた場合は集合が違うため継続する**
