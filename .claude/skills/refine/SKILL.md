@@ -22,6 +22,34 @@ review → 修正 → 再 review を回し、PR をレビュー観点で「軽�
 - 対象 PR / ブランチが checkout 可能
 - `.sweep/` ディレクトリへの書き込み権限（テレメトリ用）
 
+## 状態管理 `.sweep/state.json`
+
+sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` の間（lock が新鮮な限り）停止をブロックする。**review を再実行せず推定で `phase=terminal` にしてはならない**。terminal 化前に必ず最終 review を走らせ、その出力パスを `evidence` に append する。
+
+**スキーマ:**
+```json
+{
+  "skill": "refine",
+  "started_at": "<ISO8601>",
+  "updated_at": "<ISO8601>",
+  "phase": "iterating" | "terminal",
+  "iteration": <N>,
+  "max_iter": <N>,
+  "thresholds": {"critical": 0, "major": 0, "minor": <max_minor>},
+  "last_counts": {"critical": <N>, "major": <N>, "minor": <N>},
+  "evidence": ["<path>", ...],
+  "termination_reason": null | "thresholds_met" | "max_iter" | "agent_failed" | "merge_failed" | "ci_gave_up" | "aborted",
+  "pr_number": <N>
+}
+```
+
+**更新タイミング:**
+- フェーズ1 開始時に `phase=iterating, iteration=0, evidence=[]` で初期化
+- 各反復終了時（2-2 テレメトリ追記直後）に `iteration += 1`, `last_counts` を最新の review 集計結果で上書き、`evidence` に当該反復のテレメトリ参照（`.sweep/refine-metrics.jsonl:<行番号>`）を append、`updated_at` 更新
+- フェーズ3 で `phase=terminal` と `termination_reason` をセット。**直前に最終 review を走らせ evidence を追加してから terminal 化する**
+
+`.sweep/` ディレクトリが無ければ `mkdir -p .sweep` で作成してから初期化する。
+
 ## フェーズ1: ターゲット特定とレビュー対象スキル決定
 
 1. 引数が PR 番号: `gh pr view <n> --json number,headRefName,baseRefName,url`
@@ -30,6 +58,21 @@ review → 修正 → 再 review を回し、PR をレビュー観点で「軽�
    - **既に worktree 内で起動された場合**（例: issue-sweep の engineer agent からの呼び出し）: `git rev-parse --show-toplevel` と `git worktree list --porcelain` を比較し、現在が worktree なら**再利用**（新規作成しない）
    - **メイン作業ツリーで起動された場合**（例: ユーザーが `/refine #42` を直接叩く）: `impl-wt` の `references/worktree-setup.md` に従い PR ブランチ用の worktree を新規作成。以後フェーズ2/3 の全操作は worktree 内で実行
 4. `start_ts=$(date +%s)`, `iter=0`, `max_minor=5`, `max_iter=10` を初期化
+4b. **`.sweep/state.json` を初期化** (`mkdir -p .sweep` 後):
+   ```bash
+   jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+         --argjson mi "$max_iter" --argjson mm "$max_minor" \
+         --argjson pr "${pr_number:-null}" '{
+     skill: "refine",
+     started_at: $now, updated_at: $now,
+     phase: "iterating", iteration: 0, max_iter: $mi,
+     thresholds: {critical: 0, major: 0, minor: $mm},
+     last_counts: {critical: null, major: null, minor: null},
+     evidence: [],
+     termination_reason: null,
+     pr_number: $pr
+   }' > .sweep/state.json
+   ```
 5. **HALT プロジェクト検知**（初回のみ、結果は変数に保持）:
    ```bash
    HAS_HALT=false
@@ -99,9 +142,10 @@ findings=$(printf '%s\n' "$resp_code" "$resp_doc" "$resp_spec" "$resp_halt" | \
 
 返答 JSON を parse して各 severity の合計件数を取得。
 
-### 2-2. テレメトリ追記
+### 2-2. テレメトリ追記 + state.json 更新
 
 ```bash
+# テレメトリ append
 jq -nc \
   --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --argjson pr "$pr_number" \
@@ -113,7 +157,23 @@ jq -nc \
   --argjson halt "$HAS_HALT" \
   '{ts:$ts,source:"refine",pr_number:$pr,iter:$iter,critical:$c,major:$m,minor:$mn,by_source:$by_src,halt:$halt}' \
   >> .sweep/refine-metrics.jsonl
+
+# state.json を更新（iteration / last_counts / evidence append）
+ev_line=".sweep/refine-metrics.jsonl:$(wc -l < .sweep/refine-metrics.jsonl | tr -d ' ')"
+jq --argjson iter "$iter" \
+   --argjson c "$(echo "$findings" | jq '.critical | length')" \
+   --argjson m "$(echo "$findings" | jq '.major | length')" \
+   --argjson mn "$(echo "$findings" | jq '.minor | length')" \
+   --arg ev "$ev_line" \
+   --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+   '.iteration = $iter
+    | .last_counts = {critical:$c, major:$m, minor:$mn}
+    | .evidence += [$ev]
+    | .updated_at = $now' \
+   .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
 ```
+
+**evidence の append 規則**: 各反復で最低 1 件追加する。空のままフェーズ3 に進まない。
 
 ### 2-3. 閾値判定
 
@@ -212,7 +272,19 @@ fi
 
 4. **テレメトリ最終行を追記**（status 込み）
 
-5. **Markdown レポート生成**:
+4b. **最終 review を再実行して state.json の last_counts / evidence を確定**:
+   - status=`clean` を主張する場合は **必ずもう一度 2-1 のレビューを走らせ**、最新カウントが閾値を満たしていることを再確認する（推定で clean にしない）
+   - 結果を `.sweep/refine-metrics.jsonl` に append し、state.json の `last_counts` / `evidence` / `updated_at` を更新
+
+4c. **state.json を terminal 化**:
+```bash
+reason="thresholds_met"   # または iter_limit / agent_failed / merge_failed / ci_gave_up / aborted
+jq --arg reason "$reason" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+   '.phase = "terminal" | .termination_reason = $reason | .updated_at = $now' \
+   .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
+```
+
+5. **Markdown レポート生成**（`## Evidence` セクション必須、state.json の `evidence` を引用）:
 
 ```bash
 ts=$(date -u +%Y%m%dT%H%M%SZ)
@@ -233,6 +305,10 @@ cat > "$report" <<EOF
 | Iter | Critical | Major | Minor |
 |---|---|---|---|
 $(jq -r --argjson pr "$pr_number" 'select(.source == "refine" and .pr_number == $pr) | "| \(.iter) | \(.critical) | \(.major) | \(.minor) |"' .sweep/refine-metrics.jsonl)
+
+## Evidence
+
+$(jq -r '.evidence[] | "- \(.)"' .sweep/state.json)
 
 ## Remaining issues
 $(if [[ "$status" != "clean" ]]; then echo "$findings" | jq -r '.critical[]?, .major[]?, .minor[]? | "- [\(.file // "?"):\(.line // 0)] \(.msg)"'; else echo "なし（閾値到達）"; fi)
@@ -261,6 +337,9 @@ echo "Report written to $report"
 - minor の修正で副作用バグを入れない（修正後の review で critical が出たら反復継続）
 - **必須レビュー（code-review / doc-drift / spec-audit）の一部をスキップする**（全 4 観点を統合して判定するため）
 - **HALT プロジェクトで halt-review をスキップする**（フェーズ1 で HAS_HALT=true なら必ず並列起動）
+- **`.sweep/state.json` を `phase=terminal` にする前に最終 review を再実行せず、推定で `clean` を宣言する**（iter 途中の counts を信じて terminal 化するのは禁止。フェーズ3 ステップ4b で必ず最終 review を走らせる）
+- **`.sweep/state.json` の `evidence` 配列が空のままフェーズ3 に進む / terminal 化する**
+- レポートに `## Evidence` セクションを書かない（state.json の evidence をそのまま引用する形で必ず残す）
 - **status=clean なのに auto-merge をスキップする**（`--no-merge` 明示時を除く。研磨だけでマージしないとループの意味がない）
 - マージ完了確認をスキップしてレポート生成に進む
 - **メイン作業ツリーで checkout して PR ブランチに切り替える**（worktree 隔離を破ってメインを汚す原因。フェーズ1-3 で必ず worktree を確保すること）

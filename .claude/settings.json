@@ -68,6 +68,7 @@
       "Bash(rm -f /tmp/wt-after)",
       "Bash(rm:*/tmp/sweep-*)",
       "Bash(.claude/hooks/check-issue-queue.sh)",
+      "Bash(.claude/hooks/check-sweep-state.sh)",
       "Write(.sweep/**)",
       "Edit(.sweep/**)",
       "Read(.sweep/**)",
@@ -104,6 +105,10 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-issue-queue.sh"
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-sweep-state.sh"
           }
         ]
       }

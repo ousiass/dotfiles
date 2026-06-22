@@ -22,10 +22,42 @@ user-invocable: true
 ## 前提条件
 
 - `gh` CLI が認証済み
-- `.claude/hooks/check-issue-queue.sh` が実行可能
+- `.claude/hooks/check-issue-queue.sh` と `.claude/hooks/check-sweep-state.sh` が実行可能
 - `settings.json` の Stop / SessionStart Hook が有効
 - ベースブランチ（例: `develop`）にチェックアウト済み。各サブスキルはそのブランチをベースに PR を作る
 - リポジトリで auto-merge が有効化されている（Settings → General → Allow auto-merge）
+
+## 状態管理 `.sweep/state.json`
+
+sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` の間（lock が新鮮な限り）停止をブロックする。**「キューが空っぽいから終わった」と推定で `phase=terminal` にしてはならない**。terminal 化前にキュー残数 = 0 と spinoff 検出済みを必ず確認し、`evidence` に当該 sweep で参照した metrics 行を append する。
+
+**スキーマ（issue-sweep の場合）:**
+```json
+{
+  "skill": "issue-sweep",
+  "started_at": "<ISO8601>",
+  "updated_at": "<ISO8601>",
+  "phase": "iterating" | "terminal",
+  "queue_total": <N>,
+  "queue_remaining": <N>,
+  "processed_count": <N>,
+  "merged_count": <N>,
+  "failed_count": <N>,
+  "round": <K>,
+  "max_rounds": <M>,
+  "last_counts": {"critical": null, "major": null, "minor": null},
+  "evidence": [".sweep/metrics.jsonl:<line>", ...],
+  "termination_reason": null | "queue_empty" | "manual_intervention" | "aborted"
+}
+```
+
+`last_counts` は issue-sweep 内では使わないが Stop Hook 互換のためフィールドを残す（null 固定）。各 Issue を処理し終えるたびに `.sweep/metrics.jsonl` への追記行を `evidence` に append する。
+
+**更新タイミング:**
+- フェーズ0/1 でキュー構築完了後に `phase=iterating, queue_total, queue_remaining=queue_total, processed_count=0, ...` で初期化
+- 各 Issue 完了ごとに `queue_remaining -= 1`, `processed_count += 1`, `merged_count` or `failed_count` をインクリメント、`evidence` に metrics 行参照を append、`updated_at` 更新
+- spinoff 追跡 round 更新時に `round += 1`、`queue_remaining` を新キューサイズに更新
+- フェーズ3 終了時に `phase=terminal` + `termination_reason` をセット
 
 ## --abort 処理
 
@@ -33,6 +65,12 @@ user-invocable: true
 
 ```bash
 rm -f .sweep/queue.txt .sweep/lock
+# state.json があれば terminal 化（履歴を残すため削除しない）
+if [[ -f .sweep/state.json ]]; then
+  jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '.phase = "terminal" | .termination_reason = "aborted" | .updated_at = $now' \
+    .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
+fi
 ```
 
 完了後「sweep を中止しキュー / ロックを削除しました」とユーザーに報告。
@@ -84,6 +122,22 @@ rm -f .sweep/queue.txt .sweep/lock
 5. キュー件数とラベル別内訳をユーザーに表示する
 6. 現在のブランチ（`git branch --show-current`）を「ベースブランチ」として表示する。違うブランチで進めたい場合はここでチェックアウトし直してから続行する
 7. 「中止したい時は `/issue-sweep --abort` または `rm .sweep/queue.txt`」を1行案内する
+8. **`.sweep/state.json` を初期化**:
+   ```bash
+   queue_total=$(wc -l < .sweep/queue.txt | tr -d ' ')
+   jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+         --argjson qt "$queue_total" --argjson mr "$max_rounds" '{
+     skill: "issue-sweep",
+     started_at: $now, updated_at: $now,
+     phase: "iterating",
+     queue_total: $qt, queue_remaining: $qt,
+     processed_count: 0, merged_count: 0, failed_count: 0,
+     round: 0, max_rounds: $mr,
+     last_counts: {critical: null, major: null, minor: null},
+     evidence: [],
+     termination_reason: null
+   }' > .sweep/state.json
+   ```
 
 ## フェーズ2: 1 Issue ずつ処理（キューが空になるまでループ）
 
@@ -255,10 +309,23 @@ sweep_notify "Merged" "#${n} (PR #${PR}, $(( $(date +%s) - start_ts ))s)" ":whit
 - `split-from:#<parent>` ラベルが付いた子 Issue の場合、すべての兄弟 Issue が close されたかチェックし、全 close なら親 Issue も `gh issue close <parent> --comment "All split children merged"` で閉じる
 - close に失敗（権限・既に closed 等）してもキュー処理は続行する
 
-### 2-6. キューから先頭行を削除
+### 2-6. キューから先頭行を削除 + state.json 更新
 **Issue close 完了後に実行**:
 ```bash
 sed -i '1d' .sweep/queue.txt
+
+# state.json を更新（処理済み 1 件分カウント・evidence append）
+metrics_line=$(wc -l < .sweep/metrics.jsonl | tr -d ' ')
+final_status=$(tail -n1 .sweep/metrics.jsonl | jq -r '.status // "merged"')
+jq --arg ev ".sweep/metrics.jsonl:${metrics_line}" \
+   --arg status "$final_status" \
+   --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+   '.queue_remaining = (.queue_remaining - 1)
+    | .processed_count = (.processed_count + 1)
+    | (if $status == "merged" then .merged_count = (.merged_count + 1) else .failed_count = (.failed_count + 1) end)
+    | .evidence += [$ev]
+    | .updated_at = $now' \
+   .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
 ```
 
 ### 2-7. orphan worktree 掃除（毎反復末尾）
@@ -304,6 +371,9 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - 「ここで停止します」「次に進む前に確認してください」とユーザー判断を待って止まる（Stop Hook が押し戻す）
 - ベースブランチを途中で変える
 - フェーズ0 の lock 取得をスキップする
+- **`.sweep/state.json` を `phase=terminal` にする前にキュー残数 = 0 と spinoff 検出済みを確認しない**（キュー処理途中で「ここで終わったことにする」のは禁止）
+- **state.json の `evidence` 配列が空のままフェーズ3 に進む**（各 Issue 完了で metrics 行参照を必ず追加する）
+- レポートに `## Evidence` セクションを書かない（state.json の evidence を必ず引用する形で残す）
 
 ## 通知（`.sweep/notify.url`）
 
@@ -467,7 +537,20 @@ spinoff_ids=$(echo "$new_issues" | jq -r --arg ids "$PROCESSED_IDS" '
 2. **`.sweep/metrics.jsonl` の今回 sweep 分から所要時間・失敗内訳を集計してユーザーに表示**
 3. キューファイルが空（`wc -l .sweep/queue.txt` が 0）であることを確認
 4. `git worktree prune` で残存 worktree を全削除
-5. **Markdown レポート生成** — `.sweep/report-sweep-<timestamp>.md` に書き出す:
+4b. **state.json を terminal 化**:
+   ```bash
+   # フェーズ3 到達時点で queue_remaining が 0 でなければ manual_intervention 扱い
+   remaining=$(jq -r '.queue_remaining // 0' .sweep/state.json)
+   if [[ "$remaining" == "0" ]]; then
+     reason="queue_empty"
+   else
+     reason="manual_intervention"
+   fi
+   jq --arg reason "$reason" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '.phase = "terminal" | .termination_reason = $reason | .updated_at = $now' \
+      .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
+   ```
+5. **Markdown レポート生成** — `.sweep/report-sweep-<timestamp>.md` に書き出す（**`## Evidence` セクション必須**、state.json の `evidence` を引用）:
 
 ```bash
 ts=$(date -u +%Y%m%dT%H%M%SZ)
@@ -494,6 +577,11 @@ mkdir -p .sweep
     'select(.ts >= $since and .source != "refine") |
      "| #\(.issue) | \(.skill // "-") | \(.duration_sec)s | \(.status) | \(.pr_url // "-") | \(.ci_respawns // 0) |"' \
     .sweep/metrics.jsonl
+  echo
+  echo "## Evidence"
+  echo
+  echo "（各 Issue 処理時に参照した metrics 行。state.json の evidence をそのまま列挙）"
+  jq -r '.evidence[] | "- \(.)"' .sweep/state.json
   echo
   echo "## Failures & Manual Intervention"
   jq -r --arg since "$sweep_start_iso" \

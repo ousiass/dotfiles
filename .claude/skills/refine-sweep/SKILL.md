@@ -27,11 +27,60 @@ user-invocable: true
 - リポジトリで auto-merge 有効化済み
 - `.sweep/` 書き込み権限
 
+## 状態管理 `.sweep/state.json`
+
+sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` の間（lock が新鮮な限り）停止をブロックする。**review を再実行せず推定で `phase=terminal` にしてはならない**。terminal 化前に必ず最新 review を走らせ、その出力パスを `evidence` に append する。
+
+**スキーマ:**
+```json
+{
+  "skill": "refine-sweep",
+  "started_at": "<ISO8601>",
+  "updated_at": "<ISO8601>",
+  "phase": "iterating" | "terminal",
+  "iteration": <N>,
+  "max_iter": <N>,
+  "thresholds": {"critical": 0, "major": 0, "minor": <max_minor>},
+  "last_counts": {"critical": <N>, "major": <N>, "minor": <N>},
+  "evidence": ["<path>", ...],
+  "termination_reason": null | "thresholds_met" | "max_iter" | "agent_failed" | "fix_ineffective" | "aborted"
+}
+```
+
+**更新タイミング:**
+- フェーズ0/1 開始時に `phase=iterating, iteration=0, evidence=[]` で初期化
+- 各反復終了時（2-3 テレメトリ追記直後）に `iteration += 1`, `last_counts` を最新の review 集計結果で上書き、`evidence` に当該反復のテレメトリ行（例: `.sweep/refine-metrics.jsonl:42` のように行番号付きで）または個別 review レポートのパスを append、`updated_at` 更新
+- フェーズ3 で `phase=terminal` と `termination_reason` をセット。**直前に最終 review を走らせ evidence を追加してから terminal 化する**
+
+**更新ヘルパー（heredoc + jq で in-place 書き換え）:**
+
+```bash
+write_sweep_state() {
+  local patch="$1"  # JSON patch (top-level merge)
+  local file=".sweep/state.json"
+  local now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  local tmp="${file}.tmp"
+  jq --arg now "$now" --argjson patch "$patch" '. + $patch | .updated_at = $now' "$file" > "$tmp" && mv "$tmp" "$file"
+}
+```
+
 ## フェーズ0: lock 取得（issue-sweep と同じ heartbeat 方式）
 
 1. `.sweep/lock` が存在し timestamp が 2 時間以内 → 「他 sweep 実行中」と表示し終了
 2. それ以外は `echo "$PPID:$(date +%s)" > .sweep/lock`
-3. フェーズ3 / 中断 / `--abort` 時に `rm -f .sweep/lock`
+3. **`.sweep/state.json` を初期化**:
+   ```bash
+   jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson mi "$max_iter" --argjson mm "$max_minor" '{
+     skill: "refine-sweep",
+     started_at: $now, updated_at: $now,
+     phase: "iterating", iteration: 0, max_iter: $mi,
+     thresholds: {critical: 0, major: 0, minor: $mm},
+     last_counts: {critical: null, major: null, minor: null},
+     evidence: [],
+     termination_reason: null
+   }' > .sweep/state.json
+   ```
+4. フェーズ3 / 中断 / `--abort` 時に `rm -f .sweep/lock`。**`.sweep/state.json` は残す**（履歴・監査用）が、必ず `phase=terminal` にしてから抜けること
 
 ## フェーズ1: 環境準備とドメイン一覧抽出
 
@@ -87,9 +136,10 @@ Agent({
 
 各 agent の返答を `/refine` と同じ jq で集約。
 
-### 2-3. テレメトリ追記
+### 2-3. テレメトリ追記 + state.json 更新
 
 ```bash
+# テレメトリ append（既存）
 jq -nc \
   --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --argjson iter "$iter" \
@@ -100,7 +150,23 @@ jq -nc \
   --argjson halt "$HAS_HALT" \
   '{ts:$ts,source:"refine-sweep",iter:$iter,critical:$c,major:$m,minor:$mn,by_source:$by_src,halt:$halt}' \
   >> .sweep/refine-metrics.jsonl
+
+# state.json を更新（iteration / last_counts / evidence append）
+ev_line=".sweep/refine-metrics.jsonl:$(wc -l < .sweep/refine-metrics.jsonl | tr -d ' ')"
+jq --argjson iter "$iter" \
+   --argjson c "$(echo "$findings" | jq '.critical | length')" \
+   --argjson m "$(echo "$findings" | jq '.major | length')" \
+   --argjson mn "$(echo "$findings" | jq '.minor | length')" \
+   --arg ev "$ev_line" \
+   --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+   '.iteration = $iter
+    | .last_counts = {critical:$c, major:$m, minor:$mn}
+    | .evidence += [$ev]
+    | .updated_at = $now' \
+   .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
 ```
+
+**evidence の append 規則**: 各反復で必ず最低 1 件追加する。空の状態でフェーズ3 に進ませない。
 
 ### 2-4. ドメイン振り分けと閾値判定
 
@@ -244,9 +310,20 @@ spinoffs=$(echo "$new_issues" | jq -r '[.[] | select(
 
 ### 3-1. 完了処理
 
-1. status を確定（`clean` / `iter_limit` / `agent_failed`）
-2. `git worktree prune` で残存 worktree 整理
-3. レポート生成 `.sweep/report-refine-sweep-<ts>.md`:
+1. status を確定（`clean` / `iter_limit` / `agent_failed` / `fix_ineffective`）
+2. **最終 review 実行（terminal 化前の必須ステップ）**:
+   - 直近の 2-2 から base が動いている可能性があるため、フェーズ2-2 と同じ並列 review を **もう一度** 走らせて最終 `last_counts` を取得する
+   - 結果を 2-3 と同じ手順で `.sweep/refine-metrics.jsonl` に append し、state.json の `last_counts` と `evidence` を更新する（**最低 1 件 evidence が増えていること**）
+   - status の判定はこの最終 review の counts を基準にする（推定で `clean` にしない）
+3. `git worktree prune` で残存 worktree 整理
+4. **state.json を terminal 化**:
+   ```bash
+   reason="thresholds_met"   # または iter_limit / agent_failed / fix_ineffective / aborted
+   jq --arg reason "$reason" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+     '.phase = "terminal" | .termination_reason = $reason | .updated_at = $now' \
+     .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
+   ```
+5. レポート生成 `.sweep/report-refine-sweep-<ts>.md`（**`## Evidence` セクション必須**、state.json の `evidence` を引用）:
 
 ```bash
 ts=$(date -u +%Y%m%dT%H%M%SZ)
@@ -258,7 +335,7 @@ mkdir -p .sweep
   echo "## Summary"
   echo "- Base branch: ${base_branch}"
   echo "- Iterations: ${iter}"
-  echo "- Final status: **${status}**"
+  echo "- Final status: **${status}** (reason: ${reason})"
   echo "- Elapsed: $(( $(date +%s) - start_ts ))s"
   echo
   echo "## Findings trend"
@@ -266,6 +343,11 @@ mkdir -p .sweep
   echo "| Iter | Critical | Major | Minor |"
   echo "|---|---|---|---|"
   jq -r 'select(.source == "refine-sweep") | "| \(.iter) | \(.critical) | \(.major) | \(.minor) |"' .sweep/refine-metrics.jsonl
+  echo
+  echo "## Evidence"
+  echo
+  echo "（各反復で参照したテレメトリ行 / レポートパス。state.json の evidence をそのまま列挙）"
+  jq -r '.evidence[] | "- \(.)"' .sweep/state.json
   echo
   echo "## Remaining findings"
   if [[ "$status" != "clean" ]]; then
@@ -276,9 +358,9 @@ mkdir -p .sweep
 } > "$report"
 ```
 
-4. `rm -f .sweep/lock` でロック解除
-5. `sweep_notify "refine-sweep done" "${iter} iters, status=${status}, report: ${report}" ":checkered_flag:"`
-6. ユーザーにレポートパスを返す
+6. `rm -f .sweep/lock` でロック解除（state.json は terminal のまま残す）
+7. `sweep_notify "refine-sweep done" "${iter} iters, status=${status}, report: ${report}" ":checkered_flag:"`
+8. ユーザーにレポートパスを返す
 
 ## 禁止行動
 
@@ -291,6 +373,9 @@ mkdir -p .sweep
 - critical/major が残っているのにループを打ち切る
 - max_iter を超えても無限ループする
 - **デフォルトで minor をスキップする**（`--no-minor` 明示時のみ minor 修正を省略可能。それ以外は全 severity をゼロに磨く）
+- **`.sweep/state.json` を `phase=terminal` にする前に最終 review を再実行せず、推定で `clean` を宣言する**（iter 2 以降のレビューをスキップして「spinoff したから clean だろう」と判定するのは禁止。3-1 ステップ2 で必ず最終 review を走らせる）
+- **`.sweep/state.json` の `evidence` 配列が空のままフェーズ3 に進む / terminal 化する**（各反復で最低 1 件追加するルールを破らない）
+- レポートに `## Evidence` セクションを書かない（state.json の evidence をそのまま引用する形で必ず残す）
 - **spinoff の自動 issue-sweep 委譲をスキップする**（`--no-follow-spinoffs` 明示時のみ。それ以外は spinoff も最大 2 周まで自動で全実装させる）
 - fix agent が `--no-merge` で済ませる（必ず auto-merge 予約まで実行）
 - ユーザーに「続けますか」と聞く（Stop Hook が押し戻す）
