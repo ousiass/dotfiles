@@ -1,0 +1,153 @@
+> 注: このファイルは `~/dotfiles` リポジトリ全体（fish / nvim / tmux / install scripts / `.claude/` 配下のスキル類すべて）の変更履歴です。
+
+## [v0.2.0] - 2026-06-21
+
+`/issue-sweep` / `/refine` / `/refine-sweep` の三点セットを中心とした **自律 Sweep & Refine ワークフロー** の追加。
+
+### ✨ New Features / 新機能
+
+- Add `/issue-sweep` skill for autonomous Issue-to-merge loop / 複数 OPEN Issue をキュー化し Stop Hook と連動して自律的に実装→auto-merge→Issue close まで進める司令塔スキルを追加
+- Add `/refine` skill for iterative review-fix-merge polishing / review→修正→再 review を回して critical/major=0 ∧ minor≤閾値 まで PR を磨き上げ auto-merge と Issue close まで実行するスキルを追加
+- Add `/refine-sweep` skill for repo-wide continuous polishing / リポジトリ全体に対して 4 観点 review→fix→PR→auto-merge を反復し critical/major=0 まで持っていく全体版 refine を追加
+- Add `/issue-split-auto` for non-interactive Issue splitting / 大型 Issue を自律的にサブ Issue へ分割する非対話版スキルを追加（issue-sweep のフェーズ1 から呼ばれる）
+- Add Stop Hook + SessionStart Hook for sweep continuity / `.sweep/queue.txt` 残時に停止をブロックする Stop Hook と、セッション開始時にオープン Issue 一覧を注入する SessionStart Hook を追加
+- Parallel processing with `--parallel N` / 独立 Issue を最大 5 並列で処理する並列モードを追加
+- 4-perspective parallel review / 各反復で `/code-review` / `/doc-drift` / `/spec-audit`（HALT 検知時は `/halt-review`）を並列起動して findings を集約
+- Domain-staged parallel PRs in refine-sweep / 仕様書からドメイン一覧（frontend / backend / db / ci 等）を抽出し各反復でドメインごとに別 PR を並列起動、db → backend/frontend/ci の依存ウェーブで実行
+- Spinoff Issue auto-tracking / sweep 開始後に作成された Parent ラベル/本文を持つ Issue を spinoff として検出、デフォルト 2 周まで自動再 sweep（`--max-rounds N` で制御、最大 5）
+- refine-sweep auto-delegates spinoffs to issue-sweep / refine-sweep のフェーズ3 で spinoff を検出し `Agent(claude)` 経由で `/issue-sweep` を自動起動して実装まで委譲
+- Heartbeat-based stale lock recovery / `.sweep/lock` の鮮度判定（2h）で stale を救済し誤ブロックを防止
+- Telemetry to `.sweep/metrics.jsonl` and `.sweep/refine-metrics.jsonl` / 各 Issue / 反復の処理結果を JSON 1 行追記
+- Project-scoped webhook notifications / `.sweep/notify.url` で Slack / Discord / ntfy.sh を URL パターンから自動判別して通知
+- Auto-generated Markdown reports / フェーズ3 終了時に `.sweep/report-{sweep,refine,refine-sweep}-<ts>.md` を自動生成
+- Worktree-isolated execution / 各 Issue を独立 worktree で実行、起動前後に差分検知して orphan を毎反復削除、フェーズ3 完了時に `git worktree prune`
+- HALT project auto-detection / `*.templ` ファイル存在または仕様書の HALT 記述で自動検知し `/halt-review` を追加
+- Parent issue auto-expansion / `/issue-sweep #<parent>` 指定時、`split-from:#<parent>` ラベル付き子 Issue を持つなら子に展開してそのフェーズだけ実装
+- Merge gate via refine results / refine 結果を見て critical/major 残ありなら auto-merge を予約せず failure として手動対応へ falls back
+
+### 🔧 Improvements / 改善
+
+- Move sweep runtime state from `.claude/` to `.sweep/` / Claude Code の sensitive-file ガード回避のため sweep 系のキュー・lock・テレメトリを `.sweep/` ディレクトリに移動
+- Refresh base branch on each Issue / 各 Issue 着手前に base branch を最新化し、直前のマージ分を取り込んでから次の修正を始める
+- Auto-sequential for dangerous cases / 並列度はユーザー確認せず、危険ケースのみ自動で sequential 化
+- Enforce CTO discipline in refine-sweep engineer agent / fix → PR → CI 待ちを engineer agent 内に閉じ込めメインスレッドはオーケストレーションに専念
+- Set `defaultMode` to `bypassPermissions` for unattended operation / 完全無人化のため defaultMode を bypassPermissions に変更し Skill 許可漏れを補填
+- Specify gh/git subcommand-level permission patterns / 許可パターンを具体化（gh/git のサブコマンド単位 + `.claude/` への書き込み）
+- Expand `permissions.allow` for sweep operations / `gh pr/issue/run/api/label/workflow/repo/release/auth`, `git status/log/diff/branch/checkout/switch/fetch/pull/push/add/commit/merge/worktree/remote/stash/rev-parse/ls-files/config --local`, POSIX 各種, `curl`, `mkdir/cp/mv/test/kill -0/ps` を事前承認
+- Allow `Write/Edit/Read(.sweep/**)` / sweep ランタイムの書き込みを一括許可
+
+### 🐛 Bug Fixes / バグ修正
+
+- Ensure `/refine` always runs inside a worktree / `/refine` も常に worktree 内で動作することを明示
+- Move `/refine` from git-diff version to full version / `/refine` を git 版から通常版に切り替え、issue-sweep にも refine を統合
+
+### File layout
+
+| パス | 役割 |
+|---|---|
+| `.claude/skills/issue-sweep/SKILL.md` | sweep スキル本体 |
+| `.claude/skills/refine/SKILL.md` | refine スキル本体 |
+| `.claude/skills/refine-sweep/SKILL.md` | refine-sweep スキル本体 |
+| `.claude/skills/issue-split-auto/SKILL.md` | 非対話的 Issue 分割スキル |
+| `.claude/hooks/check-issue-queue.sh` | Stop Hook 実装 |
+| `.sweep/queue.txt` | sweep キュー（gitignore） |
+| `.sweep/lock` | 多重起動防止 lock（gitignore） |
+| `.sweep/metrics.jsonl` | sweep テレメトリ（gitignore） |
+| `.sweep/refine-metrics.jsonl` | refine テレメトリ（gitignore） |
+| `.sweep/notify.url` | Webhook URL（gitignore） |
+| `.sweep/report-{sweep,refine,refine-sweep}-*.md` | 自動生成レポート（gitignore） |
+
+### Usage example
+
+```bash
+# Slack 通知をプロジェクトで有効化
+echo "https://hooks.slack.com/services/T0XXX/B0XXX/xxxx" > .sweep/notify.url
+
+# 全 OPEN Issue を端から実装→マージ→close まで
+/issue-sweep
+
+# sprint-1 ラベルだけ、並列 3
+/issue-sweep label:sprint-1 --parallel 3
+
+# 特定 PR を「軽微指摘 5 個以下」まで研磨
+/refine #127
+
+# コードベース全体を critical+major=0 まで磨く
+/refine-sweep
+```
+
+---
+
+## [v0.1.0] - 2026-05-11
+
+初回ベースラインリリース。Mac / Ubuntu 両対応の dotfiles 一式（シェル・エディタ・言語ツールチェイン・Claude Code スキル群）。
+
+### ✨ New Features / 新機能
+
+#### Install / Update / Reset
+
+- Cross-platform install for Mac and Ubuntu / Mac/Ubuntu 両対応化と言語ツール（uv/bun/rustup/fnm/Go）の自動インストール
+- `install.sh` modularization into `lib/` / `install.sh` を `lib/` 配下に責務別分割
+- Install `gh` and `gcloud` / `install.sh` に `gh` / `gcloud` のインストール処理を追加
+- Install MolePort and Linterly / `install.sh` に MolePort / Linterly のインストールを追加
+- Install cloudflared / wrangler / netlify-cli / pm2 / Cloudflare 系 + Node デプロイ系ツール群を追加
+- Install Claude Code / Codex CLI / Gemini CLI / 主要 AI CLI を `install.sh` に統合
+- `update.sh` and `make update` / 各ツールの update 関数と `update.sh` / `make update` を追加
+- `reset-tools.sh` to reset language/AI tools / 言語ツール/AI CLI をリセットして再インストールする `reset-tools.sh` を追加
+- Makefile install/update/reset/help targets / Makefile に install/update/reset/help ターゲットを追加
+
+#### Shell / Editor
+
+- Initial nvim / tmux / fish dump and setup / nvim/tmux/fish の初回ダンプとセットアップスクリプトを追加
+- gh-dash configuration / gh-dash の設定を dotfiles に追加
+- `tide-config.fish` to carry the tide prompt across machines / tide プロンプト設定を新マシンに引き継ぐ `tide-config.fish` を追加
+- `cc` alias for `claude --continue` / claude --continue 用の cc エイリアスを追加
+- Dotfiles-managed PATH (fish/bash) / PATH 設定を fish/bash 両対応で dotfiles 管理化
+- Auto-pull dotfiles on interactive shell start / 対話シェル起動時に dotfiles を自動 pull する fish 設定を追加（後に throttle 削除）
+
+#### Configs / Secrets
+
+- Consolidate `~/.env` as the single env-var store / `~/.env` はsecret/非secret問わず全 env 変数の保管場所
+- `.env` body moved to dotfiles, `.mcp.json` reorganized to `claude-mcp/` / `.env` 実体を dotfiles に移動し `.mcp.json` を `claude-mcp/` ディレクトリに整理
+- `.claude/` and `.mcp.json` integrated into dotfiles / `.claude/` と `.mcp.json` を取り込み `~/.env` 集約方式に変更
+
+#### Claude Code Skills
+
+- `spec-gen` with project overview document generation / spec-gen にプロジェクト概要ドキュメント生成を追加
+- `spec-review` per-finding commit flow / spec-review で指摘 1 件ごとにコミットする手順を追加
+- `env-setup` pins TS/JS package manager to bun / env-setup で TS/JS のパッケージマネージャを bun に固定
+- `issue-split` copies related spec into sub-issue body / issue-split でサブ Issue 本文に関連仕様を転記
+- `spinoff-issue` / `spinoff-issue-en` skills + impl integration / spinoff-issue 系スキルを追加し impl 系から呼び出せるよう接続
+- `impl` skills force immediate spinoff Issue creation / impl 系スキルで spinoff-issue の即時作成を強制
+- `bug-report` Issue title/label unified rules / bug-report スキルに Issue タイトル・ラベルの統一ルールを追加
+- `spec-to-hugo` with Cloudflare Workers + Static Assets deploy / spec-to-hugo に Cloudflare Workers + Static Assets デプロイ設定を追加
+- `spec-to-hugo` Basic auth via env / spec-to-hugo に env ベースの Basic 認証を追加
+
+#### Claude Code Settings
+
+- `skipAutoPermissionPrompt` in `settings.json` / `settings.json` に `skipAutoPermissionPrompt` を追加
+- `AskUserQuestion` usage principles in CLAUDE.md / CLAUDE.md に AskUserQuestion 利用原則を追加
+
+### 🔧 Improvements / 改善
+
+- Simplify `spec-to-hugo` Cloudflare deploy for UI integration / spec-to-hugo の Cloudflare デプロイを UI 連携前提に簡素化
+- Add runtime data entries to `.claude/.gitignore` / `.claude/.gitignore` にランタイムデータ項目を追加
+- Remove dotfiles auto-pull throttle / dotfiles 自動 pull のスロットルを削除し毎回実行に変更
+- Make `secrets.fish` missing a fatal error in install.sh / secrets.fish が無い場合は `install.sh` をエラー終了させる
+- README with command list / README にコマンド一覧を整備
+
+### 🐛 Bug Fixes / バグ修正
+
+- fish PATH adds system paths (`/usr/local/bin` etc.) / fish の PATH に `/usr/local/bin` 等のシステムパスを追加
+- `brew install/upgrade` per-package loop for fault tolerance / brew install/upgrade を per-package ループで耐障害化
+- `install_go` warns on version-fetch failure instead of aborting / `install_go` の version 取得失敗時に script abort せず警告で継続
+- Unfreeze fisher plugin commits for new-machine install / fisher プラグインの commit を解除し新マシンでの install.sh 失敗を修正
+- nvim plugin sync uses `Lazy! restore` / install.sh の nvim プラグイン同期を `Lazy! sync` から `Lazy! restore` に変更
+- `fnm.fish` loads before `paths.fish` / `fnm.fish` が `paths.fish` より先にロードされる順序問題を修正
+- nvim config inconsistencies / nvim 設定の不整合を修正
+- `spec-to-hugo` root → /docs/ redirect on edge / spec-to-hugo のルート→/docs/ リダイレクトをエッジ側で処理
+- `spec-to-hugo` unified on bun for Cloudflare deploy / spec-to-hugo を bun ベースに統一し Cloudflare デプロイを通す
+
+### 📝 Documentation / ドキュメント
+
+- `~/.env` is the storage location for all env vars / `~/.env` はsecret/非secret問わず全 env 変数の保管場所であることを明記
