@@ -16,8 +16,8 @@ user-invocable: true
 - `/issue-sweep #<parent>` — 指定した **フェーズ Issue**（`split-from:#<parent>` ラベル付き子 Issue を持つ親）に対しては、子 Issue 群に自動展開してそれだけ処理する。親本体は実装対象にしない（フェーズ単位の一括実装に使える）
 - `/issue-sweep --abort` — 実行中の sweep を中止しキュー / ロックを削除（後述）
 - `/issue-sweep --parallel <N>` — 同時に処理する Issue 数（**デフォルト 5**、上限 5）。依存関係のない Issue を最大 N 件並列で agent に渡す。ユーザーに値を確認せず常にこのデフォルトで起動する
-- `/issue-sweep --no-follow-spinoffs` — sweep 中に spinoff された Issue を最後に再 sweep するのを抑止（デフォルトは自動 2 周まで）
-- `/issue-sweep --max-rounds <N>` — spinoff 追跡の上限周回数（デフォルト 2、最大 5）
+- `/issue-sweep --no-follow-spinoffs` — sweep 中に spinoff された Issue を最後に再 sweep するのを抑止（デフォルトは spinoff が出なくなるまで自動追跡）
+- `/issue-sweep --max-rounds <N>` — spinoff 追跡の上限周回数（**デフォルト 10、最大 20**）。通常はこの値に到達する前に spinoff が枯れて自然終了する。明示指定された場合のみその値を使う
 
 ## 前提条件
 
@@ -362,7 +362,8 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - **engineer agent 内で `/refine --no-merge` をスキップする**（4 観点レビューを通さず auto-merge に進むと品質ばらつきが出る）
 - **反復冒頭の base branch 最新化をスキップする**（前 Issue のマージ分を取り込まず古い base で次を実装すると競合・無駄作業の原因）
 - **ユーザーに並列度（--parallel）を確認する**（デフォルト 5 で常に起動。必要なら明示指定された値を使う）
-- **spinoff 検出をスキップして sweep を終わらせる**（実装中に作られた子 Issue を放置すると「自律連続実装」の意味が薄れる。デフォルト 2 周まで自動追跡）
+- **spinoff 検出をスキップして sweep を終わらせる**（実装中に作られた子 Issue を放置すると「自律連続実装」の意味が薄れる。デフォルト 10 周まで自動追跡、spinoff 0 で自然終了）
+- **「spinoff も追跡しますか？」「次の round に進みますか？」のような確認をユーザーに取る**（デフォルトで全 round 自動継続する。`--no-follow-spinoffs` が明示指定されているとき以外、ユーザーに二択を投げない）
 - auto-merge 予約をスキップして手動マージを促す（ずっと自律稼働するのが目的）
 - マージ完了確認をスキップして次の Issue に進む（PR が closed/CI fail なまま埋もれる）
 - **CI 失敗を検知せずポーリングを継続する**（無限待機の原因）
