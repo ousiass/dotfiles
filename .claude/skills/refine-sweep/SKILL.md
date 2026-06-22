@@ -1,6 +1,6 @@
 ---
 name: refine-sweep
-description: 全コードベースを 4 観点で連続レビューし、ドメイン別並列 PR で critical/major/minor をゼロまで磨く。spinoff Issue も自動 /issue-sweep に委譲して実装まで完了。
+description: 全コードベースを 4 観点で連続レビューし、ドメイン別並列 PR で critical/major=0 ∧ minor≤5 まで磨く。spinoff Issue も自動 /issue-sweep に委譲して実装まで完了。
 user-invocable: true
 ---
 
@@ -15,7 +15,7 @@ user-invocable: true
 - `/refine-sweep` — 全コードベース対象、**critical + major + minor すべて**を fix（デフォルト挙動）
 - `/refine-sweep --max-iter N` — 反復上限（デフォルト 5）
 - `/refine-sweep --no-minor` — minor を fix 対象から外し critical + major のみ修正（軽量モード）
-- `/refine-sweep --max-minor N` — minor 残許容数（デフォルト 0、つまり minor=0 まで磨く）
+- `/refine-sweep --max-minor N` — minor 残許容数（デフォルト 5、`/refine` と揃えた値。0 を指定すれば完全に磨ききる）
 - `/refine-sweep --no-follow-spinoffs` — spinoff Issue を自動 sweep するのを抑止
 - `/refine-sweep --max-rounds N` — spinoff 追跡の上限周回数（**デフォルト 10、最大 20**）。通常はこの値に到達する前に spinoff が枯れて自然終了する
 - `/refine-sweep --abort` — 実行中の sweep を中止し lock を削除
@@ -99,7 +99,7 @@ write_sweep_state() {
 5. 各ドメインの**ファイルパスマッピング**も仕様書から取得（記述があれば）:
    - 例: `frontend: apps/web/**, src/components/**` のような記述があれば使う
    - 無ければ標準推測: `frontend: apps/web/* | web/* | src/components/* | *.tsx | *.jsx | *.vue`、`backend: apps/api/* | api/* | src/server/* | *.go`、`db: migrations/* | schema.sql | db/* | prisma/*`、`ci: .github/workflows/* | ci/* | Dockerfile`
-6. `start_ts=$(date +%s)`, `iter=0`, `max_iter=5`, `include_minor=true`, `max_minor=0`, `round=0`, `max_rounds=10`, `follow_spinoffs=true` を初期化（`--no-minor` 指定時のみ `include_minor=false`、`--no-follow-spinoffs` 指定時のみ `follow_spinoffs=false`）
+6. `start_ts=$(date +%s)`, `iter=0`, `max_iter=5`, `include_minor=true`, `max_minor=5`, `round=0`, `max_rounds=10`, `follow_spinoffs=true` を初期化（`--no-minor` 指定時のみ `include_minor=false`、`--no-follow-spinoffs` 指定時のみ `follow_spinoffs=false`）
 7. ユーザーに「検出ドメイン: db, backend, frontend, ci, other」と並びをそのまま表示（確認は取らない）
 
 ## フェーズ2: review → fix → merge ループ
@@ -372,7 +372,7 @@ mkdir -p .sweep
 - **fix agent がドメインのファイル範囲を超えて他ドメインの src を編集する**（scope_violation で返すべき）
 - critical/major が残っているのにループを打ち切る
 - max_iter を超えても無限ループする
-- **デフォルトで minor をスキップする**（`--no-minor` 明示時のみ minor 修正を省略可能。それ以外は全 severity をゼロに磨く）
+- **デフォルトで minor をスキップする**（`--no-minor` 明示時のみ minor 修正を省略可能。それ以外は minor も fix 対象だが、許容数は `max_minor=5` まで残してよい）
 - **`.sweep/state.json` を `phase=terminal` にする前に最終 review を再実行せず、推定で `clean` を宣言する**（iter 2 以降のレビューをスキップして「spinoff したから clean だろう」と判定するのは禁止。3-1 ステップ2 で必ず最終 review を走らせる）
 - **`.sweep/state.json` の `evidence` 配列が空のままフェーズ3 に進む / terminal 化する**（各反復で最低 1 件追加するルールを破らない）
 - レポートに `## Evidence` セクションを書かない（state.json の evidence をそのまま引用する形で必ず残す）
