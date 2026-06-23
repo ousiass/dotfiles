@@ -73,6 +73,7 @@ main() {
     link_home_file .mcp.json claude-mcp/mcp.json
 
     setup_profile_paths
+    setup_global_gitignore
     install_fisher
     install_node_lts
     sync_nvim_plugins

@@ -94,6 +94,48 @@ update_nvim_plugins() {
 }
 
 # ------------------------------------------------------------------
+# Global gitignore のセットアップ
+#
+# dotfiles repo の .gitignore を ~/.config/git/ignore にコピーし、
+# git config --global core.excludesfile で参照させる。
+# これでマシン上の全 git リポジトリで .claude/ や .sweep/ などが
+# デフォルトで ignore される。
+# ------------------------------------------------------------------
+setup_global_gitignore() {
+    local src="$DOTFILES_DIR/.gitignore"
+    local dst_dir="$CONFIG_DIR/git"
+    local dst="$dst_dir/ignore"
+
+    if [[ ! -f "$src" ]]; then
+        warn "$src が存在しないため global gitignore のセットアップをスキップ"
+        return
+    fi
+
+    mkdir -p "$dst_dir"
+
+    # 既存があれば内容比較。同一ならスキップ、違えば backup して上書き
+    if [[ -f "$dst" ]] && cmp -s "$src" "$dst"; then
+        log "$dst は最新のため変更なし"
+    else
+        if [[ -f "$dst" ]]; then
+            local backup="$dst.bak.$TIMESTAMP"
+            log "$dst を $backup にバックアップ"
+            cp "$dst" "$backup"
+        fi
+        cp "$src" "$dst"
+        log "$src → $dst にコピー"
+    fi
+
+    # core.excludesfile を設定（既に同値なら no-op）
+    local current
+    current="$(git config --global --get core.excludesfile 2>/dev/null || true)"
+    if [[ "$current" != "$dst" ]]; then
+        git config --global core.excludesfile "$dst"
+        log "git config --global core.excludesfile = $dst"
+    fi
+}
+
+# ------------------------------------------------------------------
 # fish をデフォルトシェルに
 # ------------------------------------------------------------------
 get_login_shell() {
