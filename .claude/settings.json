@@ -69,6 +69,7 @@
       "Bash(rm:*/tmp/sweep-*)",
       "Bash(.claude/hooks/check-issue-queue.sh)",
       "Bash(.claude/hooks/check-sweep-state.sh)",
+      "Bash(.claude/scripts/copy-root-gitignore.sh)",
       "Write(.sweep/**)",
       "Edit(.sweep/**)",
       "Read(.sweep/**)",
@@ -119,6 +120,10 @@
           {
             "type": "command",
             "command": "gh issue list --state open --json number,title,labels --limit 20 2>/dev/null || true"
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/scripts/copy-root-gitignore.sh 2>/dev/null || true"
           }
         ]
       }
