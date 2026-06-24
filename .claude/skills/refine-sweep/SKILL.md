@@ -1,6 +1,6 @@
 ---
 name: refine-sweep
-description: 全コードベースを 4 観点で連続レビューし、ドメイン別並列 PR で critical/major=0 ∧ minor≤5 まで磨く。spinoff Issue も自動 /issue-sweep に委譲して実装まで完了。
+description: 全コードベースを 4 観点で連続レビューし、ドメイン別並列 PR で critical/major=0 ∧ minor≤5 まで磨く。残 open Issue も自動 /issue-sweep に委譲して実装まで完了。
 user-invocable: true
 ---
 
@@ -16,8 +16,8 @@ user-invocable: true
 - `/refine-sweep --max-iter N` — 反復上限（デフォルト 5）
 - `/refine-sweep --no-minor` — minor を fix 対象から外し critical + major のみ修正（軽量モード）
 - `/refine-sweep --max-minor N` — minor 残許容数（デフォルト 5、`/refine` と揃えた値。0 を指定すれば完全に磨ききる）
-- `/refine-sweep --no-follow-spinoffs` — spinoff Issue を自動 sweep するのを抑止
-- `/refine-sweep --max-rounds N` — spinoff 追跡の上限周回数（**デフォルト 10、最大 20**）。通常はこの値に到達する前に spinoff が枯れて自然終了する
+- `/refine-sweep --no-follow-spinoffs` — refine 後の残 open Issue 自動 sweep を抑止（フラグ名は歴史的経緯で残しているが対象は spinoff に限らない全 open Issue）
+- `/refine-sweep --max-rounds N` — 残 Issue 追跡の上限周回数（**デフォルト 10、最大 20**）。通常はこの値に到達する前に open Issue が 0 になり自然終了する
 - `/refine-sweep --abort` — 実行中の sweep を中止し lock を削除
 
 ## 前提
@@ -302,41 +302,43 @@ fi
 
 ## フェーズ3: 完了処理とレポート
 
-### 3-0. spinoff Issue 検出と自動実装
+### 3-0. 残 Issue の自動実装
 
-refine-sweep 中に develop agent が `/spinoff-issue` で作成した Issue を検出し、**自動で `/issue-sweep` に委譲して全部実装する**（デフォルト挙動）:
+refine 終了時点で **open のままになっている全 Issue** を `/issue-sweep` に委譲して片付ける。sweep 中に develop agent が `/spinoff-issue` で作った新規 Issue だけでなく、事前から残っていた Issue も含めて処理対象に入れる。これは「refine で `## 派生 issue` をうまく検知できなかった」「ラベルが付かなかった」等の検出漏れに対する保険でもある:
 
 ```bash
 sweep_start_iso="<フェーズ1 で記録した開始時刻>"
-new_issues=$(gh issue list --state open --search "created:>=${sweep_start_iso}" --json number,title,labels,body --limit 200)
-# /spinoff-issue が付与する `spinoff` ラベルを目印に検出
-spinoffs=$(echo "$new_issues" | jq -r '[.[] | select(
-  ([.labels[]?.name] | index("spinoff")) != null
-)] | map(.number) | join(" ")')
+all_open=$(gh issue list --state open --json number,title,createdAt --limit 200)
+
+# 全 open issue を sweep 開始以降 / 既存の 2 群に分けて把握（通知/レポート用）
+remaining_ids=$(echo "$all_open" | jq -r '[.[] | .number] | join(" ")')
+new_count=$(echo "$all_open" | jq -r --arg since "$sweep_start_iso" '[.[] | select(.createdAt >= $since)] | length')
+existing_count=$(echo "$all_open" | jq -r --arg since "$sweep_start_iso" '[.[] | select(.createdAt < $since)] | length')
+total=$(( new_count + existing_count ))
 ```
 
 判定:
-- spinoffs が**空** → 3-1 へ
-- spinoffs があり、`--no-follow-spinoffs` 指定なし、`round < max_rounds`:
+- `remaining_ids` が **空**（total == 0） → 3-1 へ
+- 1 件以上あり、`--no-follow-spinoffs` 指定なし、`round < max_rounds`:
   - `round += 1` をインクリメント
-  - 通知 `sweep_notify "refine-sweep: spinoffs detected" "${#spinoffs} 件を /issue-sweep に委譲" ":arrows_counterclockwise:"`
-  - **`Agent(claude)` で `/issue-sweep <spinoff番号 列挙>` を起動**してすべて実装させる:
+  - 通知 `sweep_notify "refine-sweep: pending issues" "${total} 件 (sweep 中作成 ${new_count} / 既存 ${existing_count}) を /issue-sweep に委譲" ":arrows_counterclockwise:"`
+  - **`Agent(claude)` で `/issue-sweep <remaining_ids 列挙>` を起動**してすべて実装させる:
     ```
     Agent({
-      description: "refine-sweep round <round>: spinoff issue-sweep",
+      description: "refine-sweep round <round>: clear remaining issues",
       subagent_type: "claude",
       prompt: """
-      /issue-sweep <spinoffs> を Skill ツールで起動し、すべての spinoff Issue を実装・マージ完了させてください。
+      /issue-sweep <remaining_ids> を Skill ツールで起動し、すべての残 Issue を実装・マージ完了させてください。
       issue-sweep の標準フロー（impl-wt → refine → CI 緑待ち → 直接マージ → close）に従う。
       完了したら以下の JSON 1 行を返す:
       {"merged": <N>, "failed": <N>, "report_path": "<path>"}
       """
     })
     ```
-  - issue-sweep が完了したら、それ自身が新たな spinoff を発生させている可能性があるので **3-0 に戻ってループ**（同じ round カウンタを共有して暴走を防ぐ）
-  - `round >= max_rounds` 到達時 or `follow_spinoffs=false`: レポートに残 spinoff を列挙 + warning 通知して終了
+  - issue-sweep が完了したら、それ自身が新たな Issue を発生させている可能性があるので **3-0 に戻ってループ**（同じ round カウンタを共有して暴走を防ぐ）
+  - `round >= max_rounds` 到達時 or `follow_spinoffs=false`: レポートに未処理 Issue を列挙 + warning 通知して終了
 
-これにより refine-sweep → 改善 PR → spinoff 検出 → issue-sweep → 実装完了 → 再度 refine-sweep からチェーンする運用が無人化される。
+これにより refine-sweep → 改善 PR → 残 Issue 検出 → issue-sweep → 実装完了 → 再度 refine-sweep からチェーンする運用が無人化される。`--no-follow-spinoffs` の名前は歴史的経緯で残しているが、現在の挙動は **spinoff だけでなく全 open issue の自動追跡** を制御する。
 
 ### 3-1. 完了処理
 
@@ -406,8 +408,8 @@ mkdir -p .sweep
 - **`.sweep/state.json` を `phase=terminal` にする前に最終 review を再実行せず、推定で `clean` を宣言する**（iter 2 以降のレビューをスキップして「spinoff したから clean だろう」と判定するのは禁止。3-1 ステップ2 で必ず最終 review を走らせる）
 - **`.sweep/state.json` の `evidence` 配列が空のままフェーズ3 に進む / terminal 化する**（各反復で最低 1 件追加するルールを破らない）
 - レポートに `## Evidence` セクションを書かない（state.json の evidence をそのまま引用する形で必ず残す）
-- **spinoff の自動 issue-sweep 委譲をスキップする**（`--no-follow-spinoffs` 明示時のみ。それ以外は spinoff も最大 10 周まで自動で全実装させる、spinoff 0 で自然終了）
-- **「spinoff も追跡しますか？」「次の round に進みますか？」のような確認をユーザーに取る**（デフォルトで全 round 自動継続。`--no-follow-spinoffs` 明示指定時以外、ユーザーに二択を投げない）
+- **残 open Issue の自動 issue-sweep 委譲をスキップする**（`--no-follow-spinoffs` 明示時のみ。それ以外は最大 10 周まで自動で全実装させる、open Issue 0 で自然終了）
+- **「残 Issue も追跡しますか？」「次の round に進みますか？」のような確認をユーザーに取る**（デフォルトで全 round 自動継続。`--no-follow-spinoffs` 明示指定時以外、ユーザーに二択を投げない）
 - fix agent が `--no-merge` で済ませる（CI 緑後に `gh pr merge --merge --delete-branch` を必ず実行）
 - **fix agent が `gh pr merge --auto` を使う**（リポジトリ設定 `allow_auto_merge` に挙動が依存し、OFF だと GraphQL エラーで止まる。CI 緑をポーリングしてから直接マージする方式に統一）
 - ユーザーに「続けますか」と聞く（Stop Hook が押し戻す）
