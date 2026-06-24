@@ -13,7 +13,8 @@ user-invocable: true
 ## 引数
 
 - `/refine-sweep` — 全コードベース対象、**critical + major + minor すべて**を fix（デフォルト挙動）
-- `/refine-sweep --max-iter N` — 反復上限（デフォルト 5）
+- `/refine-sweep --max-iter N` — minor しぼり込み用のソフト上限（デフォルト 10）。**critical/major > 0 の間は max-iter に関係なく続行**（後述）
+- `/refine-sweep --hard-cap N` — 物理上限の反復回数（デフォルト 30）。critical/major > 0 のまま fix_ineffective も発動せず延々と続いた場合の最終的な打ち切り。fix が効いていれば通常到達しない
 - `/refine-sweep --no-minor` — minor を fix 対象から外し critical + major のみ修正（軽量モード）
 - `/refine-sweep --max-minor N` — minor 残許容数（デフォルト 5、`/refine` と揃えた値。0 を指定すれば完全に磨ききる）
 - `/refine-sweep --no-follow-spinoffs` — refine 後の残 open Issue 自動 sweep を抑止（フラグ名は歴史的経緯で残しているが対象は spinoff に限らない全 open Issue）
@@ -39,10 +40,11 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
   "phase": "iterating" | "terminal",
   "iteration": <N>,
   "max_iter": <N>,
+  "hard_cap_iter": <N>,
   "thresholds": {"critical": 0, "major": 0, "minor": <max_minor>},
   "last_counts": {"critical": <N>, "major": <N>, "minor": <N>},
   "evidence": ["<path>", ...],
-  "termination_reason": null | "thresholds_met" | "max_iter" | "agent_failed" | "fix_ineffective" | "aborted"
+  "termination_reason": null | "thresholds_met" | "iter_limit" | "hard_cap_reached" | "agent_failed" | "fix_ineffective" | "aborted"
 }
 ```
 
@@ -69,10 +71,10 @@ write_sweep_state() {
 2. それ以外は `echo "$PPID:$(date +%s)" > .sweep/lock`
 3. **`.sweep/state.json` を初期化**:
    ```bash
-   jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson mi "$max_iter" --argjson mm "$max_minor" '{
+   jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson mi "$max_iter" --argjson hc "$hard_cap" --argjson mm "$max_minor" '{
      skill: "refine-sweep",
      started_at: $now, updated_at: $now,
-     phase: "iterating", iteration: 0, max_iter: $mi,
+     phase: "iterating", iteration: 0, max_iter: $mi, hard_cap_iter: $hc,
      thresholds: {critical: 0, major: 0, minor: $mm},
      last_counts: {critical: null, major: null, minor: null},
      evidence: [],
@@ -98,7 +100,7 @@ write_sweep_state() {
 5. 各ドメインの**ファイルパスマッピング**も仕様書から取得（記述があれば）:
    - 例: `frontend: apps/web/**, src/components/**` のような記述があれば使う
    - 無ければ標準推測: `frontend: apps/web/* | web/* | src/components/* | *.tsx | *.jsx | *.vue`、`backend: apps/api/* | api/* | src/server/* | *.go`、`db: migrations/* | schema.sql | db/* | prisma/*`、`ci: .github/workflows/* | ci/* | Dockerfile`
-6. `start_ts=$(date +%s)`, `iter=0`, `max_iter=5`, `include_minor=true`, `max_minor=5`, `round=0`, `max_rounds=10`, `follow_spinoffs=true` を初期化（`--no-minor` 指定時のみ `include_minor=false`、`--no-follow-spinoffs` 指定時のみ `follow_spinoffs=false`）
+6. `start_ts=$(date +%s)`, `iter=0`, `max_iter=10`, `hard_cap=30`, `include_minor=true`, `max_minor=5`, `round=0`, `max_rounds=10`, `follow_spinoffs=true` を初期化（`--no-minor` 指定時のみ `include_minor=false`、`--no-follow-spinoffs` 指定時のみ `follow_spinoffs=false`。`--max-iter` / `--hard-cap` で各値を上書き可能）
 7. ユーザーに「検出ドメイン: db, backend, frontend, ci, other」と並びをそのまま表示（確認は取らない）
 
 ## フェーズ2: review → fix → merge ループ
@@ -191,19 +193,31 @@ echo "$findings" | jq -c '
 
 （実際にはフェーズ1 で取得したマッピング規則と DOMAINS 順を反映する。上記は標準セットの例）
 
-**閾値判定:**
+**閾値判定（critical/major は諦めない方針）:**
 
 ```
 target_count = critical + major
-if include_minor: target_count += max(0, minor - max_minor)
+minor_excess = max(0, minor - max_minor) if include_minor else 0
 
-if target_count == 0:
-  → clean, フェーズ3 へ（成功）
-if iter >= max_iter:
-  → iter_limit, フェーズ3 へ（残指摘ありで終了）
-otherwise:
-  → 2-5 へ
+if target_count == 0 and minor_excess == 0:
+  → clean 候補、フェーズ3 へ（フェーズ 3-1 の double-confirm review で最終確定）
+
+elif target_count > 0:
+  # critical/major が残っている間は max_iter を無視して続行
+  if iter >= hard_cap:
+    → hard_cap_reached, フェーズ3 へ（hard cap 到達。基本到達しない物理上限）
+  else:
+    → 2-5 へ（fix 続行）
+
+else:
+  # critical/major == 0 で minor 超過のみ残るケース
+  if iter >= max_iter:
+    → iter_limit, フェーズ3 へ（minor を残したまま終了）
+  else:
+    → 2-5 へ（minor fix 続行）
 ```
+
+**ポイント:** `iter >= max_iter` で打ち切るのは「critical/major は 0 だが minor 超過のみ残る」ケース限定。critical/major が 1 件でも残るうちは max_iter を超えても続行し、`hard_cap`（デフォルト 30）に到達した場合だけ諦める。`hard_cap` 到達は基本的に fix_ineffective か reviewer のゆらぎを疑う異常系。
 
 ### 2-5. ドメイン別並列 fix engineer agent（メインは JSON だけ受け取る）
 
@@ -302,15 +316,16 @@ fi
 
 ## フェーズ3: 完了処理とレポート
 
-### 3-0. 残 Issue の自動実装
+### 3-0. 残 Issue の自動実装（impl-wt 直接起動方式）
 
-refine 終了時点で **open のままになっている全 Issue** を `/issue-sweep` に委譲して片付ける。sweep 中に develop agent が `/spinoff-issue` で作った新規 Issue だけでなく、事前から残っていた Issue も含めて処理対象に入れる。これは「refine で `## 派生 issue` をうまく検知できなかった」「ラベルが付かなかった」等の検出漏れに対する保険でもある:
+refine 終了時点で **open のままになっている全 Issue** を、refine-sweep のメインスレッドが直接キュー化し、各 Issue を `Agent(claude)` + `/impl-wt` で 1 件ずつ実装する。**`/issue-sweep` はネスト呼びしない**（`.sweep/state.json` を奪い合うため、進捗追跡不能・勝手に terminal 化される問題を回避）。
+
+sweep 中に develop agent が `/spinoff-issue` で作った新規 Issue だけでなく、事前から残っていた Issue も含めて処理対象に入れる（refine で `## 派生 issue` をうまく検知できなかった / ラベルが付かなかった等の検出漏れに対する保険）。
 
 ```bash
 sweep_start_iso="<フェーズ1 で記録した開始時刻>"
 all_open=$(gh issue list --state open --json number,title,createdAt --limit 200)
 
-# 全 open issue を sweep 開始以降 / 既存の 2 群に分けて把握（通知/レポート用）
 remaining_ids=$(echo "$all_open" | jq -r '[.[] | .number] | join(" ")')
 new_count=$(echo "$all_open" | jq -r --arg since "$sweep_start_iso" '[.[] | select(.createdAt >= $since)] | length')
 existing_count=$(echo "$all_open" | jq -r --arg since "$sweep_start_iso" '[.[] | select(.createdAt < $since)] | length')
@@ -318,39 +333,90 @@ total=$(( new_count + existing_count ))
 ```
 
 判定:
-- `remaining_ids` が **空**（total == 0） → 3-1 へ
+- `total == 0` → 3-1 へ
 - 1 件以上あり、`--no-follow-spinoffs` 指定なし、`round < max_rounds`:
   - `round += 1` をインクリメント
-  - 通知 `sweep_notify "refine-sweep: pending issues" "${total} 件 (sweep 中作成 ${new_count} / 既存 ${existing_count}) を /issue-sweep に委譲" ":arrows_counterclockwise:"`
-  - **`Agent(claude)` で `/issue-sweep <remaining_ids 列挙>` を起動**してすべて実装させる:
-    ```
-    Agent({
-      description: "refine-sweep round <round>: clear remaining issues",
-      subagent_type: "claude",
-      prompt: """
-      /issue-sweep <remaining_ids> を Skill ツールで起動し、すべての残 Issue を実装・マージ完了させてください。
-      issue-sweep の標準フロー（impl-wt → refine → CI 緑待ち → 直接マージ → close）に従う。
-      完了したら以下の JSON 1 行を返す:
-      {"merged": <N>, "failed": <N>, "report_path": "<path>"}
-      """
-    })
-    ```
-  - issue-sweep が完了したら、それ自身が新たな Issue を発生させている可能性があるので **3-0 に戻ってループ**（同じ round カウンタを共有して暴走を防ぐ）
-  - `round >= max_rounds` 到達時 or `follow_spinoffs=false`: レポートに未処理 Issue を列挙 + warning 通知して終了
+  - heartbeat 更新: `echo "$PPID:$(date +%s)" > .sweep/lock`
+  - 通知 `sweep_notify "refine-sweep: pending issues" "${total} 件 (sweep 中作成 ${new_count} / 既存 ${existing_count}) を impl-wt で処理 (round ${round}/${max_rounds})" ":arrows_counterclockwise:"`
+  - **各 Issue を sequential に `Agent(claude)` + `/impl-wt` で実装**:
 
-これにより refine-sweep → 改善 PR → 残 Issue 検出 → issue-sweep → 実装完了 → 再度 refine-sweep からチェーンする運用が無人化される。`--no-follow-spinoffs` の名前は歴史的経緯で残しているが、現在の挙動は **spinoff だけでなく全 open issue の自動追跡** を制御する。
+    ```
+    for issue_num in $remaining_ids; do
+      echo "$PPID:$(date +%s)" > .sweep/lock   # 各 Issue 処理前に heartbeat
+
+      Agent({
+        description: "refine-sweep round <round>: impl-wt #${issue_num}",
+        subagent_type: "claude",
+        prompt: """
+        Issue #${issue_num} を `/impl-wt` で実装・テスト・PR 作成・CI 緑待ち・直接マージ・Issue close まで完了させてください。
+
+        手順:
+        1. `Skill(impl-wt, args: "${issue_num}")` で `/impl-wt ${issue_num}` を起動
+        2. impl-wt が PR を作成しマージ・close するまで内部で待つ
+        3. 完了後に以下の JSON 1 行を最終メッセージとして返す
+
+        成功: {"issue": ${issue_num}, "pr_number": <N>, "merged": true, "closed": true}
+        失敗: {"issue": ${issue_num}, "failure": "<理由>", "pr_number": <N or null>}
+
+        厳守事項:
+        - `.sweep/state.json` を読まない・書き換えない（refine-sweep のメインスレッドが排他管理しているため）
+        - `.sweep/lock` を触らない
+        - `/issue-sweep` や `/refine-sweep` を再帰起動しない（state 衝突）
+        - JSON 1 行以外を最終メッセージに含めない
+        - 内部 log はメインに残さない
+        - ユーザー確認で停止しない
+        """
+      })
+    done
+    ```
+
+  - 各 agent の JSON を集めて round 結果を記録:
+
+    ```bash
+    # round ごとに .sweep/refine-metrics.jsonl に append
+    jq -nc \
+      --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --argjson round "$round" \
+      --argjson merged "$merged_count" \
+      --argjson failed "$failed_count" \
+      --argjson total "$total" \
+      '{ts:$ts, source:"refine-sweep-round", round:$round, total:$total, merged:$merged, failed:$failed}' \
+      >> .sweep/refine-metrics.jsonl
+
+    # state.json の evidence にも append
+    ev_line=".sweep/refine-metrics.jsonl:$(wc -l < .sweep/refine-metrics.jsonl | tr -d ' ')"
+    jq --arg ev "$ev_line" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+       '.evidence += [$ev] | .updated_at = $now' \
+       .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
+    ```
+
+  - round 完了後、新たな Issue が発生している可能性があるので **3-0 の先頭に戻ってループ**（同じ `round` カウンタを共有して暴走を防ぐ）。`round >= max_rounds` で打ち切り、レポートに未処理 Issue を列挙 + warning 通知
+  - 同じ Issue 番号が 2 round 連続で failure になった場合は、その Issue を「stuck」としてスキップし次 round へ進める（永久ループ防止）。stuck Issue は最終レポートに列挙
+
+これにより refine-sweep → 改善 PR → 残 Issue 検出 → impl-wt で実装 → close → 再度 refine-sweep からチェーンする運用が無人化される。`/issue-sweep` を間に挟まないので state.json は常に refine-sweep のものとして整合する。`--no-follow-spinoffs` の名前は歴史的経緯で残しているが、現在の挙動は **spinoff だけでなく全 open issue の自動追跡** を制御する。
 
 ### 3-1. 完了処理
 
-1. status を確定（`clean` / `iter_limit` / `agent_failed` / `fix_ineffective`）
-2. **最終 review 実行（terminal 化前の必須ステップ）**:
-   - 直近の 2-2 から base が動いている可能性があるため、フェーズ2-2 と同じ並列 review を **もう一度** 走らせて最終 `last_counts` を取得する
-   - 結果を 2-3 と同じ手順で `.sweep/refine-metrics.jsonl` に append し、state.json の `last_counts` と `evidence` を更新する（**最低 1 件 evidence が増えていること**）
-   - status の判定はこの最終 review の counts を基準にする（推定で `clean` にしない）
+1. status 候補を仮置き（`clean` / `iter_limit` / `hard_cap_reached` / `agent_failed` / `fix_ineffective`）。**`clean` 候補の場合は次ステップの double-confirm review で確定する**。
+2. **最終 review 実行（double-confirm 方式、terminal 化前の必須ステップ）**:
+
+   a. **1 回目の最終 review**: 直近の 2-2 から base が動いている可能性があるため、フェーズ2-2 と同じ並列 review をもう一度走らせて `last_counts` を取得。結果を 2-3 と同じ手順で `.sweep/refine-metrics.jsonl` に append し、state.json の `last_counts` と `evidence` を更新（**最低 1 件 evidence が増えていること**）。
+
+   b. **判定とループバック**: 1 回目の最終 review 結果に応じて分岐:
+      - `critical + major > 0`: **clean ではない**。`hard_cap` 未到達ならフェーズ2-5 に戻して fix を続行（フェーズ3 を一旦抜けて反復継続）。到達済みなら status=`hard_cap_reached` で terminal へ。
+      - `critical + major == 0` かつ `minor_excess > 0`: status=`iter_limit` 候補。`max_iter` 未到達なら 2-5 に戻して minor fix。到達済みなら terminal へ。
+      - `critical + major == 0` かつ `minor_excess == 0`: clean 候補。**c. の double-confirm review へ進む**。
+
+   c. **2 回目の確認 review（double-confirm）**: clean 候補の場合のみ、もう一度同じ並列 review を走らせる。**fix なしで純粋な再 review**。結果を append し state.json も更新（evidence に最低 1 件追加）。
+      - 連続 2 回 0 だった → status=`clean` 確定、ステップ3 へ
+      - 2 回目で何か検出された → reviewer のゆらぎ or 検出漏れと判断。1 回目 0 を信用せずフェーズ2-5 に戻して fix 続行（hard_cap 未到達の限り）
+
+   ※ 最終 review 起因でフェーズ2 に戻る場合、戻り先の `iter` は `iter += 1` して通常の反復として扱う。state.json も `phase=iterating` のまま、`termination_reason=null` を維持。
+
 3. `git worktree prune` で残存 worktree 整理
 4. **state.json を terminal 化**:
    ```bash
-   reason="thresholds_met"   # または iter_limit / agent_failed / fix_ineffective / aborted
+   reason="thresholds_met"   # または iter_limit / hard_cap_reached / agent_failed / fix_ineffective / aborted
    jq --arg reason "$reason" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
      '.phase = "terminal" | .termination_reason = $reason | .updated_at = $now' \
      .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
@@ -402,8 +468,9 @@ mkdir -p .sweep
 - review agent と fix agent を同じ呼び出しで混ぜる
 - **ドメイン分けせず 1 PR に全 critical+major 修正を詰める**（差分肥大化・レビュー困難・競合多発の元）
 - **fix agent がドメインのファイル範囲を超えて他ドメインの src を編集する**（scope_violation で返すべき）
-- critical/major が残っているのにループを打ち切る
-- max_iter を超えても無限ループする
+- **critical/major > 0 のまま `iter >= max_iter` で打ち切る**（max_iter は minor しぼり込み用のソフト上限。critical/major は `hard_cap` まで絶対に粘る。max_iter 到達は警告ログのみで反復継続する）
+- `hard_cap` に到達しても無限ループする
+- **最終 review 1 回だけで `clean` を宣言する**（フェーズ 3-1 の double-confirm review で必ず 2 回連続 0 を確認してから terminal 化する。2 回目に検出された場合は 2-5 へ戻す）
 - **デフォルトで minor をスキップする**（`--no-minor` 明示時のみ minor 修正を省略可能。それ以外は minor も fix 対象だが、許容数は `max_minor=5` まで残してよい）
 - **`.sweep/state.json` を `phase=terminal` にする前に最終 review を再実行せず、推定で `clean` を宣言する**（iter 2 以降のレビューをスキップして「spinoff したから clean だろう」と判定するのは禁止。3-1 ステップ2 で必ず最終 review を走らせる）
 - **`.sweep/state.json` の `evidence` 配列が空のままフェーズ3 に進む / terminal 化する**（各反復で最低 1 件追加するルールを破らない）
