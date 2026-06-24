@@ -516,16 +516,18 @@ new_issues=$(gh issue list --state open \
   --search "created:>=${sweep_start_iso}" \
   --json number,title,body,labels --limit 200)
 
-# spinoff 由来を判定: 本文 "Parent: #N" / "parent:#N" / "Spun off from #N" or ラベル "parent:#N"
-# のいずれかで PROCESSED_IDS と一致するものを抽出
+# spinoff 由来を判定: /spinoff-issue が付与する `spinoff` ラベルを主シグナルとし、
+# 本文 "元: #N"（spinoff-issue のテンプレ）または "Parent: #N"（後方互換）から親番号を取り出し、
+# PROCESSED_IDS と一致するものを抽出
 spinoff_ids=$(echo "$new_issues" | jq -r --arg ids "$PROCESSED_IDS" '
   ($ids | split(",") | map(tonumber)) as $parents
   | .[]
   | select(
-      (.labels[]?.name | tostring | capture("parent:#?(?<n>[0-9]+)")? | .n? | tonumber? // -1) as $lbl_parent
-      | ((.body // "") | scan("[Pp]arent:\\s*#?([0-9]+)")[0]? // empty | tonumber) as $body_parent
-      | ($lbl_parent != -1 and ($parents | index($lbl_parent)) != null)
-        or ($body_parent != null and ($parents | index($body_parent)) != null)
+      ([.labels[]?.name] | index("spinoff")) != null
+    )
+  | select(
+      ( [ .body // "" | scan("(?:元|[Pp]arent):\\s*#?([0-9]+)") ] | .[0]? | tonumber? ) as $body_parent
+      | $body_parent != null and ($parents | index($body_parent)) != null
     )
   | .number
 ')

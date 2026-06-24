@@ -309,9 +309,9 @@ refine-sweep 中に develop agent が `/spinoff-issue` で作成した Issue を
 ```bash
 sweep_start_iso="<フェーズ1 で記録した開始時刻>"
 new_issues=$(gh issue list --state open --search "created:>=${sweep_start_iso}" --json number,title,labels,body --limit 200)
+# /spinoff-issue が付与する `spinoff` ラベルを目印に検出
 spinoffs=$(echo "$new_issues" | jq -r '[.[] | select(
-  ((.labels[]?.name // "") | test("^spunoff|^spin-off")) or
-  ((.body // "") | test("Spun off|spunoff|spin-off"; "i"))
+  ([.labels[]?.name] | index("spinoff")) != null
 )] | map(.number) | join(" ")')
 ```
 
