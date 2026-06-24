@@ -1,6 +1,6 @@
 ---
 name: issue-sweep
-description: 複数のオープン Issue をキュー化し、Stop Hook と連動して端から自律的に実装・PR auto-merge まで進める。
+description: 複数のオープン Issue をキュー化し、Stop Hook と連動して端から自律的に実装・PR マージまで進める。
 user-invocable: true
 ---
 
@@ -25,7 +25,6 @@ user-invocable: true
 - `.claude/hooks/check-issue-queue.sh` と `.claude/hooks/check-sweep-state.sh` が実行可能
 - `settings.json` の Stop / SessionStart Hook が有効
 - ベースブランチ（例: `develop`）にチェックアウト済み。各サブスキルはそのブランチをベースに PR を作る
-- リポジトリで auto-merge が有効化されていることが望ましい（Settings → General → Allow auto-merge）。**OFF の場合はフェーズ0.5 でユーザーに ON 化確認 → 不可なら direct merge モードに自動フォールバック**
 
 ## 状態管理 `.sweep/state.json`
 
@@ -45,7 +44,6 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
   "failed_count": <N>,
   "round": <K>,
   "max_rounds": <M>,
-  "merge_mode": "auto" | "direct",
   "last_counts": {"critical": null, "major": null, "minor": null},
   "evidence": [".sweep/metrics.jsonl:<line>", ...],
   "termination_reason": null | "queue_empty" | "manual_intervention" | "aborted"
@@ -88,41 +86,6 @@ fi
 4. フェーズ2の各反復冒頭で **heartbeat 更新**: `echo "$PPID:$(date +%s)" > .sweep/lock`（lock の鮮度を保つ）
 5. フェーズ3完了時 / 中断時 / `--abort` 時に必ず `rm -f .sweep/lock` する
 
-## フェーズ0.5: auto-merge 設定の preflight（lock 取得直後）
-
-`merge_mode` を確定する。以後のフェーズ2 ですべての agent / メインがこの値で動く。
-
-1. **リポジトリ設定を確認**:
-   ```bash
-   repo_slug=$(gh repo view --json owner,name -q '"\(.owner.login)/\(.name)"')
-   allow_auto=$(gh api "repos/${repo_slug}" -q .allow_auto_merge 2>/dev/null || echo "false")
-   ```
-
-2. `allow_auto == "true"` → `merge_mode=auto` 確定、フェーズ1 へ。
-
-3. `allow_auto == "false"` の場合、**`AskUserQuestion` で確認**:
-   - 質問: 「リポジトリ設定 `Allow auto-merge` が OFF です。ON にして auto-merge モードで進めますか？（OFF のままなら CI 緑後にメインが直接マージする direct モードで進行）」
-   - 選択肢: 「ON にする (auto モード)」「OFF のまま (direct モード)」
-
-4. 回答が **「ON にする」** の場合:
-   ```bash
-   if gh api "repos/${repo_slug}" -X PATCH -F allow_auto_merge=true 2>/dev/null; then
-     merge_mode="auto"
-   else
-     merge_mode="direct"
-     # 通知: 「権限不足等で ON 化に失敗したため direct モードで進めます」
-   fi
-   ```
-   失敗した場合はユーザーにエラー内容を1行通知してから direct で続行。
-
-5. 回答が **「OFF のまま」** の場合: `merge_mode=direct`。
-
-6. 確定した `merge_mode` をユーザーに 1 行表示（`auto-merge mode: <auto|direct>`）し、フェーズ1 の state.json 初期化に渡す。
-
-**merge_mode による挙動の違い:**
-- `auto`: agent が `gh pr merge --auto --merge --delete-branch` で予約 → メインが MERGED ポーリング
-- `direct`: agent は PR 作成までで返す（`--auto` 叩かない） → メインが CI 緑をポーリング → 緑確定で `gh pr merge --merge --delete-branch` を直接実行
-
 ## フェーズ1: Issue キューの構築
 
 1. 引数を解釈する
@@ -162,15 +125,13 @@ fi
    ```bash
    queue_total=$(wc -l < .sweep/queue.txt | tr -d ' ')
    jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-         --argjson qt "$queue_total" --argjson mr "$max_rounds" \
-         --arg mm "$merge_mode" '{
+         --argjson qt "$queue_total" --argjson mr "$max_rounds" '{
      skill: "issue-sweep",
      started_at: $now, updated_at: $now,
      phase: "iterating",
      queue_total: $qt, queue_remaining: $qt,
      processed_count: 0, merged_count: 0, failed_count: 0,
      round: 0, max_rounds: $mr,
-     merge_mode: $mm,
      last_counts: {critical: null, major: null, minor: null},
      evidence: [],
      termination_reason: null
@@ -195,7 +156,7 @@ git pull --ff-only origin "$base_branch" 2>/dev/null || true
 Stop Hook がキューに残行がある限り停止をブロックするため途中で止まらず流し続ける。
 
 **重要 — context 設計:**
-**1 Issue 分の実装（Plan→Develop→Review→Commit→Push→PR 作成→auto-merge 予約）は必ず `Agent` ツールでサブエージェントに丸投げする。** メインスレッドは「キュー操作 / 冪等性チェック / agent 起動 / マージ完了ポーリング / 失敗判定」だけを行う。これによりメイン context は Issue 数に対して線形に汚れず、PR URL の一覧だけが積まれる。
+**1 Issue 分の実装（Plan→Develop→Review→Commit→Push→PR 作成）は必ず `Agent` ツールでサブエージェントに丸投げする。** メインスレッドは「キュー操作 / 冪等性チェック / agent 起動 / CI 緑ポーリング / 直接マージ / 失敗判定」だけを行う。これによりメイン context は Issue 数に対して線形に汚れず、PR URL の一覧だけが積まれる。
 
 **並列実行モード（`--parallel N`、デフォルト N=5）:**
 - 各反復の冒頭で「依存関係なし ∧ `serial-only` フラグなし ∧ 同 parent 並列でない先頭 N 件」を取得
@@ -232,11 +193,8 @@ gh pr list --search "#<n> in:title,body" --state all --json number,state,mergedA
 
 **初回起動プロンプト:**
 
-メインは `<MERGE_MODE>` プレースホルダを `auto` または `direct` に置換してから渡す。
-
 ```
 Issue #<n> を1件、最後まで自律的に処理してください。メインスレッドには PR 情報だけを返します。
-merge_mode: <MERGE_MODE>
 
 手順:
 1. `gh issue view <n> --json labels` でラベルを取得し、以下のマッピングでスキル選択:
@@ -247,10 +205,8 @@ merge_mode: <MERGE_MODE>
    各サブスキルの禁止行動（フェーズスキップ・テスト省略・サイレントスキップ・スコープ外発見の未 issue 化）は厳守。
 3. **PR 作成後、続けて `/refine --no-merge` を Skill ツールで起動し、4 観点（code-review / doc-drift / spec-audit、HALT 検知時は halt-review）で並列レビューして critical/major=0 ∧ minor≤5 まで研磨させる。マージは行わせない（--no-merge）**。refine の最終結果から `refine_status` / `critical_remaining` / `major_remaining` / `minor_remaining` を取得する。
 4. **マージゲート判定**（必須）:
-   - `critical_remaining == 0 ∧ major_remaining == 0` を満たす場合のみ次のいずれかでマージ予約する:
-     - merge_mode=`auto`: `gh pr merge <PR番号> --auto --merge --delete-branch` で auto-merge 予約
-     - merge_mode=`direct`: **マージコマンドは叩かず PR 作成までで返す**（メインが CI 緑後に直接 `gh pr merge --merge --delete-branch` する）
-   - 上記を満たさない（refine が iter_limit や agent_failed で critical/major が残った）場合は **マージ予約せず、failure として返す**（手動対応が必要）
+   - `critical_remaining == 0 ∧ major_remaining == 0` を満たす場合: **マージコマンドは叩かず PR 作成までで返す**（メインが CI 緑をポーリングして `gh pr merge <PR> --merge --delete-branch` を直接実行する）
+   - 上記を満たさない（refine が iter_limit や agent_failed で critical/major が残った）場合は failure として返す（手動対応が必要）
 5. 完了したら以下の JSON 1行だけを最終メッセージとして返す:
    {"pr_number": <N>, "pr_url": "<URL>", "branch": "<branch>", "skill": "<使ったスキル名>", "refine_status": "<clean|iter_limit|agent_failed>", "refine_iters": <K>, "critical_remaining": <N>, "major_remaining": <N>, "minor_remaining": <N>}
 6. マージゲート不合格時の failure JSON:
@@ -261,8 +217,8 @@ merge_mode: <MERGE_MODE>
 返答ルール:
 - 上記 JSON 以外を最終メッセージに含めない（メインスレッドが parse する）。
 - 「ユーザーに確認してから次へ進みます」等で停止しない。失敗または完了まで進める。
-- マージ完了の待機はメインスレッドが行うので、agent は auto-merge 予約（auto モード時）または PR 作成（direct モード時）までで返す。
-- **critical/major が残った状態でマージ予約してはならない**（4 のゲート判定を必ず通す）。
+- マージはメインスレッドが行うので、agent は PR 作成までで返す（`gh pr merge` は叩かない）。
+- **critical/major が残った状態で 5 の success JSON を返してはならない**（4 のゲート判定を必ず通す）。
 ```
 
 **CI fix 起動プロンプト**（メインスレッドが 2-4 ポーリング中に CI 失敗を検知した場合に使用）:
@@ -276,7 +232,7 @@ PR #<PR番号>（branch: <branch>）の CI で以下の check が失敗しまし
 1. `git fetch && git checkout <branch>` で対象 branch に切り替える（既存 worktree があれば再利用）。
 2. 失敗 check のログを `gh run view --log-failed --job <job-id>` 等で取得し、原因を特定する。
 3. 修正コミットを push する。テストが必要なら追加する。
-4. auto モード: 予約は維持されているので push で CI 再走 → 緑になり次第サーバが自動マージする。direct モード: メインが CI 緑をポーリングして直接マージするので push まででよい。
+4. push まででよい（メインが CI 再走の緑をポーリングして直接マージする）。
 5. 完了したら以下を返す:
    {"pr_number": <N>, "fixed": true, "commit": "<sha>"}
    修正不能なら:
@@ -287,14 +243,14 @@ PR #<PR番号>（branch: <branch>）の CI で以下の check が失敗しまし
 
 agent の返答 JSON を parse して PR 番号を取得する。`failure` が返ったら 2-7（失敗時挙動）へ。
 
-### 2-4. マージ完了をポーリング（メインスレッド）
+### 2-4. CI 緑を待ってメインが直接マージ（メインスレッド）
 
-`statusCheckRollup` と `mergeStateStatus` を含めて CI 失敗を確定検知する。**direct モード時**は全 check 完了 ∧ FAILURE なし ∧ まだ未マージのときに `gh pr merge <PR> --merge --delete-branch` を直接実行する:
+`statusCheckRollup` をポーリングし、全 check 完了 ∧ FAILURE なし ∧ OPEN のときに `gh pr merge <PR> --merge --delete-branch` を直接実行する:
 
 ```bash
 respawn_count=0
 while true; do
-  payload=$(gh pr view <PR> --json state,mergedAt,statusCheckRollup,mergeStateStatus)
+  payload=$(gh pr view <PR> --json state,mergedAt,statusCheckRollup)
   state=$(echo "$payload" | jq -r .state)
   merged=$(echo "$payload" | jq -r '.mergedAt // "null"')
   failed_checks=$(echo "$payload" | jq -r '[.statusCheckRollup[]? | select(.conclusion == "FAILURE") | .name] | join(",")')
@@ -319,24 +275,21 @@ while true; do
       exit 1
     fi
     respawn_count=$((respawn_count+1))
-    # 監査ログとして PR にコメント
     gh pr comment <PR> --body "sweep: CI 失敗を検知（attempt ${respawn_count}/3、checks: $failed_checks）。修正 agent を再起動します。"
-    # 通知
     sweep_notify "CI failed" "PR #${PR} attempt ${respawn_count}/3: $failed_checks" ":warning:"
-    # 2-3 の「CI fix 起動プロンプト」を使って agent 起動。返答 fixed=true なら continue
-    # ポーリングを継続（auto モード時は auto-merge 予約が残っているので、修正 push → CI 緑 → MERGED まで自動。direct モード時は次ループで全 check 完了を検知してメインがマージ）
+    # 2-3 の「CI fix 起動プロンプト」を使って agent 起動。返答 fixed=true なら continue で次ループへ
     continue
   fi
 
-  # direct モード時、全 check 完了 ∧ FAILURE なし ∧ 未マージなら直接マージ
-  if [[ "$merge_mode" == "direct" && "$pending" -eq 0 && -z "$failed_checks" && "$state" == "OPEN" ]]; then
+  # 全 check 完了 ∧ FAILURE なし ∧ 未マージ → メインが直接マージ
+  if [[ "$pending" -eq 0 && -z "$failed_checks" && "$state" == "OPEN" ]]; then
     if gh pr merge <PR> --merge --delete-branch 2>/tmp/merge-err; then
-      sweep_notify "direct merge" "PR #${PR}" ":white_check_mark:"
+      sweep_notify "merged" "PR #${PR}" ":white_check_mark:"
       continue  # 次ループで state==MERGED を検知して break
     else
       err=$(cat /tmp/merge-err)
-      sweep_notify "direct merge failed" "PR #${PR}: $err" ":x:"
-      echo "direct merge failed for PR #${PR}: $err" >&2
+      sweep_notify "merge failed" "PR #${PR}: $err" ":x:"
+      echo "merge failed for PR #${PR}: $err" >&2
       exit 1
     fi
   fi
@@ -351,14 +304,13 @@ done
 - **CI 失敗判定**: `conclusion == FAILURE` の check が1つ以上 **かつ** `conclusion == null` の pending check が 0（全 check 完了）でのみ確定。pending があれば待ち続ける
 - **respawn 上限**: 同一 PR で agent 再起動を **2回まで**。3回目で `gh run view` ログを添えてユーザーに判断を仰ぐ
 - **CLOSED null**（手動 close）: 1回目は agent 再起動、2回目で諦める
-- **direct モード時のマージ**: CI 全 check が COMPLETED（pending=0）∧ FAILURE 0 件 ∧ PR が OPEN のときにメインが `gh pr merge <PR> --merge --delete-branch` を実行
 
 ### 2-5. Issue を close（sweep 限定の振る舞い）
 
 マージ完了後、対応する Issue を明示的に close する。CI 再実行回数も併記して監査性を上げる:
 
 ```bash
-gh issue close <n> --comment "Closed by PR #<PR番号> (auto-merged via /issue-sweep, CI respawns=${respawn_count})"
+gh issue close <n> --comment "Closed by PR #<PR番号> (merged via /issue-sweep, CI respawns=${respawn_count})"
 sweep_notify "Merged" "#${n} (PR #${PR}, $(( $(date +%s) - start_ts ))s)" ":white_check_mark:"
 ```
 
@@ -416,14 +368,13 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - **PR マージ完了前にキューから Issue 番号を削除する**（最重要 — マージ忘れの根本原因）
 - **メインスレッドで直接サブスキル（`/impl-wt` 等）を Skill ツール起動する**（context 汚染の根本原因。必ず `Agent` 経由）
 - **メインスレッド自身がコードを修正する / コミットする / PR を編集する**（CTO は実装に手を出さない。修正は必ず CI fix 起動プロンプトで agent に委譲）
-- **engineer agent 内で `/refine --no-merge` をスキップする**（4 観点レビューを通さず auto-merge に進むと品質ばらつきが出る）
+- **engineer agent 内で `/refine --no-merge` をスキップする**（4 観点レビューを通さずマージに進むと品質ばらつきが出る）
 - **反復冒頭の base branch 最新化をスキップする**（前 Issue のマージ分を取り込まず古い base で次を実装すると競合・無駄作業の原因）
 - **ユーザーに並列度（--parallel）を確認する**（デフォルト 5 で常に起動。必要なら明示指定された値を使う）
 - **spinoff 検出をスキップして sweep を終わらせる**（実装中に作られた子 Issue を放置すると「自律連続実装」の意味が薄れる。デフォルト 10 周まで自動追跡、spinoff 0 で自然終了）
 - **「spinoff も追跡しますか？」「次の round に進みますか？」のような確認をユーザーに取る**（デフォルトで全 round 自動継続する。`--no-follow-spinoffs` が明示指定されているとき以外、ユーザーに二択を投げない）
-- auto モードで auto-merge 予約をスキップして手動マージを促す（ずっと自律稼働するのが目的）
-- **フェーズ0.5 の preflight をスキップして `merge_mode` を未確定のまま進める**（`allow_auto_merge=false` のまま auto モードで `gh pr merge --auto` を叩くと毎回 GraphQL エラーで止まる）
-- **direct モードでメインが直接マージするのを忘れる**（agent は PR 作成までで返るため、メインがポーリングして CI 緑後にマージしないと sweep が永久に止まる）
+- **メインが CI 緑後にマージするのを忘れる**（agent は PR 作成までで返るため、メインがポーリングして直接マージしないと sweep が永久に止まる）
+- **agent 内で `gh pr merge` を叩く**（マージはメインの責務。agent は PR 作成までで返す）
 - マージ完了確認をスキップして次の Issue に進む（PR が closed/CI fail なまま埋もれる）
 - **CI 失敗を検知せずポーリングを継続する**（無限待機の原因）
 - **失敗 check 名を agent に伝えず「とりあえず再実行」を頼む**（agent が原因不明のまま盲目的に手を入れる事故を防ぐ）
@@ -667,7 +618,7 @@ echo "Report: $report"
 
 ## 失敗時の挙動
 
-- サブスキル失敗 / PR 作成失敗 / auto-merge 予約失敗のいずれも、Issue 番号をキューに残したまま中断し、ロック (`.sweep/lock`) は削除してユーザーに報告する
+- サブスキル失敗 / PR 作成失敗 / 直接マージ失敗のいずれも、Issue 番号をキューに残したまま中断し、ロック (`.sweep/lock`) は削除してユーザーに報告する
 - ポーリング中の `CLOSED null` は1回目はサブスキル再実行、2回連続でユーザー判断
 - キューファイルが壊れた場合は `--abort` で全削除してフェーズ1からやり直す
 - 同じ Issue で2回連続して同じエラーが出たらユーザーに判断を仰ぐ（無限ループ防止）

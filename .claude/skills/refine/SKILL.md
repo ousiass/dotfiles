@@ -1,6 +1,6 @@
 ---
 name: refine
-description: review→修正→再review を反復し critical/major=0 ∧ minor≤閾値 まで研磨後、auto-merge と Issue close まで実行する。
+description: review→修正→再review を反復し critical/major=0 ∧ minor≤閾値 まで研磨後、CI 緑を待って直接マージし Issue close まで実行する。
 user-invocable: true
 ---
 
@@ -14,7 +14,7 @@ review → 修正 → 再 review を回し、PR をレビュー観点で「軽�
 - `/refine #<PR番号>` — 特定 PR を対象
 - `/refine --max-minor <N>` — minor 指摘の上限（デフォルト 5）
 - `/refine --max-iter <N>` — レビューループ反復上限（デフォルト 10）
-- `/refine --no-merge` — 研磨のみで auto-merge しない（デフォルトはマージまで実行）
+- `/refine --no-merge` — 研磨のみでマージしない（デフォルトは CI 緑を待って直接マージまで実行）
 
 ## 前提
 
@@ -36,7 +36,6 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
   "iteration": <N>,
   "max_iter": <N>,
   "thresholds": {"critical": 0, "major": 0, "minor": <max_minor>},
-  "merge_mode": "auto" | "direct",
   "last_counts": {"critical": <N>, "major": <N>, "minor": <N>},
   "evidence": ["<path>", ...],
   "termination_reason": null | "thresholds_met" | "max_iter" | "agent_failed" | "merge_failed" | "ci_gave_up" | "aborted",
@@ -59,27 +58,15 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
    - **既に worktree 内で起動された場合**（例: issue-sweep の engineer agent からの呼び出し）: `git rev-parse --show-toplevel` と `git worktree list --porcelain` を比較し、現在が worktree なら**再利用**（新規作成しない）
    - **メイン作業ツリーで起動された場合**（例: ユーザーが `/refine #42` を直接叩く）: `impl-wt` の `references/worktree-setup.md` に従い PR ブランチ用の worktree を新規作成。以後フェーズ2/3 の全操作は worktree 内で実行
 4. `start_ts=$(date +%s)`, `iter=0`, `max_minor=5`, `max_iter=10` を初期化
-4a. **auto-merge 設定の preflight**（`--no-merge` 指定時はスキップ可、それ以外は必須）:
-   ```bash
-   repo_slug=$(gh repo view --json owner,name -q '"\(.owner.login)/\(.name)"')
-   allow_auto=$(gh api "repos/${repo_slug}" -q .allow_auto_merge 2>/dev/null || echo "false")
-   ```
-   - `allow_auto == "true"` → `merge_mode=auto`
-   - `false` の場合は **`AskUserQuestion`** で「`Allow auto-merge` が OFF です。ON にして auto-merge モードで進めますか？（OFF のままなら CI 緑後にメインが直接マージする direct モード）」を質問:
-     - **Yes**: `gh api "repos/${repo_slug}" -X PATCH -F allow_auto_merge=true` を試行 → 成功 `merge_mode=auto` / 失敗 `merge_mode=direct`（権限不足等は 1 行通知）
-     - **No**: `merge_mode=direct`
-   - 確定した `merge_mode` を 1 行表示してから 4b へ
 4b. **`.sweep/state.json` を初期化** (`mkdir -p .sweep` 後):
    ```bash
    jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
          --argjson mi "$max_iter" --argjson mm "$max_minor" \
-         --argjson pr "${pr_number:-null}" \
-         --arg mode "$merge_mode" '{
+         --argjson pr "${pr_number:-null}" '{
      skill: "refine",
      started_at: $now, updated_at: $now,
      phase: "iterating", iteration: 0, max_iter: $mi,
      thresholds: {critical: 0, major: 0, minor: $mm},
-     merge_mode: $mode,
      last_counts: {critical: null, major: null, minor: null},
      evidence: [],
      termination_reason: null,
@@ -241,18 +228,12 @@ MINOR (excess minor が <minor - max_minor> 件あるので優先度高いもの
    - max_iter 到達 → `iter_limit`（マージしない）
    - agent failure → `agent_failed`（マージしない）
 
-3. **マージ予約／直接マージ → ポーリング → Issue close**（status=clean かつ `--no-merge` 未指定の場合のみ）:
+3. **CI 緑を待って直接マージ → Issue close**（status=clean かつ `--no-merge` 未指定の場合のみ）:
 
 ```bash
-# merge_mode に応じて予約方法を分岐
-if [[ "$merge_mode" == "auto" ]]; then
-  gh pr merge <PR> --auto --merge --delete-branch
-  sweep_notify "refine: auto-merge queued" "PR #${pr_number}" ":hourglass:"
-else
-  sweep_notify "refine: direct merge mode" "PR #${pr_number} (waiting for CI green)" ":hourglass:"
-fi
+sweep_notify "refine: waiting for CI green" "PR #${pr_number}" ":hourglass:"
 
-# issue-sweep と同じポーリング（statusCheckRollup 監視）
+# statusCheckRollup ポーリング
 respawn=0
 while true; do
   payload=$(gh pr view <PR> --json state,mergedAt,statusCheckRollup)
@@ -275,10 +256,10 @@ while true; do
     continue
   fi
 
-  # direct モード: CI 全 check 完了 ∧ FAILURE なし ∧ OPEN → 直接マージ
-  if [[ "$merge_mode" == "direct" && "$pending" -eq 0 && -z "$failed" && "$state" == "OPEN" ]]; then
+  # 全 check 完了 ∧ FAILURE なし ∧ OPEN → 直接マージ
+  if [[ "$pending" -eq 0 && -z "$failed" && "$state" == "OPEN" ]]; then
     if gh pr merge <PR> --merge --delete-branch 2>/tmp/refine-merge-err; then
-      sweep_notify "refine: direct merge" "PR #${pr_number}" ":white_check_mark:"
+      sweep_notify "refine: merged" "PR #${pr_number}" ":white_check_mark:"
       continue  # 次ループで state==MERGED で break
     else
       err=$(cat /tmp/refine-merge-err)
@@ -354,7 +335,7 @@ echo "Report written to $report"
 {"status":"<clean|iter_limit|agent_failed|merge_failed>","pr_number":<N>,"iter":<K>,"critical_remaining":<N>,"major_remaining":<N>,"minor_remaining":<N>,"merged":<true|false>,"report_path":".sweep/report-refine-<ts>.md"}
 ```
 
-- `--no-merge` 指定時は `merged: false` で固定（auto-merge をしていないため）
+- `--no-merge` 指定時は `merged: false` で固定（マージをしていないため）
 - `iter_limit` でも `critical_remaining=0 ∧ major_remaining=0` のときは呼び出し元が「軽微残りで OK」と判定できる
 - レポートパスはユーザー向けの最終表示と JSON 両方に含める
 
@@ -370,8 +351,8 @@ echo "Report written to $report"
 - **`.sweep/state.json` を `phase=terminal` にする前に最終 review を再実行せず、推定で `clean` を宣言する**（iter 途中の counts を信じて terminal 化するのは禁止。フェーズ3 ステップ4b で必ず最終 review を走らせる）
 - **`.sweep/state.json` の `evidence` 配列が空のままフェーズ3 に進む / terminal 化する**
 - レポートに `## Evidence` セクションを書かない（state.json の evidence をそのまま引用する形で必ず残す）
-- **status=clean なのに マージをスキップする**（`--no-merge` 明示時を除く。auto モードは `gh pr merge --auto`、direct モードは CI 緑後にメインが `gh pr merge --merge` を直接実行）
-- **フェーズ1 の preflight（4a）をスキップして `merge_mode` を未確定にする**（`allow_auto_merge=false` なら GraphQL エラーで毎回失敗するため）
+- **status=clean なのに マージをスキップする**（`--no-merge` 明示時を除く。CI 緑後に `gh pr merge --merge --delete-branch` を必ず実行）
+- **`gh pr merge --auto` を使う**（リポジトリ設定 `allow_auto_merge` の有無に挙動が依存し、OFF だと GraphQL エラーで止まる。CI 緑をポーリングしてから直接マージする方式に統一）
 - マージ完了確認をスキップしてレポート生成に進む
 - **メイン作業ツリーで checkout して PR ブランチに切り替える**（worktree 隔離を破ってメインを汚す原因。フェーズ1-3 で必ず worktree を確保すること）
 

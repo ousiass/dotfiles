@@ -24,7 +24,6 @@ user-invocable: true
 
 - `git`, `gh` CLI 認証済み
 - 現在のブランチが base（develop / main 等）。`git branch --show-current` で取得
-- リポジトリで auto-merge 有効化されていることが望ましい（OFF の場合はフェーズ0.5 で ON 化確認 → 不可なら direct merge モードに自動フォールバック）
 - `.sweep/` 書き込み権限
 
 ## 状態管理 `.sweep/state.json`
@@ -41,7 +40,6 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
   "iteration": <N>,
   "max_iter": <N>,
   "thresholds": {"critical": 0, "major": 0, "minor": <max_minor>},
-  "merge_mode": "auto" | "direct",
   "last_counts": {"critical": <N>, "major": <N>, "minor": <N>},
   "evidence": ["<path>", ...],
   "termination_reason": null | "thresholds_met" | "max_iter" | "agent_failed" | "fix_ineffective" | "aborted"
@@ -69,32 +67,19 @@ write_sweep_state() {
 
 1. `.sweep/lock` が存在し timestamp が 2 時間以内 → 「他 sweep 実行中」と表示し終了
 2. それ以外は `echo "$PPID:$(date +%s)" > .sweep/lock`
-3. **auto-merge 設定の preflight**: `merge_mode` を確定する。
+3. **`.sweep/state.json` を初期化**:
    ```bash
-   repo_slug=$(gh repo view --json owner,name -q '"\(.owner.login)/\(.name)"')
-   allow_auto=$(gh api "repos/${repo_slug}" -q .allow_auto_merge 2>/dev/null || echo "false")
-   ```
-   - `true` → `merge_mode=auto`
-   - `false` → **`AskUserQuestion`** で「`Allow auto-merge` が OFF です。ON にして auto-merge モードで進めますか？（OFF のままなら CI 緑後に各 fix agent が直接マージする direct モード）」を質問:
-     - **Yes**: `gh api "repos/${repo_slug}" -X PATCH -F allow_auto_merge=true` を試行 → 成功 `merge_mode=auto` / 失敗 `merge_mode=direct`（権限不足等は 1 行通知）
-     - **No**: `merge_mode=direct`
-   - 確定した `merge_mode` を 1 行表示してから次へ
-4. **`.sweep/state.json` を初期化**:
-   ```bash
-   jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-         --argjson mi "$max_iter" --argjson mm "$max_minor" \
-         --arg mode "$merge_mode" '{
+   jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson mi "$max_iter" --argjson mm "$max_minor" '{
      skill: "refine-sweep",
      started_at: $now, updated_at: $now,
      phase: "iterating", iteration: 0, max_iter: $mi,
      thresholds: {critical: 0, major: 0, minor: $mm},
-     merge_mode: $mode,
      last_counts: {critical: null, major: null, minor: null},
      evidence: [],
      termination_reason: null
    }' > .sweep/state.json
    ```
-5. フェーズ3 / 中断 / `--abort` 時に `rm -f .sweep/lock`。**`.sweep/state.json` は残す**（履歴・監査用）が、必ず `phase=terminal` にしてから抜けること
+4. フェーズ3 / 中断 / `--abort` 時に `rm -f .sweep/lock`。**`.sweep/state.json` は残す**（履歴・監査用）が、必ず `phase=terminal` にしてから抜けること
 
 ## フェーズ1: 環境準備とドメイン一覧抽出
 
@@ -233,15 +218,14 @@ otherwise:
 - 仕様書から別の依存順が読み取れた場合はそれに従う
 - **指摘が 0 件のドメインは agent 起動せずスキップ**
 
-各 ウェーブ内の各ドメイン agent プロンプト（メインは `<MERGE_MODE>` プレースホルダを `auto` または `direct` に置換してから渡す）:
+各 ウェーブ内の各ドメイン agent プロンプト:
 
 ```
 Agent({
   description: "refine-sweep iter <iter+1> fix [<DOMAIN>]",
   subagent_type: "claude",
   prompt: """
-ドメイン `<DOMAIN>` に分類された以下の指摘を修正し、PR 作成 → マージ予約 → マージ完了まで内部でハンドリングしてください。
-merge_mode: <MERGE_MODE>
+ドメイン `<DOMAIN>` に分類された以下の指摘を修正し、PR 作成 → CI 緑待ち → 直接マージ → MERGED まで内部でハンドリングしてください。
 
 CRITICAL: <このドメインの critical 一覧>
 MAJOR: <このドメインの major 一覧>
@@ -256,10 +240,8 @@ MAJOR: <このドメインの major 一覧>
 3. `Agent(develop)` で順に修正＋テスト（範囲外のファイルを触らない厳守）
 4. `git push -u origin <branch>`
 5. `gh pr create --base <base_branch> --title "refine-sweep iter <iter+1> [<DOMAIN>]: critical/major fixes" --body <findings 一覧>`
-6. **マージ予約（merge_mode による分岐）:**
-   - `auto`: `gh pr merge <PR> --auto --merge --delete-branch` で auto-merge 予約
-   - `direct`: 予約コマンドは叩かない。statusCheckRollup ポーリングで全 check 完了 ∧ FAILURE なしを確認してから `gh pr merge <PR> --merge --delete-branch` を直接実行
-7. statusCheckRollup ポーリング → MERGED まで待機。CI 失敗時は内部で fix 再起動（最大 3 回）
+6. statusCheckRollup ポーリングで全 check 完了 ∧ FAILURE なしを確認してから `gh pr merge <PR> --merge --delete-branch` を直接実行（`--auto` は使わない）
+7. MERGED まで確認。CI 失敗時は内部で fix 再起動（最大 3 回）
 
 返答 JSON:
 {"domain": "<DOMAIN>", "pr_number": <N>, "pr_url": "<URL>", "branch": "<branch>", "fixed_critical": <N>, "fixed_major": <N>, "fixed_minor": <N>, "merged": true, "ci_respawns": <K>}
@@ -267,7 +249,7 @@ MAJOR: <このドメインの major 一覧>
 該当指摘 0 件で skip した場合: {"domain": "<DOMAIN>", "skipped": true}
 CI 諦め: {"domain": "<DOMAIN>", "pr_number": <N>, "failure": "ci_gave_up", "failed_checks": "<checks>"}
 範囲外修正が必要: {"domain": "<DOMAIN>", "failure": "scope_violation", "needed_files": [...]}
-direct マージ失敗: {"domain": "<DOMAIN>", "pr_number": <N>, "failure": "direct_merge_failed", "error": "<gh stderr>"}
+マージ失敗: {"domain": "<DOMAIN>", "pr_number": <N>, "failure": "merge_failed", "error": "<gh stderr>"}
 その他: {"domain": "<DOMAIN>", "failure": "<理由>"}
 
 返答ルール:
@@ -282,7 +264,7 @@ direct マージ失敗: {"domain": "<DOMAIN>", "pr_number": <N>, "failure": "dir
 - ウェーブ内の全 agent の JSON を集める
 - 1 つでも `failure` があれば次反復に進まず、フェーズ3 へ status=`agent_failed` で抜ける
 - ただし `scope_violation` は次反復で別ドメインに振り直されるので fatal にしない（その分だけキューに残す）
-- `direct_merge_failed` も agent_failed として扱う（merge_mode 設定や branch protection 等の問題が疑われるためユーザー判断が要る）
+- `merge_failed` も agent_failed として扱う（branch protection や権限の問題が疑われるためユーザー判断が要る）
 - 全 merged ならウェーブ完了 → 次ウェーブへ
 - 全ウェーブ完了 → `iter += 1` で 2-1 へ
 - 反復間で **同一の findings 集合**（`file:line:msg` の fingerprint set）が連続 2 反復で完全一致 → `fix_ineffective` で終了。**件数だけ見て判定しない**（fix が新規 finding を生んでいる場合は前 iter とは集合が異なるので継続する）
@@ -345,7 +327,7 @@ spinoffs=$(echo "$new_issues" | jq -r '[.[] | select(
       subagent_type: "claude",
       prompt: """
       /issue-sweep <spinoffs> を Skill ツールで起動し、すべての spinoff Issue を実装・マージ完了させてください。
-      issue-sweep の標準フロー（impl-wt → refine → auto-merge → close）に従う。
+      issue-sweep の標準フロー（impl-wt → refine → CI 緑待ち → 直接マージ → close）に従う。
       完了したら以下の JSON 1 行を返す:
       {"merged": <N>, "failed": <N>, "report_path": "<path>"}
       """
@@ -426,8 +408,8 @@ mkdir -p .sweep
 - レポートに `## Evidence` セクションを書かない（state.json の evidence をそのまま引用する形で必ず残す）
 - **spinoff の自動 issue-sweep 委譲をスキップする**（`--no-follow-spinoffs` 明示時のみ。それ以外は spinoff も最大 10 周まで自動で全実装させる、spinoff 0 で自然終了）
 - **「spinoff も追跡しますか？」「次の round に進みますか？」のような確認をユーザーに取る**（デフォルトで全 round 自動継続。`--no-follow-spinoffs` 明示指定時以外、ユーザーに二択を投げない）
-- fix agent が `--no-merge` で済ませる（auto モードは auto-merge 予約、direct モードは CI 緑後に直接マージまで必ず実行）
-- **フェーズ0 の preflight（3 番目のステップ）をスキップして `merge_mode` を未確定にする**（`allow_auto_merge=false` のまま auto モードで `gh pr merge --auto` を叩くと GraphQL エラーで毎回失敗）
+- fix agent が `--no-merge` で済ませる（CI 緑後に `gh pr merge --merge --delete-branch` を必ず実行）
+- **fix agent が `gh pr merge --auto` を使う**（リポジトリ設定 `allow_auto_merge` に挙動が依存し、OFF だと GraphQL エラーで止まる。CI 緑をポーリングしてから直接マージする方式に統一）
 - ユーザーに「続けますか」と聞く（Stop Hook が押し戻す）
 
 ## 失敗時の挙動
