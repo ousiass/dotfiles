@@ -1,5 +1,35 @@
 > 注: このファイルは `~/dotfiles` リポジトリ全体（fish / nvim / tmux / install scripts / `.claude/` 配下のスキル類すべて）の変更履歴です。
 
+## [v0.3.0] - 2026-06-25
+
+Fugu (Sakana AI の Codex 設定バンドル) の install パイプライン統合と、sweep / refine 系スキルの安定化リリース。
+
+### ✨ New Features / 新機能
+
+- Add `install_fugu` to install.sh / `curl -fsSL https://sakana.ai/fugu/install | bash` を install パイプラインに統合。`~/.env` の `SAKANA_API_KEY` を拾えれば非対話で導入、無ければ warn してスキップ
+- Add `./install.sh <name>` partial-run mode / 引数指定で個別 `install_*` 関数だけ走らせるモードを追加。全体セットアップを通さず 1 ツールだけ入れ直せる
+- Add `make fugu` target / Fugu だけ単独でインストールするための Makefile ターゲットを追加
+- Add fish aliases `x` / `fugu` / fish に `codex` / `codex-fugu` を `--dangerously-bypass-approvals-and-sandbox` 付きで叩く `x` / `fugu` エイリアスを追加（Claude の `c` と同じ感覚で起動）
+- Add `SAKANA_API_KEY` to `.env.example` / `.env.example` に `SAKANA_API_KEY` のコメント例を追加
+- Track all open issues for spinoff in refine-sweep / `/refine-sweep` の 3-0 を spinoff 限定から全 open Issue 追跡に拡張し、残 Issue を `/issue-sweep` へ自動委譲（`impl-wt` 直接起動に変更）
+- Add hard_cap and double-confirm review in refine-sweep / `/refine-sweep` に hard_cap と double-confirm review を追加して暴走を抑制
+- Add allow_auto_merge preflight and direct merge mode / sweep 系スキルに allow_auto_merge の preflight と direct merge モードを追加
+- Auto-continue spinoff tracking until queue empty / sweep の spinoff 追跡を全 Issue 消費するまで自動継続するデフォルトに変更
+- Add `.sweep/state.json` and Stop Hook terminal enforcement / sweep 系スキルに `.sweep/state.json` と Stop Hook による terminal 強制を追加
+
+### 🐛 Bug Fixes / バグ修正
+
+- Fix spinoff detection in sweep / sweep の spinoff 検出を `spinoff-issue` 出力に合わせて修正
+- Fix fix_ineffective judgement in refine-sweep / `/refine-sweep` の fix_ineffective 判定を件数比較から fingerprint set 比較に変更（同件数でも fingerprint が変わっていれば前進とみなす）
+
+### 🔧 Improvements / 改善
+
+- Unify sweep skills on direct merge / sweep 系スキルを direct merge 一本化（auto-merge を廃止）
+- Drop `--max-iter` soft cap in refine-sweep / `/refine-sweep` の周回数ソフト上限 `--max-iter` を廃止し hard_cap に集約
+- Switch global gitignore to symlink-based / global gitignore を cp ベースから symlink (`~/.gitignore`) ベースに変更
+- Move global gitignore setup to install time / SessionStart hook 方式をやめて dotfiles install 時に global gitignore を設定する方式へ
+- Raise refine-sweep `max_minor` default to 5 / `/refine-sweep` の `max_minor` デフォルトを 0 → 5 に変更（`/refine` / `/issue-sweep` と揃える）
+
 ## [v0.2.0] - 2026-06-21
 
 `/issue-sweep` / `/refine` / `/refine-sweep` の三点セットを中心とした **自律 Sweep & Refine ワークフロー** の追加。
