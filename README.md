@@ -13,6 +13,8 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── claude-mcp/        
 │   └── mcp.json        # Claude Code MCP 設定（${VAR} で env 参照、~/.mcp.json はこれへのシンボリックリンク）
 ├── .claude/            # → ~/.claude（CLAUDE.md, agents/, skills/, settings.json 等）
+├── .codex/
+│   └── skills/         # 各サブディレクトリが ~/.codex/skills/<name> に symlink される Codex 用 skill 群
 ├── nvim/               # → ~/.config/nvim
 ├── tmux/               # → ~/.config/tmux
 ├── gh-dash/            # → ~/.config/gh-dash (GitHub Dashboard CLI)
@@ -34,6 +36,7 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 # ~/dotfiles/.env （gitignore 済み、~/.env はここへのシンボリックリンク）
 GEMINI_API_KEY=xxxxx
 OPENAI_API_KEY=xxxxx
+SAKANA_API_KEY=xxxxx   # 未設定なら install.sh の Fugu インストールはスキップされる
 SUPABASE_ACCESS_TOKEN=xxxxx
 
 # 非secret も同様にここに
@@ -75,9 +78,12 @@ $EDITOR .env
    - **Claude Code** (公式 curl インストーラ)
    - **OpenAI Codex CLI** (`bun install -g @openai/codex`)
    - **Gemini CLI** (`bun install -g @google/gemini-cli`)
+   - **Fugu** (Sakana AI の Codex 設定バンドル、公式 install スクリプト)
+     - `~/.env` から `SAKANA_API_KEY` を拾えれば非対話でインストール、無ければ warn してスキップ
+     - `~/.codex/skills/.system/` を経由して `codex-fugu` ランチャと設定バンドルを配置
 7. 各ツールのバイナリパスを fish の `fish_user_paths` (universal) に追加
 8. 既存の `~/.config/{nvim,tmux,fish,gh-dash}`, `~/.claude`, `~/.mcp.json`, `~/.env` を `*.bak.<日付>` にバックアップ
-9. dotfiles を該当パスにシンボリックリンク（`~/.env` → `~/dotfiles/.env`、`~/.mcp.json` → `~/dotfiles/claude-mcp/mcp.json` 等）
+9. dotfiles を該当パスにシンボリックリンク（`~/.env` → `~/dotfiles/.env`、`~/.mcp.json` → `~/dotfiles/claude-mcp/mcp.json`、`~/dotfiles/.codex/skills/<name>` → `~/.codex/skills/<name>` 等）
 10. `~/.claude` のランタイムデータ（履歴・セッション等）をバックアップから dotfiles 側に移行（既存は上書きしない）
 11. fisher（fish プラグインマネージャ）をインストール → `fish_plugins` の内容を反映
 12. fnm 経由で Node.js LTS をインストールしデフォルトに設定
@@ -85,6 +91,32 @@ $EDITOR .env
 14. ログインシェルを fish に変更（必要時のみ）
 
 何度実行しても安全（既にインストール済 / リンク済みならスキップ）。
+
+## 個別ツールの再インストール
+
+特定のツールだけ入れ直したい場合は `install.sh` に `install_<name>` の `<name>` 部分を渡す:
+
+```bash
+./install.sh fugu          # = make fugu
+./install.sh codex_cli
+./install.sh fugu gemini_cli  # 複数指定可
+```
+
+未定義の名前を渡すとエラー終了する（誤入力を握りつぶさない）。
+
+## Fish エイリアス（AI CLI 一発起動）
+
+`fish/config.fish` に登録済み。Permission / sandbox バイパスを付けた状態でワンコマンド起動できる:
+
+| エイリアス | 展開 |
+|---|---|
+| `c` | `claude --dangerously-skip-permissions` |
+| `cc` | `claude --dangerously-skip-permissions --continue` |
+| `cs` | `claude --dangerously-skip-permissions --settings ...sandbox=true...` |
+| `x` | `codex --dangerously-bypass-approvals-and-sandbox` |
+| `fugu` | `codex-fugu --dangerously-bypass-approvals-and-sandbox` |
+
+`codex-fugu` は内部で `codex -p fugu "$@"` を `exec` するので、`fugu` でも codex 本体の bypass フラグがそのまま効く。
 
 ## 更新
 
