@@ -13,8 +13,7 @@ user-invocable: true
 ## 引数
 
 - `/refine-sweep` — 全コードベース対象、**critical + major + minor すべて**を fix（デフォルト挙動）
-- `/refine-sweep --max-iter N` — minor しぼり込み用のソフト上限（デフォルト 10）。**critical/major > 0 の間は max-iter に関係なく続行**（後述）
-- `/refine-sweep --hard-cap N` — 物理上限の反復回数（デフォルト 30）。critical/major > 0 のまま fix_ineffective も発動せず延々と続いた場合の最終的な打ち切り。fix が効いていれば通常到達しない
+- `/refine-sweep --hard-cap N` — 反復回数の物理上限（デフォルト 30）。基本的に到達しない最終セーフティ。打ち切りは通常 `fix_ineffective`（fingerprint 完全一致が 2 反復連続）で発動する
 - `/refine-sweep --no-minor` — minor を fix 対象から外し critical + major のみ修正（軽量モード）
 - `/refine-sweep --max-minor N` — minor 残許容数（デフォルト 5、`/refine` と揃えた値。0 を指定すれば完全に磨ききる）
 - `/refine-sweep --no-follow-spinoffs` — refine 後の残 open Issue 自動 sweep を抑止（フラグ名は歴史的経緯で残しているが対象は spinoff に限らない全 open Issue）
@@ -39,12 +38,11 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
   "updated_at": "<ISO8601>",
   "phase": "iterating" | "terminal",
   "iteration": <N>,
-  "max_iter": <N>,
   "hard_cap_iter": <N>,
   "thresholds": {"critical": 0, "major": 0, "minor": <max_minor>},
   "last_counts": {"critical": <N>, "major": <N>, "minor": <N>},
   "evidence": ["<path>", ...],
-  "termination_reason": null | "thresholds_met" | "iter_limit" | "hard_cap_reached" | "agent_failed" | "fix_ineffective" | "aborted"
+  "termination_reason": null | "thresholds_met" | "hard_cap_reached" | "agent_failed" | "fix_ineffective" | "aborted"
 }
 ```
 
@@ -71,10 +69,10 @@ write_sweep_state() {
 2. それ以外は `echo "$PPID:$(date +%s)" > .sweep/lock`
 3. **`.sweep/state.json` を初期化**:
    ```bash
-   jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson mi "$max_iter" --argjson hc "$hard_cap" --argjson mm "$max_minor" '{
+   jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson hc "$hard_cap" --argjson mm "$max_minor" '{
      skill: "refine-sweep",
      started_at: $now, updated_at: $now,
-     phase: "iterating", iteration: 0, max_iter: $mi, hard_cap_iter: $hc,
+     phase: "iterating", iteration: 0, hard_cap_iter: $hc,
      thresholds: {critical: 0, major: 0, minor: $mm},
      last_counts: {critical: null, major: null, minor: null},
      evidence: [],
@@ -100,7 +98,7 @@ write_sweep_state() {
 5. 各ドメインの**ファイルパスマッピング**も仕様書から取得（記述があれば）:
    - 例: `frontend: apps/web/**, src/components/**` のような記述があれば使う
    - 無ければ標準推測: `frontend: apps/web/* | web/* | src/components/* | *.tsx | *.jsx | *.vue`、`backend: apps/api/* | api/* | src/server/* | *.go`、`db: migrations/* | schema.sql | db/* | prisma/*`、`ci: .github/workflows/* | ci/* | Dockerfile`
-6. `start_ts=$(date +%s)`, `iter=0`, `max_iter=10`, `hard_cap=30`, `include_minor=true`, `max_minor=5`, `round=0`, `max_rounds=10`, `follow_spinoffs=true` を初期化（`--no-minor` 指定時のみ `include_minor=false`、`--no-follow-spinoffs` 指定時のみ `follow_spinoffs=false`。`--max-iter` / `--hard-cap` で各値を上書き可能）
+6. `start_ts=$(date +%s)`, `iter=0`, `hard_cap=30`, `include_minor=true`, `max_minor=5`, `round=0`, `max_rounds=10`, `follow_spinoffs=true` を初期化（`--no-minor` 指定時のみ `include_minor=false`、`--no-follow-spinoffs` 指定時のみ `follow_spinoffs=false`。`--hard-cap` で hard_cap を上書き可能）
 7. ユーザーに「検出ドメイン: db, backend, frontend, ci, other」と並びをそのまま表示（確認は取らない）
 
 ## フェーズ2: review → fix → merge ループ
@@ -193,7 +191,7 @@ echo "$findings" | jq -c '
 
 （実際にはフェーズ1 で取得したマッピング規則と DOMAINS 順を反映する。上記は標準セットの例）
 
-**閾値判定（critical/major は諦めない方針）:**
+**閾値判定（諦めずに hard_cap / fix_ineffective まで粘る方針）:**
 
 ```
 target_count = critical + major
@@ -202,22 +200,14 @@ minor_excess = max(0, minor - max_minor) if include_minor else 0
 if target_count == 0 and minor_excess == 0:
   → clean 候補、フェーズ3 へ（フェーズ 3-1 の double-confirm review で最終確定）
 
-elif target_count > 0:
-  # critical/major が残っている間は max_iter を無視して続行
-  if iter >= hard_cap:
-    → hard_cap_reached, フェーズ3 へ（hard cap 到達。基本到達しない物理上限）
-  else:
-    → 2-5 へ（fix 続行）
+elif iter >= hard_cap:
+  → hard_cap_reached, フェーズ3 へ（hard cap 到達。fix_ineffective が発動しない異常系の最終セーフティ）
 
 else:
-  # critical/major == 0 で minor 超過のみ残るケース
-  if iter >= max_iter:
-    → iter_limit, フェーズ3 へ（minor を残したまま終了）
-  else:
-    → 2-5 へ（minor fix 続行）
+  → 2-5 へ（fix 続行）
 ```
 
-**ポイント:** `iter >= max_iter` で打ち切るのは「critical/major は 0 だが minor 超過のみ残る」ケース限定。critical/major が 1 件でも残るうちは max_iter を超えても続行し、`hard_cap`（デフォルト 30）に到達した場合だけ諦める。`hard_cap` 到達は基本的に fix_ineffective か reviewer のゆらぎを疑う異常系。
+**ポイント:** 反復の打ち切りは原則 `fix_ineffective`（fingerprint 完全一致が 2 反復連続）に任せる。`hard_cap`（デフォルト 30）は fix_ineffective が発動しないまま延々続いた場合のみ作動する物理上限で、基本的には到達しない。**周回数ベースのソフト上限は持たない**（過去にあった `--max-iter` は廃止）。
 
 ### 2-5. ドメイン別並列 fix engineer agent（メインは JSON だけ受け取る）
 
@@ -397,14 +387,13 @@ total=$(( new_count + existing_count ))
 
 ### 3-1. 完了処理
 
-1. status 候補を仮置き（`clean` / `iter_limit` / `hard_cap_reached` / `agent_failed` / `fix_ineffective`）。**`clean` 候補の場合は次ステップの double-confirm review で確定する**。
+1. status 候補を仮置き（`clean` / `hard_cap_reached` / `agent_failed` / `fix_ineffective`）。**`clean` 候補の場合は次ステップの double-confirm review で確定する**。
 2. **最終 review 実行（double-confirm 方式、terminal 化前の必須ステップ）**:
 
    a. **1 回目の最終 review**: 直近の 2-2 から base が動いている可能性があるため、フェーズ2-2 と同じ並列 review をもう一度走らせて `last_counts` を取得。結果を 2-3 と同じ手順で `.sweep/refine-metrics.jsonl` に append し、state.json の `last_counts` と `evidence` を更新（**最低 1 件 evidence が増えていること**）。
 
    b. **判定とループバック**: 1 回目の最終 review 結果に応じて分岐:
-      - `critical + major > 0`: **clean ではない**。`hard_cap` 未到達ならフェーズ2-5 に戻して fix を続行（フェーズ3 を一旦抜けて反復継続）。到達済みなら status=`hard_cap_reached` で terminal へ。
-      - `critical + major == 0` かつ `minor_excess > 0`: status=`iter_limit` 候補。`max_iter` 未到達なら 2-5 に戻して minor fix。到達済みなら terminal へ。
+      - `critical + major > 0` または `minor_excess > 0`: **clean ではない**。`hard_cap` 未到達かつ `fix_ineffective` 未発動ならフェーズ2-5 に戻して fix を続行（フェーズ3 を一旦抜けて反復継続）。`hard_cap` 到達済みなら status=`hard_cap_reached` で terminal へ。`fix_ineffective` なら status=`fix_ineffective` で terminal へ。
       - `critical + major == 0` かつ `minor_excess == 0`: clean 候補。**c. の double-confirm review へ進む**。
 
    c. **2 回目の確認 review（double-confirm）**: clean 候補の場合のみ、もう一度同じ並列 review を走らせる。**fix なしで純粋な再 review**。結果を append し state.json も更新（evidence に最低 1 件追加）。
@@ -416,7 +405,7 @@ total=$(( new_count + existing_count ))
 3. `git worktree prune` で残存 worktree 整理
 4. **state.json を terminal 化**:
    ```bash
-   reason="thresholds_met"   # または iter_limit / hard_cap_reached / agent_failed / fix_ineffective / aborted
+   reason="thresholds_met"   # または hard_cap_reached / agent_failed / fix_ineffective / aborted
    jq --arg reason "$reason" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
      '.phase = "terminal" | .termination_reason = $reason | .updated_at = $now' \
      .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
@@ -468,7 +457,7 @@ mkdir -p .sweep
 - review agent と fix agent を同じ呼び出しで混ぜる
 - **ドメイン分けせず 1 PR に全 critical+major 修正を詰める**（差分肥大化・レビュー困難・競合多発の元）
 - **fix agent がドメインのファイル範囲を超えて他ドメインの src を編集する**（scope_violation で返すべき）
-- **critical/major > 0 のまま `iter >= max_iter` で打ち切る**（max_iter は minor しぼり込み用のソフト上限。critical/major は `hard_cap` まで絶対に粘る。max_iter 到達は警告ログのみで反復継続する）
+- **周回数ベースで早期に打ち切る**（過去の `--max-iter` ソフト上限は廃止。打ち切りは原則 `fix_ineffective`、最終セーフティとして `hard_cap` のみ）
 - `hard_cap` に到達しても無限ループする
 - **最終 review 1 回だけで `clean` を宣言する**（フェーズ 3-1 の double-confirm review で必ず 2 回連続 0 を確認してから terminal 化する。2 回目に検出された場合は 2-5 へ戻す）
 - **デフォルトで minor をスキップする**（`--no-minor` 明示時のみ minor 修正を省略可能。それ以外は minor も fix 対象だが、許容数は `max_minor=5` まで残してよい）
