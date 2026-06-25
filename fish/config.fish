@@ -13,6 +13,8 @@ if status is-interactive
     alias c='claude --dangerously-skip-permissions'
     alias cc='claude --dangerously-skip-permissions --continue'
     alias cs='claude --dangerously-skip-permissions --settings '\''{"sandbox":{"enabled":true,"allowUnsandboxedCommands":false}}'\'''
+    alias x='codex --dangerously-bypass-approvals-and-sandbox'
+    alias fugu='codex-fugu --dangerously-bypass-approvals-and-sandbox'
 end
 
 # bun

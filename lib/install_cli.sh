@@ -63,6 +63,32 @@ install_gemini_cli() {
     bun install -g @google/gemini-cli
 }
 
+# ------------------------------------------------------------------
+# Fugu (Sakana AI の Codex 設定バンドル)
+# ------------------------------------------------------------------
+# 公式 install.sh は SAKANA_API_KEY を env から読めれば対話プロンプトを出さない。
+# ~/.env を一時 source して取り出し、無ければ warn してスキップする
+# （install.sh 全体を止めずに「鍵が用意できたら次回入る」運用にする）。
+install_fugu() {
+    local env_file="$DOTFILES_DIR/.env"
+    if [[ -z "${SAKANA_API_KEY:-}" ]] && [[ -f "$env_file" ]]; then
+        set -a
+        # shellcheck disable=SC1090
+        . "$env_file" || true
+        set +a
+    fi
+
+    if [[ -z "${SAKANA_API_KEY:-}" ]]; then
+        warn "SAKANA_API_KEY が未設定のため Fugu インストールをスキップ"
+        warn "  → $env_file に SAKANA_API_KEY=... を追加して再実行"
+        return
+    fi
+
+    log "Fugu をインストール"
+    FUGU_ASSUME_YES=1 bash -c 'curl -fsSL https://sakana.ai/fugu/install | bash' \
+        || warn "Fugu のインストールに失敗"
+}
+
 update_gemini_cli() {
     if ! command -v gemini >/dev/null 2>&1; then
         warn "gemini が無いため update をスキップ"

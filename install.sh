@@ -37,6 +37,22 @@ export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.local/share
 
 main() {
     log "DOTFILES_DIR = $DOTFILES_DIR"
+
+    # 引数指定で個別 install_* だけ走らせる（例: ./install.sh fugu codex_cli）
+    # 全体セットアップを通さずに 1 ツールだけ入れ直したい場合に使う。
+    if [[ $# -gt 0 ]]; then
+        detect_os
+        for target in "$@"; do
+            local fn="install_${target}"
+            if ! declare -F "$fn" >/dev/null; then
+                err "$fn は未定義です"
+                exit 1
+            fi
+            "$fn"
+        done
+        return
+    fi
+
     log "CONFIG_DIR   = $CONFIG_DIR"
 
     detect_os
@@ -53,6 +69,7 @@ main() {
     install_claude_code
     install_codex_cli
     install_gemini_cli
+    install_fugu
 
     install_gh
     install_gcloud
