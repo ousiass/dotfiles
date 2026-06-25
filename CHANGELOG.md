@@ -1,5 +1,16 @@
 > 注: このファイルは `~/dotfiles` リポジトリ全体（fish / nvim / tmux / install scripts / `.claude/` 配下のスキル類すべて）の変更履歴です。
 
+## [v0.4.0] - 2026-06-25
+
+Claude Code 用に育てたスキル一式を Codex CLI / Fugu からも使えるように移植したリリース。
+
+### ✨ New Features / 新機能
+
+- Port 35 Claude skills to Codex CLI format / `~/dotfiles/.claude/skills/` 配下のスキル 35 件（`bug-fix` / `impl` / `refine` / `issue-sweep` / `spec-gen` / `release` 等）を Codex CLI 用フォーマット (frontmatter は `name` / `description` のみ、本文は harness 非依存の自然言語) で `~/dotfiles/.codex/skills/` に再構成。Codex / Fugu でも同じワークフローを呼び出し可能に
+- Add `link_codex_skills` helper to install.sh / `lib/common.sh` に `link_codex_skills` を追加し、`install.sh` の `main` から呼んで `~/dotfiles/.codex/skills/<name>` → `~/.codex/skills/<name>` の symlink を idempotent に作成。Codex 公式バンドル (`.system/` 配下) は除外
+- Naturalize Claude-specific tool vocabulary / `AskUserQuestion` / `TaskCreate` / `Agent(subagent_type=...)` / `Skill()` / `WebFetch` 等の Claude 固有ツール参照を「選択式で確認」「進捗を管理」「サブエージェントを起動して並列実行」のような harness 非依存表現に置換
+- Preserve auxiliary resources verbatim / `templates/` / `references/` / `scripts/` などの補助ファイルは harness 非依存のためそのままコピー（spec-to-hugo の Hugo / Cloudflare Worker テンプレ群、halt-review のチェック基準集、code-review の観点別 references など含む）
+
 ## [v0.3.0] - 2026-06-25
 
 Fugu (Sakana AI の Codex 設定バンドル) の install パイプライン統合と、sweep / refine 系スキルの安定化リリース。
