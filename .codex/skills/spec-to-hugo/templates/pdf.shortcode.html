@@ -1,0 +1,19 @@
+{{ $src := .Get "src" }}
+{{ $title := .Get "title" | default "PDF" }}
+{{ $height := .Get "height" | default "800px" }}
+
+<div style="margin: 1.5em 0;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+    <strong>{{ $title }}</strong>
+    <a href="{{ $src }}" target="_blank" rel="noopener" style="font-size: 14px;">↗ 別タブで開く</a>
+  </div>
+  <iframe
+    src="{{ $src }}"
+    width="100%"
+    height="{{ $height }}"
+    style="border: 1px solid #444; border-radius: 6px;"
+    loading="lazy"
+  >
+    <p>PDFを表示できません。<a href="{{ $src }}">こちらからダウンロード</a>してください。</p>
+  </iframe>
+</div>

@@ -171,6 +171,29 @@ link_home_file() {
 }
 
 # ------------------------------------------------------------------
+# ~/dotfiles/.codex/skills/* を ~/.codex/skills/ に symlink
+# ------------------------------------------------------------------
+# Codex CLI のスキル機構（~/.codex/skills/<name>/SKILL.md）に Claude 用スキルを
+# 移植した版をリンクする。~/.codex/skills/.system は Codex 自身が配置する
+# ビルトインスキルなので触らない。
+link_codex_skills() {
+    local src_root="$DOTFILES_DIR/.codex/skills"
+    local dst_root="$HOME/.codex/skills"
+
+    [[ -d "$src_root" ]] || { warn "$src_root が無いため Codex skills リンクをスキップ"; return; }
+    mkdir -p "$dst_root"
+
+    local skill_dir name
+    for skill_dir in "$src_root"/*/; do
+        [[ -d "$skill_dir" ]] || continue
+        name="$(basename "$skill_dir")"
+        # Codex 標準スキル領域は除外（.system 以外も将来増える可能性があるので . 始まりは全除外）
+        [[ "$name" == .* ]] && continue
+        make_symlink "$dst_root/$name" "$src_root/$name" >/dev/null || true
+    done
+}
+
+# ------------------------------------------------------------------
 # ~/.claude のシンボリックリンク化（ランタイムデータ保全付き）
 # ------------------------------------------------------------------
 link_claude() {

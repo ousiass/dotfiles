@@ -1,0 +1,17 @@
+{
+  "name": "spec",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "hugo --gc --minify",
+    "serve": "hugo server --buildDrafts",
+    "fmt": "prettier --write \"content/**/*.md\"",
+    "fmt:check": "prettier --check \"content/**/*.md\"",
+    "lint": "markdownlint-cli2 \"content/**/*.md\"",
+    "fix": "prettier --write \"content/**/*.md\" && markdownlint-cli2 --fix \"content/**/*.md\""
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "^0.21.0",
+    "prettier": "^3.8.1"
+  }
+}

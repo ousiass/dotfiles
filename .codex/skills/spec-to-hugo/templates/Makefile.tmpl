@@ -1,0 +1,35 @@
+.DEFAULT_GOAL := help
+
+CONTENT_DIR := content
+
+.PHONY: help serve build clean fmt fmt-check lint fix
+
+help: ## ヘルプを表示
+	@echo ""
+	@echo "  {{SITE_TITLE}}"
+	@echo "  ======================================="
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+
+serve: ## ローカルサーバー起動（http://localhost:1313）
+	hugo server --buildDrafts
+
+build: ## 本番用ビルド（public/に出力）
+	hugo --gc --minify
+
+clean: ## ビルド成果物を削除
+	rm -rf public resources/_gen .hugo_build.lock
+
+fmt: ## Markdownをフォーマット（prettier）
+	bunx prettier --write "$(CONTENT_DIR)/**/*.md"
+
+fmt-check: ## フォーマット差分チェック（CI用）
+	bunx prettier --check "$(CONTENT_DIR)/**/*.md"
+
+lint: ## Markdownをリント（markdownlint）
+	bunx markdownlint-cli2 "$(CONTENT_DIR)/**/*.md"
+
+fix: ## フォーマット＋リント自動修正をまとめて実行
+	bunx prettier --write "$(CONTENT_DIR)/**/*.md"
+	bunx markdownlint-cli2 --fix "$(CONTENT_DIR)/**/*.md"
