@@ -104,8 +104,13 @@ fi
      - 本文に「並列禁止」「sequential only」「do not parallelize」等の明示記述
      - `migration` / `schema-change` / `breaking-change` ラベル（スキーマ変更や破壊的変更は他作業と競合しやすい）
      - 本文に DB マイグレーション・依存パッケージのメジャー更新・設定ファイル（CI / Lint / package.json 等）変更が含まれる旨の記述
-   - **同一 parent の split-from**: `split-from:#<parent>` で同じ親を持つサブ Issue 群は、互いに関連コード変更する可能性が高いので **同一 parent 内では sequential**（別 parent の Issue とは並列可）
-   - 上記すべて自動判定で、不明な場合は安全側に倒して sequential 化する（誤判定で並列にして失敗するより、保守的に処理した方が結果的に速い）
+   - **同一 parent の split-from（デフォルト sequential、安全と判断したら並列に上書き可）**: `split-from:#<parent>` で同じ親を持つサブ Issue 群は、互いに関連コード変更する可能性があるので**デフォルト sequential**。ただし以下の **並列セーフ条件** をすべて満たす Issue ペアは並列起動する（phase 初期実装で独立した雛形ファイルを各 Issue が触るようなケースを直列化しないため）:
+     - 各 Issue 本文に「## スコープ」「## 影響範囲」「## ファイル」等のセクションがあり、対象ファイル / ディレクトリ集合が **disjoint**（共通要素なし）
+     - どちらも `migration` / `schema-change` / `breaking-change` ラベルを持たない
+     - どちらも `package.json` / `go.mod` / `bun.lock` / `.golangci.yml` / `biome.json` / `tsconfig.json` / `compose.yml` / `Makefile` / `.github/workflows/**` のような **shared 設定ファイル** に触る記述を本文に含まない（触ると兄弟全員と conflict する）
+     - 本文に「依存: #N」「blocked by #N」等の明示依存がない
+   - 上記すべて自動判定で、**並列セーフ条件の判定がつかない場合は sequential** に倒す（誤判定で並列にして失敗するより、保守的に処理した方が結果的に速い）
+   - **並列上書きの記録**: split-from sequential を上書きして並列起動した Issue ペアは、起動直前にメインのテキスト出力で「#A と #B を並列起動（スコープ disjoint: A=apps/web/foo/, B=cmd/worker/bar/）」と 1 行宣言する（後でレポートから挙動を追えるように）
 3. **巨大 Issue の自動分割（fan-out）**: 各 Issue について以下を満たすものは `/issue-split-auto #<n>` を `Agent(subagent_type=claude)` 経由で呼び出す:
    - 本文が 1500 文字以上 **かつ** H2 セクション (`## `) が 3 個以上
    - `bug` ラベルが付いていない
