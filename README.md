@@ -14,6 +14,7 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 │   └── mcp.json        # Claude Code MCP 設定（${VAR} で env 参照、~/.mcp.json はこれへのシンボリックリンク）
 ├── .claude/            # → ~/.claude（CLAUDE.md, agents/, skills/, settings.json 等）
 ├── .codex/
+│   ├── AGENTS.md       # → ~/.codex/AGENTS.md（Codex グローバル指示、言語設定等）
 │   └── skills/         # 各サブディレクトリが ~/.codex/skills/<name> に symlink される Codex 用 skill 群
 ├── nvim/               # → ~/.config/nvim
 ├── tmux/               # → ~/.config/tmux
@@ -83,7 +84,7 @@ $EDITOR .env
      - `~/.codex/skills/.system/` を経由して `codex-fugu` ランチャと設定バンドルを配置
 7. 各ツールのバイナリパスを fish の `fish_user_paths` (universal) に追加
 8. 既存の `~/.config/{nvim,tmux,fish,gh-dash}`, `~/.claude`, `~/.mcp.json`, `~/.env` を `*.bak.<日付>` にバックアップ
-9. dotfiles を該当パスにシンボリックリンク（`~/.env` → `~/dotfiles/.env`、`~/.mcp.json` → `~/dotfiles/claude-mcp/mcp.json`、`~/dotfiles/.codex/skills/<name>` → `~/.codex/skills/<name>` 等）
+9. dotfiles を該当パスにシンボリックリンク（`~/.env` → `~/dotfiles/.env`、`~/.mcp.json` → `~/dotfiles/claude-mcp/mcp.json`、`~/dotfiles/.codex/AGENTS.md` → `~/.codex/AGENTS.md`、`~/dotfiles/.codex/skills/<name>` → `~/.codex/skills/<name>` 等）
 10. `~/.claude` のランタイムデータ（履歴・セッション等）をバックアップから dotfiles 側に移行（既存は上書きしない）
 11. fisher（fish プラグインマネージャ）をインストール → `fish_plugins` の内容を反映
 12. fnm 経由で Node.js LTS をインストールしデフォルトに設定

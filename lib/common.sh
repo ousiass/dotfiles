@@ -171,6 +171,18 @@ link_home_file() {
 }
 
 # ------------------------------------------------------------------
+# ~/dotfiles/.codex/AGENTS.md を ~/.codex/AGENTS.md に symlink
+# ------------------------------------------------------------------
+# Codex CLI のグローバル指示ファイル。~/.claude/CLAUDE.md と同じ位置付けで、
+# 言語設定など全セッション共通の指示を集約する。
+link_codex_agents() {
+    local src="$DOTFILES_DIR/.codex/AGENTS.md"
+    [[ -f "$src" ]] || { warn "$src が無いため AGENTS.md リンクをスキップ"; return; }
+    mkdir -p "$HOME/.codex"
+    make_symlink "$HOME/.codex/AGENTS.md" "$src" >/dev/null || true
+}
+
+# ------------------------------------------------------------------
 # ~/dotfiles/.codex/skills/* を ~/.codex/skills/ に symlink
 # ------------------------------------------------------------------
 # Codex CLI のスキル機構（~/.codex/skills/<name>/SKILL.md）に Claude 用スキルを

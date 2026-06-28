@@ -86,6 +86,7 @@ main() {
     link_config fish
     link_config gh-dash
     link_claude
+    link_codex_agents
     link_codex_skills
     link_home_file .env
     link_home_file .mcp.json claude-mcp/mcp.json
