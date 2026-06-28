@@ -61,6 +61,7 @@ fish/completions/tide.fish
 .claude/teams/
 .claude/llm/active
 .claude/usage-data/
+.claude/.last-cleanup
 
 # issue-sweep のランタイム状態（キュー / ロック / メトリクス / 通知 URL）
 .sweep/
@@ -76,6 +77,11 @@ fish/completions/tide.fish
 
 # ビルド成果物
 .claude/tools/swm/swm
+
+# ----------------------------------------------------------------
+# Neovim runtime / plugin lockfile（各マシンで :Lazy sync して再生成）
+# ----------------------------------------------------------------
+nvim/lazy-lock.json
 
 # ----------------------------------------------------------------
 # OS / editor cruft
