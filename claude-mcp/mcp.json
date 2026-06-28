@@ -6,7 +6,7 @@
         "command": "npx",
         "args": [
           "-y",
-          "@supabase/mcp-server-supabase@0.5.10"
+          "@supabase/mcp-server-supabase@0.8.2"
         ],
         "env": {
           "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}"
