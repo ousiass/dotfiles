@@ -5,8 +5,6 @@ description: Anthropic 公式 33 ページガイドに基づく拡張スキル�
 
 # Skill Creator Max
 
-Anthropic の公式ガイドを踏まえた拡張スキル作成ガイド。Codex 標準の skill-creator が提供する基本フローに加えて、より踏み込んだベストプラクティスを参照したい場合にこのスキルを参照する。
-
 ## Core Principles (from Official Guide)
 
 ### 1. Concise is Key

@@ -8,8 +8,6 @@ user-invocable: true
 
 # impl-wt-en
 
-Worktree-isolated version of `impl`. Implements without affecting the main working tree.
-
 ## Prerequisites
 
 - Claude Code environment

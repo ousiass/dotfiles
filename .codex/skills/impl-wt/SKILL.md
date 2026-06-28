@@ -5,8 +5,6 @@ description: git worktree で隔離した環境で実装サイクルを回し PR
 
 # impl-wt
 
-`impl` の worktree 隔離版。メインの作業ツリーを汚さずに実装を行う。
-
 ## 前提条件
 
 - Codex CLI 環境

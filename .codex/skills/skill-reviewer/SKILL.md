@@ -5,8 +5,6 @@ description: 既存スキルを Anthropic 公式ガイドの 5 原則に照ら�
 
 # Skill Reviewer
 
-Anthropic の公式ガイド原則に基づき、既存スキルをレビューして改善案を提示する。
-
 ## Review Workflow
 
 ### Step 1: Read the Skill

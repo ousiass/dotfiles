@@ -6,8 +6,6 @@ user-invocable: true
 
 # bug-fix-wt
 
-`bug-fix` の worktree 隔離版。メインの作業ツリーを汚さずにバグ修正を行う。
-
 ## 前提条件
 
 - Claude Code 環境

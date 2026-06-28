@@ -5,8 +5,6 @@ description: git worktree で隔離した環境でバグ調査・修正・回帰
 
 # bug-fix-wt
 
-`bug-fix` の worktree 隔離版。メインの作業ツリーを汚さずにバグ修正を行う。
-
 ## 前提条件
 
 - Codex CLI 環境

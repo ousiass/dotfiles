@@ -6,8 +6,6 @@ user-invocable: true
 
 # impl-wt
 
-`impl` の worktree 隔離版。メインの作業ツリーを汚さずに実装を行う。
-
 ## 前提条件
 
 - Claude Code 環境

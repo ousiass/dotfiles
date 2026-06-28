@@ -6,8 +6,6 @@ user-invocable: true
 
 # halt
 
-HALT アーキテクチャの技術仕様セクションを既存の仕様書に追加、または新規作成する。
-
 ## HALT とは
 
 **H**TMX + **A**tomic Design + **L**it + **T**empl によるサーバー内蔵型フロントエンドアーキテクチャ。

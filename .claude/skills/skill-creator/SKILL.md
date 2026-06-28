@@ -5,8 +5,6 @@ description: Enhanced skill creator based on Anthropic's 33-page official guide.
 
 # Skill Creator Max
 
-Enhanced skill creator incorporating Anthropic's complete official guide. Provides comprehensive best practices beyond the standard skill-creator.
-
 ## Core Principles (from Official Guide)
 
 ### 1. Concise is Key

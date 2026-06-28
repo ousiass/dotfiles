@@ -8,8 +8,6 @@ user-invocable: true
 
 # bug-fix-wt-en
 
-Worktree-isolated version of `bug-fix`. Fixes bugs without affecting the main working tree.
-
 ## Prerequisites
 
 - Claude Code environment

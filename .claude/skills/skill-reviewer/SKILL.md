@@ -5,8 +5,6 @@ description: Review existing skills against Anthropic's official guide principle
 
 # Skill Reviewer
 
-Review and improve existing skills based on Anthropic's official guide principles.
-
 ## Review Workflow
 
 ### Step 1: Read the Skill
