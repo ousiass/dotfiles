@@ -88,6 +88,7 @@ main() {
     link_claude
     link_codex_agents
     link_codex_skills
+    sync_codex_mcp
     link_home_file .env
     link_home_file .mcp.json claude-mcp/mcp.json
 

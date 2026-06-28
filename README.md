@@ -86,10 +86,11 @@ $EDITOR .env
 8. 既存の `~/.config/{nvim,tmux,fish,gh-dash}`, `~/.claude`, `~/.mcp.json`, `~/.env` を `*.bak.<日付>` にバックアップ
 9. dotfiles を該当パスにシンボリックリンク（`~/.env` → `~/dotfiles/.env`、`~/.mcp.json` → `~/dotfiles/claude-mcp/mcp.json`、`~/dotfiles/.codex/AGENTS.md` → `~/.codex/AGENTS.md`、`~/dotfiles/.codex/skills/<name>` → `~/.codex/skills/<name>` 等）
 10. `~/.claude` のランタイムデータ（履歴・セッション等）をバックアップから dotfiles 側に移行（既存は上書きしない）
-11. fisher（fish プラグインマネージャ）をインストール → `fish_plugins` の内容を反映
-12. fnm 経由で Node.js LTS をインストールしデフォルトに設定
-13. nvim プラグインを headless で同期（`lazy.nvim`）
-14. ログインシェルを fish に変更（必要時のみ）
+11. `~/dotfiles/claude-mcp/mcp.json` の MCP サーバー定義を `codex mcp add` で `~/.codex/config.toml` に同期（Claude と Codex で同じ MCP を共有。`${VAR}` 形式の env は Codex の親プロセス env 継承に任せる）
+12. fisher（fish プラグインマネージャ）をインストール → `fish_plugins` の内容を反映
+13. fnm 経由で Node.js LTS をインストールしデフォルトに設定
+14. nvim プラグインを headless で同期（`lazy.nvim`）
+15. ログインシェルを fish に変更（必要時のみ）
 
 何度実行しても安全（既にインストール済 / リンク済みならスキップ）。
 
