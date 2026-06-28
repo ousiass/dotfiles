@@ -3,14 +3,11 @@
     "mcpServers": {
       "supabase": {
         "type": "stdio",
-        "command": "npx",
+        "command": "sh",
         "args": [
-          "-y",
-          "@supabase/mcp-server-supabase@0.8.2"
-        ],
-        "env": {
-          "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}"
-        }
+          "-c",
+          "set -a; . $HOME/.env; set +a; exec npx -y @supabase/mcp-server-supabase@0.8.2"
+        ]
       },
       "deepwiki": {
         "type": "http",
