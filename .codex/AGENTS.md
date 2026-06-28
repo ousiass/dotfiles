@@ -1,7 +1,5 @@
 # Codex Instructions
 
-Claude 用の `~/.claude/CLAUDE.md` と同じ方針を Codex CLI でも適用するためのグローバル指示。
-
 ## Complexity & readability
 - Do not increase complexity without a clear reason.
 - Prefer the simplest solution that satisfies the requirements and existing constraints.
