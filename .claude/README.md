@@ -48,6 +48,7 @@ graph TD
 |--------|------|
 | `/spec-gen` | 新規プロジェクトの設計ドキュメント一式を対話的に作成。既存仕様書への追記にも対応 |
 | `/spec-review` | 仕様書をレビューし、指摘を1件ずつユーザー確認しながら修正 |
+| `/issue-split-auto` | 大きな Issue を非対話でスコープ単位のサブ Issue に自動分割（issue-sweep 連携用） |
 | `/spec-to-hugo` | 既存の仕様書ディレクトリをHextraテーマのHugoサイトに変換。Mermaid図ズーム・PDF埋め込み・Netlifyデプロイ対応 |
 | `/design-spec` | 対話的にデザイン仕様書（UI/UX）を作成・既存ドキュメントに追記 |
 | `/design-review` | UIコンポーネントのデザイン品質をレビューし、Issueまたはレポートとして生成 |
@@ -62,6 +63,7 @@ graph TD
 |--------|------|
 | `/impl` | 要件→スコープ分割→実装→レビュー→コミット→PRを小スコープで反復 |
 | `/impl-wt` | git worktree で隔離した環境で実装サイクルを回し、PRを作成 |
+| `/issue-sweep` | 複数 Issue をキュー化し Stop Hook と連動して端から自律連続実装・PR マージまで進める。`--parallel N` で並列、`--abort` で中止。実行中の同一プロジェクトでの並行作業は別 worktree から行うこと |
 
 ### バグ
 
@@ -77,6 +79,8 @@ graph TD
 |--------|------|
 | `/code-review` | コードベース全体の品質チェックとリファクタリングレビュー。レポート生成 |
 | `/code-review-git` | gitリモートとの差分を対象にコード品質チェック＋ドキュメント乖離検出 |
+| `/refine` | review→修正→再review を反復し critical/major=0 ∧ minor≤閾値 まで研磨後、auto-merge + Issue close まで実行（`--no-merge` で研磨のみ） |
+| `/refine-sweep` | 全コードベースに対して 4 観点 review→fix→PR→merge を反復し critical/major/minor をゼロまで磨く（`--no-minor` で軽量モード）。仕様書のドメイン軸で並列 PR。spinoff も自動 `/issue-sweep` 委譲で実装まで完了 |
 | `/doc-drift` | ドキュメントと実装コードの整合性をチェックし、乖離レポートを生成 |
 | `/doc-drift-git` | gitリモートとの差分を対象にドキュメントとコードの整合性チェック |
 

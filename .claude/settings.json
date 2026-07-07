@@ -14,15 +14,43 @@
       "Bash(make lint *)"
     ]
   },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git -C \"$HOME/dev/claude-skills\" pull --ff-only -q 2>/dev/null || true",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AI_ROUTER_CURRENT_CLI=claude /usr/bin/python3 -u /Users/yoshidataiki/.ai-router/ai_cli_router.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
   "enabledPlugins": {
     "gopls-lsp@claude-plugins-official": true
   },
+  "outputStyle": "Concise",
   "language": "日本語",
   "alwaysThinkingEnabled": true,
+  "effortLevel": "high",
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark-daltonized",
+  "skipAutoPermissionPrompt": true,
   "feedbackSurveyState": {
     "lastShownTime": 1753948122944
   },
-  "skipAutoPermissionPrompt": true
+  "switchModelsOnFlag": true,
+  "model": "claude-fable-5[1m]"
 }
