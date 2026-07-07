@@ -42,10 +42,20 @@
 
 ## Asking the user
 - 不明点・前提条件が曖昧な点・複数の妥当な選択肢がある場合は、推測で進めずに `AskUserQuestion` で選択式に確認する。テキストだけで質問しない。
-- 各選択肢の `description` には判断材料（メリット・デメリット、影響範囲、推奨理由）を簡潔に書く。
+- 各選択肢の `description` は**1〜2文まで**。判断材料（推奨理由・主要なトレードオフ）だけを書く。
 - 1回あたり最大4問にまとめる。確認漏れがあれば次のターンで再度 `AskUserQuestion` を出す。
 - すでに明示された指示や、コード/ドキュメントを読めば一意に決まる事項についてはわざわざ聞かない（読んで把握する）。
-- 自由入力が必要な場合は `AskUserQuestion` の `allowFreeText: true`（または「Other」選択肢）を使う。
+- 自由入力の受け口は自動付与される「Other」に任せる（`allowFreeText` というパラメータは存在しないので渡さない）。
+
+### AskUserQuestion Payload Budget（壊れたJSONを送らない）
+`AskUserQuestion` は「判断の入力欄」であり、「調査報告の置き場」ではない。
+
+- options は原則 2〜4個。label は短く（1〜5語）。
+- description に長い背景・ログ・diff・コードブロック・長いパス一覧を入れない。
+- 判断材料が長い場合は、**本文で先に説明してから**、AskUserQuestion 側は短い選択肢だけにする。
+- 複数論点を1つの question に詰め込まない（論点が複数なら questions を分けるか、ターンを分ける）。
+- payload が大きくなりそうな場合は例外として AskUserQuestion を使わず、本文で「A/B/C のどれにしますか」と短く聞く。
+- InputValidationError が出たら、**同じ payload を再送しない**。選択肢数と description を削って再提示する。
 
 ## Git Commits
 - コミットメッセージは `<type>: <説明>` の形式で書く
