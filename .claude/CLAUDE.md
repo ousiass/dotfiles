@@ -57,6 +57,16 @@
 - payload が大きくなりそうな場合は例外として AskUserQuestion を使わず、本文で「A/B/C のどれにしますか」と短く聞く。
 - InputValidationError が出たら、**同じ payload を再送しない**。選択肢数と description を削って再提示する。
 
+## Issue Target Lock（対象の固定）
+issue番号・PR番号・branch名が作業に関わる場合は、作業開始前に対象を固定する。
+
+- 以下を1セットで照合する: issue番号 / issueタイトル / ユーザーが明示した対象 / branch名 / 実装・修正する内容 / commit message・PR本文に記載する番号。
+- 複数のissue番号が会話・ログ・検索結果・branch名に出てきた場合は、推測で選ばない。どのissueを対象にするかをユーザーに確認する。
+- ユーザーがissue番号を明示していないのに実装へ進む場合は、自分で選定せず、候補と選定根拠を提示して確認を取ってから固定する。
+- 一度対象issueを固定した後は、ユーザーが明示的に変更しない限り、別issueへ移動しない。
+- issue番号と作業内容が一致しない場合（タイトルと差分の食い違い等）は、実装・commit・push・PR作成へ進まず、止めて確認する。
+- issue番号を読み替えて作業しない。「整理した番号」と「実装する番号」がズレたまま進むのが典型事故（#142で整理→#141を実装）。
+
 ## Git Commits
 - コミットメッセージは `<type>: <説明>` の形式で書く
 - type は英語（feat, fix, update, refactor, docs, test など）
