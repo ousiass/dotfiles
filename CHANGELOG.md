@@ -1,5 +1,41 @@
 > 注: このファイルは `~/dotfiles` リポジトリ全体（fish / nvim / tmux / install scripts / `.claude/` 配下のスキル類すべて）の変更履歴です。
 
+## [v0.5.0] - 2026-07-08
+
+Atomic Design レビューの導入、sweep 系スキルの UX 統一、外部 agent-skills のマニフェスト化、Codex 環境整備を中心にしたリリース。
+
+### ✨ New Features / 新機能
+
+- Add `atomic-review` skill for Atomic Design compliance / Atomic Design 準拠レビュー用 `atomic-review` スキルを Claude / Codex 両方に追加。Next.js / Nuxt v3・v4 / 素の React / 素の Vue を自動判定し、依存方向・配置妥当性・layout 使用・命名・prop drilling・FW 固有ルール（'use client' 境界、Nuxt auto-import、v3→v4 srcDir 差異）をチェック
+- Enforce Atomic Design in refine for frontend projects / `refine` / `refine-sweep` のフェーズ 1 に HAS_ATOMIC 検知と `atomic-review` 並列起動を追加。フロントエンド (react/vue/next/nuxt) かつ Atomic 未採用の場合は `termination_reason=atomic_design_required` で中断
+- Add `impl-type-r` / `impl-type-wr` skills / `impl → refine` を連続実行し、実装から研磨・CI 緑マージまで一気通貫するスキルを追加（`impl-type-wr` は worktree 隔離版）
+- Add `report-sweep` skill / 機能要望とバグ報告を一括ヒアリングし、バグは Issue のみ・機能要望は Issue+ブランチ+`spec-gen` 実行まで走らせる `report-sweep` スキルを追加
+- Add `spec-sweep` skill / 複数仕様追加を事前計画で一括ヒアリングし、Issue/ブランチごとに `spec-gen` を順次実行する `spec-sweep` スキルを追加
+- Add manifest-based external agent-skills management / 外部 agent-skills をマニフェスト方式（`agent-skills.txt`）で管理する仕組みと `install_agent_skills` を追加
+- Add `sync_codex_mcp` helper / Claude の MCP 設定 (`claude-mcp/mcp.json`) を Codex 用 (`~/.codex/config.toml`) に同期する `sync_codex_mcp` を install.sh に追加
+- Add global `.codex/AGENTS.md` / Codex 用グローバル指示ファイル `.codex/AGENTS.md` を追加し `install.sh` で `~/.codex/AGENTS.md` に symlink
+
+### 🐛 Bug Fixes / バグ修正
+
+- Fix agent-skills conflict guard to follow symlinks / `install_agent_skills` の Codex 側衝突ガードを symlink 先で判定する形に修正し、既存 symlink スキルとの誤検知を回避
+- Fix supabase MCP env loading / supabase MCP の env を sh ラッパー経由で `~/.env` から読む形に変更し、Claude Code / Codex 起動時に env が抜ける問題を修正
+
+### 🔧 Improvements / 改善
+
+- Unify sweep skills on upfront hearing / sweep 系スキル（`issue-sweep` / `refine-sweep` / `report-sweep` / `spec-sweep`）を「初回一括ヒアリング＋以降割り込みなし」の UX に統一
+- Extend report-sweep to run spec-gen for feature requests / `report-sweep` の機能要望フローを Issue 作成だけでなく `spec-gen` 実行まで走らせる形に拡張
+- Bump supabase MCP 0.5.10 → 0.8.2 / supabase MCP を 0.5.10 から 0.8.2 にバンプ
+- Loosen issue-sweep split-from sequential rule / `issue-sweep` の split-from sequential ルールを、並列セーフな条件を満たす場合に限り上書き可能に緩和
+
+### 📝 Documentation / ドキュメント
+
+- Update README with Fugu / Codex skills / partial install / fish aliases / README に Fugu、Codex 用スキル、`./install.sh <name>` 個別実行、fish エイリアス (`x` / `fugu`) の説明を追記
+- Trim redundant intros / `SKILL.md` / `AGENTS.md` 冒頭の冗長な紹介文を削除して本題からすぐ読めるように整理
+
+### 🏗️ Infrastructure / インフラ
+
+- Ignore runtime state and plugin lock files / `.sweep/` などのランタイム状態ファイル、`fish_plugins.lock` などのプラグインロックファイルを `.gitignore` に追加
+
 ## [v0.4.0] - 2026-06-25
 
 Claude Code 用に育てたスキル一式を Codex CLI / Fugu からも使えるように移植したリリース。
