@@ -78,6 +78,10 @@ fish/completions/tide.fish
 # ビルド成果物
 .claude/tools/swm/swm
 
+# 外部 agent-skills (bunx skills / ~/.agents/skills/) のマシン依存 symlink 群
+# 中身の .gitignore と各 symlink 自身は install_agent_skills が自動生成する
+.claude/skills/.gitignore
+
 # ----------------------------------------------------------------
 # Neovim runtime / plugin lockfile（各マシンで :Lazy sync して再生成）
 # ----------------------------------------------------------------

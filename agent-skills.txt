@@ -1,0 +1,16 @@
+# External agent-skills manifest
+#
+# install.sh / update.sh から読み込まれ、bunx skills add で
+# ~/.agents/skills/ に配置し、Claude Code (~/.claude/skills/) と
+# Codex (~/.codex/skills/) の両方から参照できるように symlink を張る。
+#
+# フォーマット:
+#   <owner>/<repo>              # 全 skill を導入
+#   <owner>/<repo>@skill1,skill2  # 指定 skill のみ導入
+#   # 行頭 # はコメント
+#
+# 更新は `./update.sh` または `bunx skills update -g -y`。
+
+# Leonxlnx/taste-skill: 高品質 UI/UX / 画像生成 / redesign 系スキル群
+# https://github.com/Leonxlnx/taste-skill
+Leonxlnx/taste-skill

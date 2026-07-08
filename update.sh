@@ -55,6 +55,8 @@ main() {
     update_moleport
     update_linterly
 
+    update_agent_skills
+
     update_fisher
     update_nvim_plugins
 
