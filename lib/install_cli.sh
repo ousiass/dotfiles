@@ -441,7 +441,16 @@ link_agent_skills() {
         [[ "$name" == .* ]] && continue
 
         for dst in "$claude_dst/$name" "$codex_dst/$name"; do
-            if [[ -e "$dst" && ! -L "$dst" ]]; then
+            # 自作 skill (実ディレクトリ、または dotfiles を指す symlink) は保護。
+            # 上書きしていいのは「存在しない」or「既に ~/.agents/skills/ を指す」場合のみ。
+            if [[ -L "$dst" ]]; then
+                local current
+                current="$(readlink "$dst")"
+                if [[ "$current" != "$src_root/$name" ]]; then
+                    warn "$dst は既存リンク ($current) と衝突するため link をスキップ"
+                    continue
+                fi
+            elif [[ -e "$dst" ]]; then
                 warn "$dst は自作 skill と衝突するため link をスキップ"
                 continue
             fi
