@@ -81,9 +81,37 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
      HAS_HALT=true
    fi
    ```
-6. **レビュー対象スキル一覧**を決定:
+6. **Atomic Design プロジェクト検知**（HALT でない場合のみ、halt-review が Atomic を内包するため排他）:
+   ```bash
+   HAS_ATOMIC=false
+   if [[ "$HAS_HALT" != "true" ]]; then
+     for base in components src/components app/components; do
+       if [[ -d "$base/atoms" ]] && { [[ -d "$base/molecules" ]] || [[ -d "$base/organisms" ]]; }; then
+         HAS_ATOMIC=true
+         break
+       fi
+     done
+   fi
+   ```
+7. **フロントエンドプロジェクトの Atomic Design 必須ガード**:
+   ```bash
+   IS_FRONTEND=false
+   if [[ -f package.json ]] && grep -qE '"(react|vue|next|nuxt)"[[:space:]]*:' package.json 2>/dev/null; then
+     IS_FRONTEND=true
+   fi
+   if [[ "$IS_FRONTEND" == "true" ]] && [[ "$HAS_HALT" != "true" ]] && [[ "$HAS_ATOMIC" != "true" ]]; then
+     echo "ERROR: フロントエンドプロジェクト (react/vue/next/nuxt) ですが Atomic Design 構造 (atoms/molecules/organisms) が見つかりません。"
+     echo "  refine はフロント回りで Atomic Design 準拠を必須としています。"
+     echo "  対応: components/, src/components/, app/components/ のいずれかに atoms/ + (molecules/ or organisms/) を配置してください。"
+     jq --arg reason "atomic_design_required" '.termination_reason = $reason | .phase = "terminal" | .updated_at = "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' \
+        .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
+     exit 2
+   fi
+   ```
+8. **レビュー対象スキル一覧**を決定:
    - 常に: `code-review`, `doc-drift`, `spec-audit`
    - `HAS_HALT=true` のみ: `halt-review` を追加
+   - `HAS_ATOMIC=true` のみ: `atomic-review` を追加
 
 ## フェーズ2: review → 修正ループ
 
@@ -114,6 +142,10 @@ PR #<n>（branch: <branch>）に対して /code-review を起動して実行。
 # HAS_HALT=true のときのみ追加
 [サブエージェント4] description: "Refine iter <iter+1> — halt-review"
 同様、/halt-review を実行、 "source": "halt-review" で返す
+
+# HAS_ATOMIC=true のときのみ追加
+[サブエージェント5] description: "Refine iter <iter+1> — atomic-review"
+同様、/atomic-review を実行、 "source": "atomic-review" で返す
 ```
 
 各サブエージェントの返答 JSON を集約:
@@ -333,6 +365,8 @@ echo "Report written to $report"
 - minor の修正で副作用バグを入れない（修正後の review で critical が出たら反復継続）
 - **必須レビュー（code-review / doc-drift / spec-audit）の一部をスキップする**（全 4 観点を統合して判定するため）
 - **HALT プロジェクトで halt-review をスキップする**（フェーズ1 で HAS_HALT=true なら必ず並列起動）
+- **Atomic Design プロジェクトで atomic-review をスキップする**（フェーズ1 で HAS_ATOMIC=true なら必ず並列起動。HAS_HALT=true との排他は検知側で担保）
+- **フロントエンドプロジェクトで Atomic Design 未採用のまま refine を続行する**（フェーズ1 の IS_FRONTEND ガードで必ず中断すること）
 - **`.sweep/state.json` を `phase=terminal` にする前に最終 review を再実行せず、推定で `clean` を宣言する**（iter 途中の counts を信じて terminal 化するのは禁止。フェーズ3 ステップ4b で必ず最終 review を走らせる）
 - **`.sweep/state.json` の `evidence` 配列が空のままフェーズ3 に進む / terminal 化する**
 - レポートに `## Evidence` セクションを書かない（state.json の evidence をそのまま引用する形で必ず残す）

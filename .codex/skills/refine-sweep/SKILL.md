@@ -5,7 +5,7 @@ description: 全コードベースを 4 観点で連続レビューし、ドメ�
 
 # refine-sweep
 
-`/refine` の全コードベース版。特定 PR ではなくリポジトリ全体を対象に `/code-review` / `/doc-drift` / `/spec-audit`（HALT 検知時は `/halt-review`）を並列実行し、critical + major の指摘を 1 PR にまとめて修正・マージするサイクルを回す。
+`/refine` の全コードベース版。特定 PR ではなくリポジトリ全体を対象に `/code-review` / `/doc-drift` / `/spec-audit`（HALT 検知時は `/halt-review`、Atomic Design 検知時は `/atomic-review`）を並列実行し、critical + major の指摘を 1 PR にまとめて修正・マージするサイクルを回す。
 
 `/refine` は1つの PR を磨くスキル。`/refine-sweep` は **コードベース全体を継続的にゼロ近くへ持っていくスキル**。issue-sweep と同じ CTO + agent 構造、`.sweep/` 配下に状態を残す。
 
@@ -85,9 +85,16 @@ write_sweep_state() {
 1. `base_branch=$(git branch --show-current)` を記録
 2. HALT 検知（refine と同じロジック）:
    - `*.templ` ファイル存在 or 仕様書に「HALT / HTMX+Atomic+Lit+Templ」記述 → `HAS_HALT=true`
-3. レビュー対象スキル一覧:
+3. Atomic Design 検知（HAS_HALT=false のときのみ）:
+   - `components/`, `src/components/`, `app/components/` のいずれかに `atoms/` + (`molecules/` or `organisms/`) がある → `HAS_ATOMIC=true`
+4. フロントエンドプロジェクトの Atomic Design 必須ガード:
+   - `package.json` に `react` / `vue` / `next` / `nuxt` の依存が含まれる → `IS_FRONTEND=true`
+   - `IS_FRONTEND=true` かつ `HAS_HALT=false` かつ `HAS_ATOMIC=false` → **ここで中断**（`.sweep/state.json` に `termination_reason: "atomic_design_required"` を書き込み、`phase=terminal` にして exit 2）
+   - refine-sweep はフロント回りで Atomic Design 準拠を必須とする。ユーザーへのメッセージ例: 「フロントエンドプロジェクトですが Atomic Design 構造 (atoms/molecules/organisms) が見つかりません。components/, src/components/, app/components/ のいずれかに配置してから再実行してください。」
+5. レビュー対象スキル一覧:
    - 常に: `/code-review`, `/doc-drift`, `/spec-audit`
    - HAS_HALT=true: `/halt-review` も追加
+   - HAS_ATOMIC=true: `/atomic-review` も追加
 4. **ドメイン一覧を仕様書から抽出**（ステージ分けの軸として使用）:
    - 仕様書の場所を CLAUDE.md または Glob (`docs/spec/**/*.md`, `specs/**/*.md`, `SPEC.md`) で特定
    - 仕様書本文から「Frontend / Backend / DB / Database / CI / CD / Infra / Shared / Common / Mobile / Admin」等の H2 セクションや「## ドメイン」配下の項目を抽出
@@ -125,7 +132,7 @@ git pull --ff-only origin "$base_branch" 2>/dev/null || true
 
 {"source": "code-review", "critical": [...], "major": [...], "minor": [...]}
 
-# /doc-drift, /spec-audit, /halt-review も同様に並列起動
+# /doc-drift, /spec-audit, /halt-review (HAS_HALT=true時), /atomic-review (HAS_ATOMIC=true時) も同様に並列起動
 ```
 
 各サブエージェントの返答を `/refine` と同じ jq で集約。
