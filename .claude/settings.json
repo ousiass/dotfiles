@@ -104,11 +104,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-issue-queue.sh"
+            "command": "$HOME/.claude/hooks/check-issue-queue.sh"
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-sweep-state.sh"
+            "command": "$HOME/.claude/hooks/check-sweep-state.sh"
           }
         ]
       }
