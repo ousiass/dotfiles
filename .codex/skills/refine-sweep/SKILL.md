@@ -239,12 +239,17 @@ label=`refine-sweep` の全 open Issue を **`/impl-wt` で消化 → PR → CI 
 ```
 [サブエージェント] description: "refine-sweep iter <iter+1> impl-wt #<issue_num> [<DOMAIN>]"
 プロンプト:
-Issue #<issue_num> を `/impl-wt` で実装・テスト・PR 作成・CI 緑待ち・merge・Issue close まで完了させてください。
+Issue #<issue_num> を実装 → PR 作成 → CI 緑待ち → merge → Issue close まで完了させてください。
 
 手順:
-1. impl-wt スキルを呼び出して `/impl-wt #<issue_num>` を起動
-2. impl-wt が worktree で実装 → PR 作成 → CI 緑ポーリング → `gh pr merge --merge --delete-branch` → Issue close まで内部で完結させる
-3. impl-wt 完了後に以下の JSON 1 行を最終メッセージとして返す
+1. impl-wt スキルを呼び出して `/impl-wt #<issue_num>` を起動し、worktree での実装と PR 作成まで完了させる（impl-wt 自体は PR 作成で止まる設計）
+2. impl-wt が返した PR 番号を保持
+3. `gh pr view <PR> --json state,statusCheckRollup` を 60 秒間隔でポーリング:
+   - 全 check 完了 ∧ FAILURE なし ∧ state=OPEN → `gh pr merge <PR> --merge --delete-branch` を実行
+   - FAILURE あり ∧ pending=0 → impl-wt を再起動して修正 push（最大 3 回まで）
+   - state=MERGED になったら break
+4. merge 成功後、`gh issue close #<issue_num> --comment "Closed by PR #<PR> (via /refine-sweep iter <iter>)"` で Issue を明示的に close
+5. 完了後に以下の JSON 1 行を最終メッセージとして返す
 
 成功: {"issue": <issue_num>, "domain": "<DOMAIN>", "pr_number": <N>, "merged": true, "closed": true, "failure": null}
 失敗: {"issue": <issue_num>, "domain": "<DOMAIN>", "pr_number": <N or null>, "merged": false, "closed": false, "failure": "<理由>"}
@@ -254,6 +259,7 @@ Issue #<issue_num> を `/impl-wt` で実装・テスト・PR 作成・CI 緑待�
 - `.sweep/lock` を触らない
 - `/issue-sweep` や `/refine-sweep` を再帰起動しない（state 衝突）
 - `gh pr merge --auto` を使わない（CI 緑ポーリング → 直接マージ方式に統一）
+- impl-wt が `Closes #N` を使わない設計なので、merge 後の `gh issue close` を必ず自分で実行する
 - JSON 1 行以外を最終メッセージに含めない
 - 内部 log をメインに残さない
 - ユーザー確認で停止しない
