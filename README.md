@@ -121,7 +121,8 @@ $EDITOR .env
 | `cc` | `claude --dangerously-skip-permissions --continue` |
 | `cs` | `claude --dangerously-skip-permissions --settings ...sandbox=true...` |
 | `x` | `codex --dangerously-bypass-approvals-and-sandbox` |
-| `fugu` | `codex-fugu --dangerously-bypass-approvals-and-sandbox` |
+| `fugu` / `f` | `codex-fugu --dangerously-bypass-approvals-and-sandbox` |
+| `fc` | `codex-fugu --dangerously-bypass-approvals-and-sandbox --continue` |
 | `h` | `herdr` |
 
 `codex-fugu` は内部で `codex -p fugu "$@"` を `exec` するので、`fugu` でも codex 本体の bypass フラグがそのまま効く。
