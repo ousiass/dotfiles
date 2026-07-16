@@ -1,12 +1,13 @@
 # herdr configuration
 # https://herdr.dev/docs/configuration/
 #
-# キーバインドは tmux.conf に揃える。
+# herdr は tmux の代わりに使うのでキーバインドは tmux.conf に揃える。
+#
 # tmux 側の主な設定（詳細は ~/dotfiles/tmux/tmux.conf）:
 #   set -g prefix C-s
 #   unbind C-b
 #   bind r source-file ~/.config/tmux/tmux.conf
-#   bind @ split-window -v -c "#{pane_current_path}"   # top/bottom split
+#   bind '"' split-window -v -c "#{pane_current_path}"   # top/bottom split
 #
 # herdr の他の default 動作（prefix+c で new_tab、prefix+n/p で next/prev tab、
 # prefix+h/j/k/l でペインフォーカス、prefix+x で close、prefix+z で zoom、
@@ -19,5 +20,10 @@ prefix = "ctrl+s"
 # tmux `bind r source-file` と揃える
 reload_config = "prefix+r"
 
-# tmux `bind @ split-window -v` に対応（top/bottom split = 水平方向の区切り線）
-split_horizontal = "prefix+@"
+# tmux `bind '"' split-window -v` に対応（top/bottom split = 水平方向の区切り線）。
+# herdr は default `prefix+?` のように shifted char を直書きする慣習なので
+# `prefix+"` (TOML 上は `\"` でエスケープ) を指定する。
+split_horizontal = "prefix+\""
+
+# tmux default `bind % split-window -h` に対応（left/right split = 垂直方向の区切り線）。
+split_vertical = "prefix+%"
