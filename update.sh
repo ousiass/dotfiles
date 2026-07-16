@@ -31,8 +31,22 @@ main() {
     log "DOTFILES_DIR = $DOTFILES_DIR"
     detect_os
 
+    # 引数指定で個別 update_* だけ走らせる（例: ./update.sh codex_fugu codex）
+    if [[ $# -gt 0 ]]; then
+        for target in "$@"; do
+            local fn="update_${target}"
+            if ! declare -F "$fn" >/dev/null; then
+                err "$fn は未定義です"
+                exit 1
+            fi
+            "$fn"
+        done
+        return
+    fi
+
     update_brew
     update_packages
+    update_neovim
 
     update_uv
     update_bun
@@ -42,6 +56,7 @@ main() {
     update_node_lts
 
     update_claude_code
+    update_fugu
     update_codex_cli
     update_gemini_cli
     update_herdr

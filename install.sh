@@ -59,6 +59,7 @@ main() {
     check_env
     install_brew
     install_packages
+    install_neovim
 
     install_uv
     install_bun
@@ -67,9 +68,9 @@ main() {
     install_go
 
     install_claude_code
+    install_fugu
     install_codex_cli
     install_gemini_cli
-    install_fugu
     install_herdr
 
     install_gh

@@ -22,7 +22,7 @@ for _p in \
     $HOME/.opencode/bin \
     $HOME/go/bin \
     /usr/local/go/bin \
-    /opt/nvim \
+    /opt/nvim/bin \
     /opt/homebrew/bin \
     /opt/homebrew/sbin
     if test -d $_p; and not contains -- $_p $PATH

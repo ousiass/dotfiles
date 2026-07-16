@@ -22,4 +22,6 @@ end
 
 # bun
 set --export BUN_INSTALL "$HOME/.bun"
-set --export PATH $BUN_INSTALL/bin $PATH
+if test -d "$BUN_INSTALL/bin"; and not contains -- "$BUN_INSTALL/bin" $PATH
+    set --export PATH "$BUN_INSTALL/bin" $PATH
+end

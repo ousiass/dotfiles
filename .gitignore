@@ -66,6 +66,13 @@ fish/completions/tide.fish
 # issue-sweep のランタイム状態（キュー / ロック / メトリクス / 通知 URL）
 .sweep/
 
+# herdr runtime data
+herdr/*.log
+herdr/session.json
+
+# Claude worktree runtime data
+.claude/worktrees/
+
 # プラグインローカル設定
 .claude/plugins/blocklist.json
 .claude/plugins/cache/
