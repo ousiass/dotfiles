@@ -17,7 +17,7 @@ if status is-interactive
     alias x='codex --dangerously-bypass-approvals-and-sandbox'
     alias fugu='codex-fugu --dangerously-bypass-approvals-and-sandbox'
     alias f='codex-fugu --dangerously-bypass-approvals-and-sandbox'
-    alias fc='codex-fugu --dangerously-bypass-approvals-and-sandbox --continue'
+    alias fc='codex-fugu --dangerously-bypass-approvals-and-sandbox resume --last'
 end
 
 # bun

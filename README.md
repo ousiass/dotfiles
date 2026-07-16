@@ -134,10 +134,10 @@ $EDITOR .env
 | `cs` | `claude --dangerously-skip-permissions --settings ...sandbox=true...` |
 | `x` | `codex --dangerously-bypass-approvals-and-sandbox` |
 | `fugu` / `f` | `codex-fugu --dangerously-bypass-approvals-and-sandbox` |
-| `fc` | `codex-fugu --dangerously-bypass-approvals-and-sandbox --continue` |
+| `fc` | `codex-fugu --dangerously-bypass-approvals-and-sandbox resume --last` |
 | `h` | `herdr` |
 
-`codex-fugu` は内部で `codex -p fugu "$@"` を `exec` するので、`fugu` でも codex 本体の bypass フラグがそのまま効く。
+`codex-fugu` は内部で `codex -p fugu "$@"` を `exec` するので、`fugu` でも codex 本体の bypass フラグがそのまま効く。`fc` は Codex CLI の `resume --last` で直近セッションを再開する。
 
 Fugu は対応済みの Codex version を config bundle 側で pin する。状態は以下で確認する:
 
