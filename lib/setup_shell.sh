@@ -149,7 +149,26 @@ set_default_shell() {
         return
     fi
 
-    log "デフォルトシェルを fish に変更"
-    chsh -s "$fish_path" || warn "chsh に失敗しました（手動で実行してください）"
-    warn "→ 再ログインで反映されます"
+    log "デフォルトシェルを fish に変更 (chsh -s $fish_path)"
+    chsh -s "$fish_path" || warn "chsh に失敗（フォールバックを試行）"
+
+    # macOS の chsh は Directory Service に反映されず silently no-op で
+    # exit 0 を返すケースがある（Issue #3）。実際に反映されたか再取得して
+    # 検証し、未反映なら sudo で USER を明示指定して再試行する。
+    current_shell="$(get_login_shell)"
+    if [[ "$current_shell" != "$fish_path" ]]; then
+        warn "chsh 後もデフォルトシェルが '$current_shell' のまま。sudo chsh でリトライ"
+        sudo chsh -s "$fish_path" "$USER" \
+            || warn "sudo chsh に失敗"
+        current_shell="$(get_login_shell)"
+    fi
+
+    if [[ "$current_shell" == "$fish_path" ]]; then
+        log "デフォルトシェルを fish に変更完了"
+        warn "→ 再ログインで反映されます"
+    else
+        warn "デフォルトシェルの変更に失敗しました (現在: $current_shell)"
+        warn "  → 手動で 'chsh -s $fish_path' または 'sudo chsh -s $fish_path $USER' を実行"
+        warn "  → Terminal.app / iTerm2 の '起動時に開くシェル' 設定が固定になっている場合はアプリ側も確認"
+    fi
 }
