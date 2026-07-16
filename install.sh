@@ -10,10 +10,13 @@
 #
 # 何度実行しても安全（idempotent）。
 # 実体は lib/ 配下に分割されている:
-#   lib/common.sh       — ログ、OS 検出、apt/brew、symlink ヘルパー
-#   lib/install_lang.sh — uv / bun / rustup / fnm / go / Node LTS
-#   lib/install_cli.sh  — claude / codex / gemini / gh / gcloud
-#   lib/setup_shell.sh  — ~/.profile, fisher, nvim 同期, default shell
+#   lib/load.sh             — 以下のモジュールを順序通りに読み込む
+#   lib/common.sh           — ログ、OS 検出、apt/brew、symlink ヘルパー
+#   lib/install_lang.sh     — uv / bun / rustup / fnm / go / Node LTS
+#   lib/install_ai.sh       — claude / codex / gemini / fugu / herdr
+#   lib/install_devtools.sh — lazygit / gh / gcloud / cloudflared / wrangler / netlify / pm2 / moleport / linterly
+#   lib/install_skills.sh   — 外部 agent-skills (bunx skills)
+#   lib/setup_shell.sh      — ~/.profile, fisher, nvim 同期, default shell
 
 set -euo pipefail
 
@@ -25,15 +28,9 @@ OS=""
 # 各種ツールのインストール先を PATH に先行追加（インストール後すぐ command -v で発見できるように）
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.local/share/fnm:/usr/local/go/bin:$PATH"
 
-# lib/ から関数を読み込む。common.sh は他から log/warn/err を参照されるので最初。
-# shellcheck source=lib/common.sh
-. "$DOTFILES_DIR/lib/common.sh"
-# shellcheck source=lib/install_lang.sh
-. "$DOTFILES_DIR/lib/install_lang.sh"
-# shellcheck source=lib/install_cli.sh
-. "$DOTFILES_DIR/lib/install_cli.sh"
-# shellcheck source=lib/setup_shell.sh
-. "$DOTFILES_DIR/lib/setup_shell.sh"
+# lib/ から関数を読み込む。
+# shellcheck source=lib/load.sh
+. "$DOTFILES_DIR/lib/load.sh"
 
 main() {
     log "DOTFILES_DIR = $DOTFILES_DIR"
@@ -73,6 +70,7 @@ main() {
     install_gemini_cli
     install_herdr
 
+    install_lazygit
     install_gh
     install_gcloud
     install_cloudflared

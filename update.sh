@@ -18,14 +18,8 @@ OS=""
 # install.sh と同じ前置き PATH（update が走る前に各ツールを発見できるように）
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.local/share/fnm:/usr/local/go/bin:$PATH"
 
-# shellcheck source=lib/common.sh
-. "$DOTFILES_DIR/lib/common.sh"
-# shellcheck source=lib/install_lang.sh
-. "$DOTFILES_DIR/lib/install_lang.sh"
-# shellcheck source=lib/install_cli.sh
-. "$DOTFILES_DIR/lib/install_cli.sh"
-# shellcheck source=lib/setup_shell.sh
-. "$DOTFILES_DIR/lib/setup_shell.sh"
+# shellcheck source=lib/load.sh
+. "$DOTFILES_DIR/lib/load.sh"
 
 main() {
     log "DOTFILES_DIR = $DOTFILES_DIR"
@@ -61,6 +55,7 @@ main() {
     update_gemini_cli
     update_herdr
 
+    update_lazygit
     update_gh
     update_gcloud
     update_cloudflared

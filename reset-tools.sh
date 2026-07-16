@@ -8,6 +8,7 @@
 # 削除対象:
 #   - uv, bun (グローバルパッケージ含む: codex, gemini, wrangler, netlify-cli, pm2 も)
 #   - Codex CLI standalone package (~/.codex/packages/standalone, ~/.local/bin/codex)
+#   - lazygit (~/.local/bin/lazygit)
 #   - rustup / cargo
 #   - fnm + fnm 経由の Node 全バージョン
 #   - Go (Linux のみ /usr/local/go、要 sudo)
@@ -57,6 +58,7 @@ cat <<'EOF'
   - uv
   - bun (グローバルパッケージ含む: codex, gemini, wrangler, netlify-cli, pm2)
   - Codex CLI standalone package (~/.codex/packages/standalone, ~/.local/bin/codex)
+  - lazygit (~/.local/bin/lazygit)
   - rustup / cargo
   - fnm および fnm 経由でインストールした Node 全バージョン
   - Go (Linux のみ, /usr/local/go)
@@ -89,6 +91,9 @@ rm -rf "$HOME/.bun"
 log "Codex CLI standalone package 削除"
 rm -f "$HOME/.local/bin/codex"
 rm -rf "$HOME/.codex/packages/standalone"
+
+log "lazygit 削除"
+rm -f "$HOME/.local/bin/lazygit"
 
 log "rustup / cargo 削除"
 if command -v rustup >/dev/null 2>&1; then
