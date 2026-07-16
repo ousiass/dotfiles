@@ -12,6 +12,9 @@ end
 vim.opt.rtp:prepend(lazypath)
 
 require("lazy").setup({ { import = "ousy.plugins" }, { import = "ousy.plugins.lsp" } }, {
+  rocks = {
+    enabled = false,
+  },
   checker = {
     enabled = true,
     notify = false,

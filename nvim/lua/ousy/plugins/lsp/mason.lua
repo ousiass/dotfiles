@@ -41,6 +41,10 @@ return {
         "prismals",
         "pyright",
       },
+      -- LSP servers are configured and enabled in lspconfig.lua. Keeping
+      -- mason-lspconfig automatic enablement off avoids enabling installed
+      -- tools before the nvim-lspconfig defaults are loaded.
+      automatic_enable = false,
     })
 
     mason_tool_installer.setup({
