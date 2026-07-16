@@ -70,15 +70,18 @@ $EDITOR .env
 2. `~/dotfiles/.env` の存在チェック（無ければエラーで停止）
 3. macOS の場合 Homebrew を未導入ならインストール
 4. システムパッケージを `apt` または `brew` で
-   - 共通: fish, tmux, neovim, git, curl, rsync, jq
+   - 共通: fish, tmux, neovim（Linux ではフォールバック）, git, curl, rsync, jq
    - Linux のみ: xclip, unzip（unzip は macOS 標準搭載のため brew には含めない）
-5. 言語ツールを公式インストーラで（未導入のもののみ）:
+5. Neovim を最新安定版へ
+   - Linux: GitHub Releases の公式 tarball を `/opt/nvim` に展開し、`/usr/local/bin/nvim` から参照
+   - macOS: Homebrew の `neovim` formula
+6. 言語ツールを公式インストーラで（未導入のもののみ）:
    - **uv** (Python パッケージマネージャ)
    - **bun** (JavaScript runtime/manager)
    - **rustup** (Rust toolchain manager)
    - **fnm** (Fast Node Manager, Rust 製の nvm 代替)
    - **Go** (Linux: 公式 tarball を `/usr/local/go` へ / macOS: brew)
-6. AI CLI ツール（未導入のもののみ）:
+7. AI CLI ツール（未導入のもののみ）:
    - **Claude Code** (公式 curl インストーラ)
    - **OpenAI Codex CLI** (`bun install -g @openai/codex`)
    - **Gemini CLI** (`bun install -g @google/gemini-cli`)
@@ -87,15 +90,15 @@ $EDITOR .env
      - `~/.codex/skills/.system/` を経由して `codex-fugu` ランチャと設定バンドルを配置
    - **herdr** (エージェント向けターミナルマルチプレクサ、公式 curl インストーラ)
      - `~/dotfiles/herdr/config.toml` を `~/.config/herdr/config.toml` に symlink し、prefix を `ctrl+s` 等 tmux と統一
-7. 各ツールのバイナリパスを fish の `fish_user_paths` (universal) に追加
-8. 既存の `~/.config/{nvim,tmux,fish,gh-dash}`, `~/.claude`, `~/.mcp.json`, `~/.env` を `*.bak.<日付>` にバックアップ
-9. dotfiles を該当パスにシンボリックリンク（`~/.env` → `~/dotfiles/.env`、`~/.mcp.json` → `~/dotfiles/claude-mcp/mcp.json`、`~/dotfiles/.codex/AGENTS.md` → `~/.codex/AGENTS.md`、`~/dotfiles/.codex/skills/<name>` → `~/.codex/skills/<name>` 等）
-10. `~/.claude` のランタイムデータ（履歴・セッション等）をバックアップから dotfiles 側に移行（既存は上書きしない）
-11. `~/dotfiles/claude-mcp/mcp.json` の MCP サーバー定義を `codex mcp add` で `~/.codex/config.toml` に同期（Claude と Codex で同じ MCP を共有。`${VAR}` 形式の env は Codex の親プロセス env 継承に任せる）
-12. fisher（fish プラグインマネージャ）をインストール → `fish_plugins` の内容を反映
-13. fnm 経由で Node.js LTS をインストールしデフォルトに設定
-14. nvim プラグインを headless で同期（`lazy.nvim`）
-15. ログインシェルを fish に変更（必要時のみ）
+8. 各ツールのバイナリパスを `fish/conf.d/paths.fish` と `shell/paths.sh` で追加
+9. 既存の `~/.config/{nvim,tmux,fish,gh-dash}`, `~/.claude`, `~/.mcp.json`, `~/.env` を `*.bak.<日付>` にバックアップ
+10. dotfiles を該当パスにシンボリックリンク（`~/.env` → `~/dotfiles/.env`、`~/.mcp.json` → `~/dotfiles/claude-mcp/mcp.json`、`~/dotfiles/.codex/AGENTS.md` → `~/.codex/AGENTS.md`、`~/dotfiles/.codex/skills/<name>` → `~/.codex/skills/<name>` 等）
+11. `~/.claude` のランタイムデータ（履歴・セッション等）をバックアップから dotfiles 側に移行（既存は上書きしない）
+12. `~/dotfiles/claude-mcp/mcp.json` の MCP サーバー定義を `codex mcp add` で `~/.codex/config.toml` に同期（Claude と Codex で同じ MCP を共有。`${VAR}` 形式の env は Codex の親プロセス env 継承に任せる）
+13. fisher（fish プラグインマネージャ）をインストール → `fish_plugins` の内容を反映
+14. fnm 経由で Node.js LTS をインストールしデフォルトに設定
+15. nvim プラグインを headless で同期（`lazy.nvim`）
+16. ログインシェルを fish に変更（必要時のみ）
 
 何度実行しても安全（既にインストール済 / リンク済みならスキップ）。
 
@@ -104,12 +107,21 @@ $EDITOR .env
 特定のツールだけ入れ直したい場合は `install.sh` に `install_<name>` の `<name>` 部分を渡す:
 
 ```bash
-./install.sh fugu          # = make fugu
+./install.sh fugu            # = make fugu。Fugu pin に合わせて Codex / codex-fugu を自動整合
+./install.sh codex_fugu      # fugu と同じ alias
+./install.sh codex           # codex_cli と同じ alias。Fugu pin があれば自動整合
 ./install.sh codex_cli
-./install.sh fugu gemini_cli  # 複数指定可
+./install.sh fugu gemini_cli # 複数指定可
 ```
 
 未定義の名前を渡すとエラー終了する（誤入力を握りつぶさない）。
+
+個別 update も同じ名前で指定できる:
+
+```bash
+./update.sh codex_fugu   # Fugu pin に合わせて Codex / codex-fugu を自動整合
+./update.sh codex        # Fugu pin があれば単独 update ではなく自動整合
+```
 
 ## Fish エイリアス（AI CLI 一発起動）
 
@@ -122,18 +134,40 @@ $EDITOR .env
 | `cs` | `claude --dangerously-skip-permissions --settings ...sandbox=true...` |
 | `x` | `codex --dangerously-bypass-approvals-and-sandbox` |
 | `fugu` / `f` | `codex-fugu --dangerously-bypass-approvals-and-sandbox` |
-| `fc` | `codex-fugu --dangerously-bypass-approvals-and-sandbox --continue` |
+| `fc` | `codex-fugu --dangerously-bypass-approvals-and-sandbox resume --last` |
 | `h` | `herdr` |
 
-`codex-fugu` は内部で `codex -p fugu "$@"` を `exec` するので、`fugu` でも codex 本体の bypass フラグがそのまま効く。
+`codex-fugu` は内部で `codex -p fugu "$@"` を `exec` するので、`fugu` でも codex 本体の bypass フラグがそのまま効く。`fc` は Codex CLI の `resume --last` で直近セッションを再開する。
+
+Fugu は対応済みの Codex version を config bundle 側で pin する。状態は以下で確認する:
+
+```bash
+codex-fugu --status
+```
+
+Fugu 使用中に Codex 本体だけ `codex update` で上げると、Fugu の `deployed_target` とずれて warning / rollback 対象になる。そのため `install.sh` / `update.sh` では、Fugu pin が見つかった場合に Fugu installer 経由で自動的に整合させる。
 
 ## 更新
+
+設定ファイルだけを更新する場合:
 
 ```bash
 cd ~/dotfiles
 git pull
 # シンボリックリンク経由で即反映
 ```
+
+インストール済みツールも含めて更新する場合:
+
+```bash
+cd ~/dotfiles
+./update.sh
+# または make update
+```
+
+`update.sh` は Neovim / uv / bun / rustup / fnm / Go / Node LTS / AI CLI / cloud CLI / fish plugins / nvim plugins を更新する。
+ただし Fugu を使っている場合、Fugu config bundle が対応 Codex version を pin しているため、Codex 本体の単独 update は行わず、Fugu installer を `--yes --force` で呼び出して plain `codex` と `codex-fugu` の両方が同じ pin version を使うよう自動整合する。
+Codex や Claude Code の実行セッション中は、自分自身を壊さないように該当 CLI の self-update をスキップする。
 
 ## 各ツールをリセット（テスト/壊れた時用）
 
@@ -144,12 +178,13 @@ bash ~/dotfiles/reset-tools.sh
 ```
 
 - `CLAUDECODE=1` を検出して Claude Code セッション中は自動的に拒否
-- 削除対象: uv / bun (codex/gemini 含む) / rustup / fnm + Node / Go / Claude Code
+- 削除対象: uv / bun (codex/gemini 含む) / Codex CLI standalone package / rustup / fnm + Node / Go / Claude Code
 - 削除しないもの: fish/tmux/neovim/git, ~/.env, ~/.claude のデータ, シンボリックリンク
 
 ## 注意
 
 - `nvim` 設定は LazyVim starter ベース。初回起動時に `lazy.nvim` がプラグインを自動取得する
+- Linux の Neovim は Ubuntu LTS の古い apt 版を避けるため、公式 release tarball を `/opt/nvim` に入れる
 - `fish_variables*` はマシン依存の状態ファイルで git 管理外
 - `.claude/{history.jsonl,projects/,sessions/,...}` はランタイムデータで git 管理外（claude-config の `.gitignore` を踏襲）
 - `claude-mcp/mcp.json` の `${VAR}` 参照は Claude Code の env 展開機能を利用。fish 経由で起動した Claude Code は `~/.env`（→ `~/dotfiles/.env`）の値を引き継ぐ

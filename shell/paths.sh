@@ -14,7 +14,7 @@ for _p in \
     "$HOME/.opencode/bin" \
     "$HOME/go/bin" \
     "/usr/local/go/bin" \
-    "/opt/nvim" \
+    "/opt/nvim/bin" \
     "/opt/homebrew/bin" \
     "/opt/homebrew/sbin"
 do

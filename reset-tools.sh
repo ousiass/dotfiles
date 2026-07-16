@@ -7,6 +7,7 @@
 #
 # 削除対象:
 #   - uv, bun (グローバルパッケージ含む: codex, gemini, wrangler, netlify-cli, pm2 も)
+#   - Codex CLI standalone package (~/.codex/packages/standalone, ~/.local/bin/codex)
 #   - rustup / cargo
 #   - fnm + fnm 経由の Node 全バージョン
 #   - Go (Linux のみ /usr/local/go、要 sudo)
@@ -29,12 +30,19 @@ err()  { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; }
 DOTFILES_DIR="$HOME/dotfiles"
 
 # ------------------------------------------------------------------
-# Claude Code セッション中は実行しない
+# Agent セッション中は実行しない
 # ------------------------------------------------------------------
 if [[ -n "${CLAUDECODE:-}" ]]; then
     err "Claude Code セッション中はこのスクリプトを実行できません。"
     err "claude バイナリを削除すると現セッションが壊れます。"
     err "Claude Code を終了してからターミナルで実行してください。"
+    exit 1
+fi
+
+if [[ -n "${CODEX_CI:-}" || -n "${CODEX_THREAD_ID:-}" ]]; then
+    err "Codex セッション中はこのスクリプトを実行できません。"
+    err "codex バイナリを削除・更新すると現セッションが壊れます。"
+    err "Codex を終了してからターミナルで実行してください。"
     exit 1
 fi
 
@@ -48,6 +56,7 @@ cat <<'EOF'
 
   - uv
   - bun (グローバルパッケージ含む: codex, gemini, wrangler, netlify-cli, pm2)
+  - Codex CLI standalone package (~/.codex/packages/standalone, ~/.local/bin/codex)
   - rustup / cargo
   - fnm および fnm 経由でインストールした Node 全バージョン
   - Go (Linux のみ, /usr/local/go)
@@ -76,6 +85,10 @@ rm -f "$HOME/.local/bin/uv" "$HOME/.local/bin/uvx"
 
 log "bun 削除（グローバルパッケージ codex/gemini も含む）"
 rm -rf "$HOME/.bun"
+
+log "Codex CLI standalone package 削除"
+rm -f "$HOME/.local/bin/codex"
+rm -rf "$HOME/.codex/packages/standalone"
 
 log "rustup / cargo 削除"
 if command -v rustup >/dev/null 2>&1; then
