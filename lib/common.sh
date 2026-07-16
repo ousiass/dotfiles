@@ -80,14 +80,17 @@ install_packages() {
         fi
         log "apt パッケージをインストール"
         sudo apt-get update -qq
+        # unzip: bun installer が内部で使用（Ubuntu minimal では未導入）
+        # jq: sync_codex_mcp が MCP 定義パースに使用
         sudo apt-get install -y \
-            fish tmux neovim git curl rsync xclip
+            fish tmux neovim git curl rsync xclip unzip jq
     else
         log "brew パッケージをインストール"
         # brew install を一括で呼ぶと、既に non-brew (公式 pkg / port / 自前ビルド)
         # で入っているパッケージ 1 つの link 衝突等で全部止まるので per-package で。
         # brew 管理下にある pkg はスキップ、失敗したものだけ warn を出して続行する。
-        local pkgs=(fish tmux neovim git curl rsync)
+        # unzip は macOS 標準で入っているので brew には含めない。
+        local pkgs=(fish tmux neovim git curl rsync jq)
         local pkg
         for pkg in "${pkgs[@]}"; do
             if brew list --formula "$pkg" >/dev/null 2>&1; then
@@ -108,7 +111,7 @@ update_packages() {
         log "apt パッケージを更新（対象のみ --only-upgrade）"
         sudo apt-get update -qq
         sudo apt-get install -y --only-upgrade \
-            fish tmux neovim git curl rsync xclip \
+            fish tmux neovim git curl rsync xclip unzip jq \
             || warn "apt パッケージの update に失敗"
     else
         if ! command -v brew >/dev/null 2>&1; then
@@ -118,7 +121,7 @@ update_packages() {
         log "brew パッケージを更新"
         # brew で管理されている pkg だけ upgrade。未インストールに upgrade を
         # 投げると失敗するし、一括だと 1 個失敗で全部止まるので per-package で。
-        local pkgs=(fish tmux neovim git curl rsync)
+        local pkgs=(fish tmux neovim git curl rsync jq)
         local pkg
         for pkg in "${pkgs[@]}"; do
             if brew list --formula "$pkg" >/dev/null 2>&1; then

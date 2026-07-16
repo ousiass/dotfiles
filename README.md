@@ -69,7 +69,9 @@ $EDITOR .env
 1. OS 検出（Ubuntu / macOS）
 2. `~/dotfiles/.env` の存在チェック（無ければエラーで停止）
 3. macOS の場合 Homebrew を未導入ならインストール
-4. システムパッケージ（fish, tmux, neovim, git, curl, rsync, Linux のみ xclip）を `apt` または `brew` で
+4. システムパッケージを `apt` または `brew` で
+   - 共通: fish, tmux, neovim, git, curl, rsync, jq
+   - Linux のみ: xclip, unzip（unzip は macOS 標準搭載のため brew には含めない）
 5. 言語ツールを公式インストーラで（未導入のもののみ）:
    - **uv** (Python パッケージマネージャ)
    - **bun** (JavaScript runtime/manager)
