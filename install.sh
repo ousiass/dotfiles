@@ -70,6 +70,7 @@ main() {
     install_codex_cli
     install_gemini_cli
     install_fugu
+    install_herdr
 
     install_gh
     install_gcloud
@@ -85,6 +86,7 @@ main() {
     link_config tmux
     link_config fish
     link_config gh-dash
+    link_config herdr
     link_claude
     link_codex_agents
     link_codex_skills

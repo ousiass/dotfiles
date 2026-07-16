@@ -44,6 +44,7 @@ main() {
     update_claude_code
     update_codex_cli
     update_gemini_cli
+    update_herdr
 
     update_gh
     update_gcloud

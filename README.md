@@ -19,6 +19,7 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── nvim/               # → ~/.config/nvim
 ├── tmux/               # → ~/.config/tmux
 ├── gh-dash/            # → ~/.config/gh-dash (GitHub Dashboard CLI)
+├── herdr/              # → ~/.config/herdr (エージェント向けターミナルマルチプレクサ、tmux 準拠 keybinding)
 └── fish/               # → ~/.config/fish
     ├── config.fish
     ├── fish_plugins
@@ -82,6 +83,8 @@ $EDITOR .env
    - **Fugu** (Sakana AI の Codex 設定バンドル、公式 install スクリプト)
      - `~/.env` から `SAKANA_API_KEY` を拾えれば非対話でインストール、無ければ warn してスキップ
      - `~/.codex/skills/.system/` を経由して `codex-fugu` ランチャと設定バンドルを配置
+   - **herdr** (エージェント向けターミナルマルチプレクサ、公式 curl インストーラ)
+     - `~/dotfiles/herdr/config.toml` を `~/.config/herdr/config.toml` に symlink し、prefix を `ctrl+s` 等 tmux と統一
 7. 各ツールのバイナリパスを fish の `fish_user_paths` (universal) に追加
 8. 既存の `~/.config/{nvim,tmux,fish,gh-dash}`, `~/.claude`, `~/.mcp.json`, `~/.env` を `*.bak.<日付>` にバックアップ
 9. dotfiles を該当パスにシンボリックリンク（`~/.env` → `~/dotfiles/.env`、`~/.mcp.json` → `~/dotfiles/claude-mcp/mcp.json`、`~/dotfiles/.codex/AGENTS.md` → `~/.codex/AGENTS.md`、`~/dotfiles/.codex/skills/<name>` → `~/.codex/skills/<name>` 等）
@@ -117,6 +120,7 @@ $EDITOR .env
 | `cs` | `claude --dangerously-skip-permissions --settings ...sandbox=true...` |
 | `x` | `codex --dangerously-bypass-approvals-and-sandbox` |
 | `fugu` | `codex-fugu --dangerously-bypass-approvals-and-sandbox` |
+| `h` | `herdr` |
 
 `codex-fugu` は内部で `codex -p fugu "$@"` を `exec` するので、`fugu` でも codex 本体の bypass フラグがそのまま効く。
 

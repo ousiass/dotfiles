@@ -1,0 +1,23 @@
+# herdr configuration
+# https://herdr.dev/docs/configuration/
+#
+# キーバインドは tmux.conf に揃える。
+# tmux 側の主な設定（詳細は ~/dotfiles/tmux/tmux.conf）:
+#   set -g prefix C-s
+#   unbind C-b
+#   bind r source-file ~/.config/tmux/tmux.conf
+#   bind @ split-window -v -c "#{pane_current_path}"   # top/bottom split
+#
+# herdr の他の default 動作（prefix+c で new_tab、prefix+n/p で next/prev tab、
+# prefix+h/j/k/l でペインフォーカス、prefix+x で close、prefix+z で zoom、
+# prefix+1..9 でタブ切替 等）は tmux の慣習と揃っているためそのまま採用。
+
+[keys]
+# tmux prefix と統一
+prefix = "ctrl+s"
+
+# tmux `bind r source-file` と揃える
+reload_config = "prefix+r"
+
+# tmux `bind @ split-window -v` に対応（top/bottom split = 水平方向の区切り線）
+split_horizontal = "prefix+@"

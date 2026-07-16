@@ -6,6 +6,7 @@ if status is-interactive
     alias gp='git push'
     alias reload='source ~/.config/fish/config.fish'
     alias t='tmux'
+    alias h='herdr'
     alias e='exit'
     alias ns='nvidia-smi'
     alias v='nvim'
