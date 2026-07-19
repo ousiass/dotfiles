@@ -24,6 +24,8 @@ user-invocable: true
 
 1. Retrieve bug report from arguments
    - Issue: Read body, comments, and labels via `gh issue view`
+     - Inspect the fetched `assignees`. **If any assignee other than yourself is already set, name them and ask the user whether it is OK to proceed while someone else is assigned.** Only continue after explicit approval; otherwise stop here.
+     - After the check passes, run `gh issue edit <issue#> --add-assignee @me` to add yourself as an assignee (marks work-in-progress; existing assignees are preserved and this is a no-op if you are already assigned)
    - Text: Use as bug report
    - No arguments: Interview the user
 2. Organize the following (confirm missing info with user):

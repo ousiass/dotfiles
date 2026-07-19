@@ -39,6 +39,8 @@ If you discover **work independent of the current scope** during implementation 
 
 1. Retrieve requirements from arguments
    - Issue: Read body and comments via `gh issue view`
+     - Inspect the fetched `assignees`. **If any assignee other than yourself is already set, name them and ask the user whether it is OK to proceed while someone else is assigned.** Only continue after explicit approval; otherwise stop here.
+     - After the check passes, run `gh issue edit <issue#> --add-assignee @me` to add yourself as an assignee (marks work-in-progress; existing assignees are preserved and this is a no-op if you are already assigned)
    - Text: Use as-is
    - No arguments: Interview the user
 2. Check for spec documents
