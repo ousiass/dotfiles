@@ -66,10 +66,8 @@
       "Bash(rm -f .sweep/lock)",
       "Bash(rm -f /tmp/wt-before)",
       "Bash(rm -f /tmp/wt-after)",
-      "Bash(rm:*/tmp/sweep-*)",
       "Bash(.claude/hooks/check-issue-queue.sh)",
       "Bash(.claude/hooks/check-sweep-state.sh)",
-      "Write(.sweep/**)",
       "Edit(.sweep/**)",
       "Read(.sweep/**)",
       "Skill(issue-sweep)",
@@ -87,17 +85,6 @@
     ],
     "defaultMode": "bypassPermissions"
   },
-  "enabledPlugins": {
-    "gopls-lsp@claude-plugins-official": true
-  },
-  "language": "日本語",
-  "alwaysThinkingEnabled": true,
-  "skipDangerousModePermissionPrompt": true,
-  "theme": "dark-daltonized",
-  "feedbackSurveyState": {
-    "lastShownTime": 1753948122944
-  },
-  "skipAutoPermissionPrompt": true,
   "hooks": {
     "Stop": [
       {
@@ -123,5 +110,17 @@
         ]
       }
     ]
-  }
+  },
+  "enabledPlugins": {
+    "gopls-lsp@claude-plugins-official": true
+  },
+  "language": "日本語",
+  "alwaysThinkingEnabled": true,
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark-daltonized",
+  "skipAutoPermissionPrompt": true,
+  "feedbackSurveyState": {
+    "lastShownTime": 1753948122944
+  },
+  "tui": "fullscreen"
 }
