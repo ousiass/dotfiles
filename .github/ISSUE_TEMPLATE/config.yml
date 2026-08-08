@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 変更の相談
+    url: https://github.com/ousiass/dotfiles/blob/main/CONTRIBUTING.md
+    about: 個人用 dotfiles のため、取り込める変更の範囲は CONTRIBUTING.md を先に確認してください。
