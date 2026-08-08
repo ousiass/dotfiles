@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck / fish を導入
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck fish
+
+      - name: bash 構文チェック
+        run: git ls-files '*.sh' | xargs -r -n1 bash -n
+
+      - name: shellcheck
+        run: git ls-files '*.sh' | xargs -r shellcheck -x --severity=warning
+
+      - name: fish 構文チェック
+        run: git ls-files '*.fish' | xargs -r -n1 fish --no-execute
+
+      - name: JSON 構文チェック
+        run: git ls-files '*.json' | xargs -r -n1 jq empty
