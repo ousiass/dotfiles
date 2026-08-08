@@ -62,6 +62,8 @@ fish/completions/tide.fish
 .claude/llm/active
 .claude/usage-data/
 .claude/.last-cleanup
+.claude/.last-update-result.json
+.claude/remote-settings.json
 
 # issue-sweep のランタイム状態（キュー / ロック / メトリクス / 通知 URL）
 .sweep/
@@ -69,6 +71,7 @@ fish/completions/tide.fish
 # herdr runtime data
 herdr/*.log
 herdr/session.json
+herdr/release-notes.json
 
 # Claude worktree runtime data
 .claude/worktrees/
@@ -81,6 +84,7 @@ herdr/session.json
 .claude/plugins/config.json
 .claude/plugins/repos/
 .claude/plugins/marketplaces/
+.claude/plugins/.last_inuse_sweep
 
 # ビルド成果物
 .claude/tools/swm/swm
@@ -88,6 +92,21 @@ herdr/session.json
 # 外部 agent-skills (bunx skills / ~/.agents/skills/) のマシン依存 symlink 群
 # 中身の .gitignore と各 symlink 自身は install_agent_skills が自動生成する
 .claude/skills/.gitignore
+
+# plugin marketplace 経由で導入した Cloudflare 公式 skill 群（実体ディレクトリ）。
+# agent-skills.txt (bunx skills) の管理外なので、ここで明示的に除外して
+# 各マシンで /plugin から再導入する。
+.claude/skills/agents-sdk/
+.claude/skills/cloudflare/
+.claude/skills/cloudflare-email-service/
+.claude/skills/cloudflare-one/
+.claude/skills/cloudflare-one-migrations/
+.claude/skills/durable-objects/
+.claude/skills/sandbox-sdk/
+.claude/skills/turnstile-spin/
+.claude/skills/web-perf/
+.claude/skills/workers-best-practices/
+.claude/skills/wrangler/
 
 # ----------------------------------------------------------------
 # Neovim runtime / plugin lockfile（各マシンで :Lazy sync して再生成）
