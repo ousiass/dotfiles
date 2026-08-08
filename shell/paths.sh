@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # fish/conf.d/paths.fish に対応する POSIX shell 版。
 #
 # bash の login shell (~/.profile から source) で PATH に各種ツールを追加する。
