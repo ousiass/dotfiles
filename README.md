@@ -190,3 +190,9 @@ bash ~/dotfiles/reset-tools.sh
 - `claude-mcp/mcp.json` の `${VAR}` 参照は Claude Code の env 展開機能を利用。fish 経由で起動した Claude Code は `~/.env`（→ `~/dotfiles/.env`）の値を引き継ぐ
 - Node.js は `fnm`（Rust 製、nvm 代替）で管理。`fish/conf.d/fnm.fish` が `fnm env --use-on-cd` を読み込み、`.nvmrc` / `.node-version` のあるディレクトリで自動切替
 - tmux クリップボードは OS 自動分岐（Linux: `xclip` / macOS: `pbcopy`）
+
+## ライセンスとコントリビューション
+
+MIT License（[LICENSE](LICENSE)）。fork して自由に流用できます。
+
+個人用 dotfiles のため取り込める変更の範囲は限られます。PR を出す前に [CONTRIBUTING.md](CONTRIBUTING.md) を確認してください。
