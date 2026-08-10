@@ -207,7 +207,8 @@ Issue #<n> を1件、最後まで自律的に処理してください。メイ�
    - それ以外 → /impl-wt #<n>
 2. 選択したスキルを Skill ツールで起動し、Plan→Develop→Review→Commit→Push→PR 作成まで完了させる。
    各サブスキルの禁止行動（フェーズスキップ・テスト省略・サイレントスキップ・スコープ外発見の未 issue 化）は厳守。
-3. **PR 作成後、続けて `/refine --no-merge` を Skill ツールで起動し、4 観点（code-review / doc-drift / spec-audit、HALT 検知時は halt-review）で並列レビューして critical/major=0 ∧ minor≤5 まで研磨させる。マージは行わせない（--no-merge）**。refine の最終結果から `refine_status` / `critical_remaining` / `major_remaining` / `minor_remaining` を取得する。
+3. **PR 作成後、続けて `/refine-git --no-merge` を Skill ツールで起動し、4 観点（code-review-git / doc-drift-git / spec-audit-git、HALT 検知時は halt-review）で並列レビューして critical/major=0 ∧ minor≤5 まで研磨させる。マージは行わせない（--no-merge）**。refine-git の最終結果から `refine_status` / `critical_remaining` / `major_remaining` / `minor_remaining` を取得する。
+   **必ず `refine` ではなく `refine-git` を使う**（`refine` はリポジトリ全体が対象。Issue と無関係な既存問題でマージゲートが落ち続ける）。
 4. **マージゲート判定**（必須）:
    - `critical_remaining == 0 ∧ major_remaining == 0` を満たす場合: **マージコマンドは叩かず PR 作成までで返す**（メインが CI 緑をポーリングして `gh pr merge <PR> --merge --delete-branch` を直接実行する）
    - 上記を満たさない（refine が iter_limit や agent_failed で critical/major が残った）場合は failure として返す（手動対応が必要）
@@ -372,7 +373,8 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - **PR マージ完了前にキューから Issue 番号を削除する**（最重要 — マージ忘れの根本原因）
 - **メインスレッドで直接サブスキル（`/impl-wt` 等）を Skill ツール起動する**（context 汚染の根本原因。必ず `Agent` 経由）
 - **メインスレッド自身がコードを修正する / コミットする / PR を編集する**（CTO は実装に手を出さない。修正は必ず CI fix 起動プロンプトで agent に委譲）
-- **engineer agent 内で `/refine --no-merge` をスキップする**（4 観点レビューを通さずマージに進むと品質ばらつきが出る）
+- **engineer agent 内で `/refine-git --no-merge` をスキップする**（4 観点レビューを通さずマージに進むと品質ばらつきが出る）
+- **engineer agent 内で `refine-git` の代わりに `refine` を起動する**（全体スキャンになり、Issue と無関係な既存指摘でマージゲートが永久に落ちる）
 - **反復冒頭の base branch 最新化をスキップする**（前 Issue のマージ分を取り込まず古い base で次を実装すると競合・無駄作業の原因）
 - **ユーザーに並列度（--parallel）を確認する**（デフォルト 5 で常に起動。必要なら明示指定された値を使う）
 - **spinoff 検出をスキップして sweep を終わらせる**（実装中に作られた子 Issue を放置すると「自律連続実装」の意味が薄れる。デフォルト 10 周まで自動追跡、spinoff 0 で自然終了）
@@ -512,7 +514,7 @@ jq -s 'map(select(.ci_respawns > 0)) | group_by(.ci_respawns) | map({respawns: .
 ```bash
 # 今回 sweep が処理した親 Issue 番号一覧（フェーズ1 で展開した子 Issue を含む）
 PROCESSED_IDS=$(jq -r --arg since "$sweep_start_iso" \
-  'select(.ts >= $since and .source != "refine" and (.issue|tostring) != "") | .issue' \
+  'select(.ts >= $since and (.source | startswith("refine") | not) and (.issue|tostring) != "") | .issue' \
   .sweep/metrics.jsonl | sort -u | tr '\n' ',' | sed 's/,$//')
 
 # sweep 開始以降に作成された OPEN Issue を取得
@@ -591,7 +593,7 @@ mkdir -p .sweep
   echo "| Issue | Skill | Duration | Status | PR | Respawns |"
   echo "|---|---|---|---|---|---|"
   jq -r --arg since "$sweep_start_iso" \
-    'select(.ts >= $since and .source != "refine") |
+    'select(.ts >= $since and (.source | startswith("refine") | not)) |
      "| #\(.issue) | \(.skill // "-") | \(.duration_sec)s | \(.status) | \(.pr_url // "-") | \(.ci_respawns // 0) |"' \
     .sweep/metrics.jsonl
   echo
@@ -610,8 +612,8 @@ mkdir -p .sweep
     echo "## Recent refine runs（直近 24h）"
     cutoff=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-24H +%Y-%m-%dT%H:%M:%SZ)
     jq -r --arg c "$cutoff" \
-      'select(.ts >= $c and .source == "refine") |
-       "- PR #\(.pr_number) iter \(.iter): critical=\(.critical) major=\(.major) minor=\(.minor)"' \
+      'select(.ts >= $c and (.source | startswith("refine"))) |
+       "- [\(.source)] PR #\(.pr_number) iter \(.iter): critical=\(.critical) major=\(.major) minor=\(.minor)"' \
       .sweep/refine-metrics.jsonl
   fi
 } > "$report"

@@ -79,10 +79,12 @@ graph TD
 |--------|------|
 | `/code-review` | コードベース全体の品質チェックとリファクタリングレビュー。レポート生成 |
 | `/code-review-git` | gitリモートとの差分を対象にコード品質チェック＋ドキュメント乖離検出 |
-| `/refine` | review→修正→再review を反復し critical/major=0 ∧ minor≤閾値 まで研磨後、auto-merge + Issue close まで実行（`--no-merge` で研磨のみ） |
+| `/refine-git` | **PR の差分のみ**を対象に review→修正→再review を反復し critical/major=0 ∧ minor≤閾値 まで研磨後、CI 緑を待ってマージ + Issue close まで実行（`--no-merge` で研磨のみ）。実装 PR の研磨はこちらが既定 |
+| `/refine` | **リポジトリ全体**を対象に同じループを回し、修正を 1 本の PR にまとめる。小〜中規模リポジトリの一括クリーンアップ用 |
 | `/refine-sweep` | 全コードベースに対して 4 観点 review→fix→PR→merge を反復し critical/major/minor をゼロまで磨く（`--no-minor` で軽量モード）。仕様書のドメイン軸で並列 PR。spinoff も自動 `/issue-sweep` 委譲で実装まで完了 |
 | `/doc-drift` | ドキュメントと実装コードの整合性をチェックし、乖離レポートを生成 |
 | `/doc-drift-git` | gitリモートとの差分を対象にドキュメントとコードの整合性チェック |
+| `/spec-audit-git` | gitリモートとの差分を対象に仕様乖離・TODO・スキップテストを検知（`--report-only` で Issue 化なし） |
 
 ### リリース・運用
 

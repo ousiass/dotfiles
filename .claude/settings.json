@@ -77,10 +77,12 @@
       "Skill(design-fix)",
       "Skill(spinoff-issue)",
       "Skill(refine)",
+      "Skill(refine-git)",
       "Skill(refine-sweep)",
       "Skill(code-review)",
       "Skill(doc-drift)",
       "Skill(spec-audit)",
+      "Skill(spec-audit-git)",
       "Skill(halt-review)"
     ],
     "defaultMode": "bypassPermissions"

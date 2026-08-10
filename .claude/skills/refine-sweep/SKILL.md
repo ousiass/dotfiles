@@ -6,7 +6,7 @@ user-invocable: true
 
 # refine-sweep
 
-`/refine` の全コードベース版。特定 PR ではなくリポジトリ全体を対象に `/code-review` / `/doc-drift` / `/spec-audit`（HALT 検知時は `/halt-review`、Atomic Design 検知時は `/atomic-review`）を並列実行し、指摘を **GitHub Issue に作成** した上で `/impl-wt` で 1 件ずつ消化し PR → merge → Issue close まで完結させる。
+`/refine-git` の全コードベース版（`/refine` との違いは修正を Issue 化して複数 PR に分ける点）。特定 PR ではなくリポジトリ全体を対象に `/code-review` / `/doc-drift` / `/spec-audit`（HALT 検知時は `/halt-review`、Atomic Design 検知時は `/atomic-review`）を並列実行し、指摘を **GitHub Issue に作成** した上で `/impl-wt` で 1 件ずつ消化し PR → merge → Issue close まで完結させる。
 
 **Issue を可視性の Source of Truth として扱う**。review が Issue を作り、impl-wt が PR → merge → close する。CTO（メインスレッド）は状態管理と反復判定に専念し、コードには触れない。
 

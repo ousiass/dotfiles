@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sweep 系スキル（issue-sweep / refine / refine-sweep）の Stop Hook。
+# sweep 系スキル（issue-sweep / refine / refine-git / refine-sweep）の Stop Hook。
 # .sweep/state.json が "phase=terminal" に到達していない間は exit 2 で停止をブロックし、
 # stderr に続行メッセージを出す。
 # lock が stale または存在しない場合は exit 0（停止許可、クラッシュ放置と判定）。
