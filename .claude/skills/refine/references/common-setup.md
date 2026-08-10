@@ -13,7 +13,7 @@
 
 メイン作業ツリーを保護するため、以下のいずれかで worktree を確保する:
 
-- **既に worktree 内で起動された場合**（例: issue-sweep の engineer agent、`impl-type-wr` からの呼び出し）: `git rev-parse --show-toplevel` と `git worktree list --porcelain` を比較し、現在が worktree なら**再利用**（新規作成しない）
+- **既に worktree 内で起動された場合**（例: issue-sweep の engineer agent、`impl-wt-r` からの呼び出し）: `git rev-parse --show-toplevel` と `git worktree list --porcelain` を比較し、現在が worktree なら**再利用**（新規作成しない）
 - **メイン作業ツリーで起動された場合**（例: ユーザーが `/refine-git #42` を直接叩く）: `impl-wt` の `references/worktree-setup.md` に従い PR ブランチ用の worktree を新規作成。以後フェーズ2/3 の全操作は worktree 内で実行
 
 ## 3. 変数の初期化

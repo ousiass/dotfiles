@@ -1,10 +1,10 @@
 ---
-name: impl-type-wr
+name: impl-wt-r
 description: impl-wt → refine-git を worktree 隔離で連続実行し、実装から研磨・CI 緑マージまで一気通貫で行う。
 user-invocable: true
 ---
 
-# impl-type-wr
+# impl-wt-r
 
 impl-wt の上位互換。worktree で隔離した `/impl-wt` を完走した直後に `/refine-git` を続けて実行し、レビュー観点で「critical/major=0 ∧ minor≤閾値」まで磨いてから CI 緑を待って直接マージする。並列 sweep とも相性が良い合成スキル。
 
@@ -13,10 +13,10 @@ impl-wt の上位互換。worktree で隔離した `/impl-wt` を完走した直
 impl-wt と refine-git の引数を両方受け付ける。
 
 - **impl-wt 側**（実装対象の指定、いずれか一つ）:
-  - `/impl-type-wr #<Issue番号>` — GitHub Issue から要件取得
-  - `/impl-type-wr <Issue URL>` — Issue URL から要件取得
-  - `/impl-type-wr <text>` — テキストを要件として扱う
-  - `/impl-type-wr`（引数なし）— ユーザーにヒアリング
+  - `/impl-wt-r #<Issue番号>` — GitHub Issue から要件取得
+  - `/impl-wt-r <Issue URL>` — Issue URL から要件取得
+  - `/impl-wt-r <text>` — テキストを要件として扱う
+  - `/impl-wt-r`（引数なし）— ユーザーにヒアリング
 - **refine-git 側**（研磨挙動のチューニング、任意）:
   - `--max-minor <N>` — minor 指摘の上限（デフォルト 5）
   - `--max-iter <N>` — レビューループ反復上限（デフォルト 10）
