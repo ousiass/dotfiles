@@ -10,7 +10,3 @@
 #   # 行頭 # はコメント
 #
 # 更新は `./update.sh` または `bunx skills update -g -y`。
-
-# Leonxlnx/taste-skill: 高品質 UI/UX / 画像生成 / redesign 系スキル群
-# https://github.com/Leonxlnx/taste-skill
-Leonxlnx/taste-skill

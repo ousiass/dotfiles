@@ -61,19 +61,7 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 
 ## --abort 処理
 
-引数が `--abort` の場合は以下を実行して終了する（他フェーズに進まない）:
-
-```bash
-rm -f .sweep/queue.txt .sweep/lock
-# state.json があれば terminal 化（履歴を残すため削除しない）
-if [[ -f .sweep/state.json ]]; then
-  jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '.phase = "terminal" | .termination_reason = "aborted" | .updated_at = $now' \
-    .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
-fi
-```
-
-完了後「sweep を中止しキュー / ロックを削除しました」とユーザーに報告。
+引数が `--abort` の場合は `references/abort-and-recovery.md` の手順を実行して終了する（他フェーズに進まない）。
 
 ## フェーズ0: 多重起動チェック（lock 取得）
 
@@ -157,12 +145,9 @@ git fetch origin "$base_branch" 2>/dev/null || true
 git pull --ff-only origin "$base_branch" 2>/dev/null || true
 ```
 
-これにより、各 Issue の worktree は**直前にマージされた変更を含む base から作られる**。同一 sweep 内で `develop` が次々進んでも、各 Issue は常に最新 base 上で実装される。fast-forward できない場合（local に余分なコミットがある等）は警告だけ出して続行する。
+これで各 Issue の worktree が**直前のマージを含む最新 base** から作られる。fast-forward できない場合（local に余分なコミットがある等）は警告だけ出して続行する。Stop Hook がキューに残行がある限り停止をブロックするので途中で止まらず流し続ける。
 
-Stop Hook がキューに残行がある限り停止をブロックするため途中で止まらず流し続ける。
-
-**重要 — context 設計:**
-**1 Issue 分の実装（Plan→Develop→Review→Commit→Push→PR 作成）は必ず `Agent` ツールでサブエージェントに丸投げする。** メインスレッドは「キュー操作 / 冪等性チェック / agent 起動 / CI 緑ポーリング / 直接マージ / 失敗判定」だけを行う。これによりメイン context は Issue 数に対して線形に汚れず、PR URL の一覧だけが積まれる。
+**重要 — context 設計:** **1 Issue 分の実装（Plan→Develop→Review→Commit→Push→PR 作成）は必ず `Agent` ツールに丸投げする。** メインスレッドは「キュー操作 / 冪等性チェック / agent 起動 / CI 緑ポーリング / 直接マージ / 失敗判定」だけを行い、メイン context には PR URL の一覧だけを積む。
 
 **並列実行モード（`--parallel N`、デフォルト N=5）:**
 - 各反復の冒頭で「依存関係なし ∧ `serial-only` フラグなし ∧ 同 parent 並列でない先頭 N 件」を取得
@@ -171,10 +156,9 @@ Stop Hook がキューに残行がある限り停止をブロックするため�
 - 全 agent の返答を集めた後、各 PR を順にポーリング（2-4）→ Issue close（2-5）→ キューから該当行を削除（2-6）
 - worktree は branch 名で分離されるので衝突しない前提
 - 上限は 5。それ以上は API rate limit と CI スロット競合のリスクが高い
-- **ユーザーに並列度を確認しない**。デフォルト 5 で常に起動する。明示的に `--parallel N` が指定されたときだけその値を使う
 
 ### 2-1. キュー先頭の Issue 番号を取得
-`head -n<N> .sweep/queue.txt`（`--parallel N` 指定時。デフォルト N=1）。依存先がキューに残っているものは除外する
+`head -n<N> .sweep/queue.txt`（N は `--parallel`、デフォルト 5）。依存先がキューに残っているものは除外する
 
 ### 2-2. 既存 PR の冪等性チェック（メインスレッド）
 
@@ -305,12 +289,8 @@ while true; do
 done
 ```
 
-- ポーリング間隔 60s、上限なし
-- ポーリング中はメインスレッドは sleep + `gh`/`jq` 呼び出しのみで「思考」しないので context は増えない
-- 待ち中も Stop Hook がキューを見るのでメインは止まらない
-- **CI 失敗判定**: `conclusion == FAILURE` の check が1つ以上 **かつ** `conclusion == null` の pending check が 0（全 check 完了）でのみ確定。pending があれば待ち続ける
-- **respawn 上限**: 同一 PR で agent 再起動を **2回まで**。3回目で `gh run view` ログを添えてユーザーに判断を仰ぐ
-- **CLOSED null**（手動 close）: 1回目は agent 再起動、2回目で諦める
+- ポーリング中のメインは sleep + `gh`/`jq` のみで「思考」しないので context は増えず、Stop Hook がキューを見るので止まらない
+- respawn 上限（同一 PR で agent 再起動 2 回）に達したら `gh run view` のログを添えてユーザー判断を仰ぐ
 
 ### 2-5. Issue を close（sweep 限定の振る舞い）
 
@@ -383,9 +363,8 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - **`max_rounds` のデフォルトを自己判断で 1 より大きくする**（1 round = spinoff 件数ぶんの `impl-wt` フルサイクル。増やすのはユーザーが明示指定した時だけ）
 - **重要度フィルタで落ちた spinoff（`spinoff_deferred`）をレポートに書かずに捨てる**
 - **「spinoff も追跡しますか？」「次の round に進みますか？」のような確認をユーザーに取る**（`max_rounds` の範囲内で自動継続し、超えたら黙って列挙に落とす。ユーザーに二択を投げない）
-- **メインが CI 緑後にマージするのを忘れる**（agent は PR 作成までで返るため、メインがポーリングして直接マージしないと sweep が永久に止まる）
+- **メインが CI 緑後にマージするのを忘れる / マージ完了を確認せず次の Issue に進む**（agent は PR 作成までで返るため、メインがポーリングして直接マージしないと sweep が永久に止まり、PR が closed/CI fail のまま埋もれる）
 - **agent 内で `gh pr merge` を叩く**（マージはメインの責務。agent は PR 作成までで返す）
-- マージ完了確認をスキップして次の Issue に進む（PR が closed/CI fail なまま埋もれる）
 - **CI 失敗を検知せずポーリングを継続する**（無限待機の原因）
 - **失敗 check 名を agent に伝えず「とりあえず再実行」を頼む**（agent が原因不明のまま盲目的に手を入れる事故を防ぐ）
 - agent の返答 JSON 以外をメイン context に取り込もうとする（agent 内部の Plan/Develop/Review ログをメインに残すのは禁止）
@@ -393,70 +372,11 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - ベースブランチを途中で変える
 - フェーズ0 の lock 取得をスキップする
 - **`.sweep/state.json` を `phase=terminal` にする前にキュー残数 = 0 と spinoff 検出済みを確認しない**（キュー処理途中で「ここで終わったことにする」のは禁止）
-- **state.json の `evidence` 配列が空のままフェーズ3 に進む**（各 Issue 完了で metrics 行参照を必ず追加する）
-- レポートに `## Evidence` セクションを書かない（state.json の evidence を必ず引用する形で残す）
+- **state.json の `evidence` が空のままフェーズ3 に進む / レポートに `## Evidence` を書かない**（各 Issue 完了で metrics 行参照を追加し、レポートではそれを引用する）
 
 ## 通知（`.sweep/notify.url`）
 
-プロジェクトごとに異なる Slack / Discord / ntfy.sh に通知できる。
-
-**セットアップ:** リポジトリ直下に1行の URL を保存（`.gitignore` 対象）:
-
-```bash
-echo "https://hooks.slack.com/services/T0XXX/B0XXX/xxxx" > .sweep/notify.url
-```
-
-ファイルが**存在しなければ通知は何もしない**（CI 等で誤発火しない）。
-
-**送信先の自動判別:** URL の文字列パターンで使い分ける:
-
-| URL に含まれる文字列 | サービス | フォーマット |
-|---|---|---|
-| `hooks.slack.com` | Slack | `{"text": "..."}` JSON POST |
-| `discord.com/api/webhooks` | Discord | `{"content": "..."}` JSON POST |
-| `ntfy.sh` | ntfy.sh | POST body 平文 + `Title` / `Priority` ヘッダ |
-| その他 | ntfy 互換 | 同上 |
-
-**通知タイミング:**
-
-| イベント | 通知内容 | 絵文字 |
-|---|---|---|
-| Issue マージ完了（2-5 直後） | `Merged #<n> (PR #<P>, <duration>)` | `:white_check_mark:` |
-| CI 失敗検知（2-4 内） | `CI failed on PR #<P> (attempt <k>/3): <checks>` | `:warning:` |
-| sweep が諦め（2-4 上限到達 / 2-8 agent failure） | `Manual intervention needed: #<n> — <理由>` | `:rotating_light:` |
-| sweep 全完了（フェーズ3） | `Sweep done: <merged> merged, <failed> failed, elapsed <duration>` | `:checkered_flag:` |
-
-**送信関数の実装例:**
-
-```bash
-sweep_notify() {
-  local title="$1" msg="$2" emoji="${3:-}"
-  local url_file=".sweep/notify.url"
-  [[ -f "$url_file" ]] || return 0  # URL 未設定 → 無音
-  local url
-  url=$(head -n1 "$url_file")
-  [[ -z "$url" ]] && return 0
-
-  case "$url" in
-    *hooks.slack.com*)
-      curl -sf -X POST -H 'Content-Type: application/json' \
-        --data "$(jq -nc --arg t "$emoji $title: $msg" '{text:$t}')" \
-        "$url" >/dev/null 2>&1 || true
-      ;;
-    *discord.com/api/webhooks*)
-      curl -sf -X POST -H 'Content-Type: application/json' \
-        --data "$(jq -nc --arg c "$emoji **$title**: $msg" '{content:$c}')" \
-        "$url" >/dev/null 2>&1 || true
-      ;;
-    *)
-      curl -sf -X POST -H "Title: $title" -H "Tags: robot" \
-        -d "$msg" "$url" >/dev/null 2>&1 || true
-      ;;
-  esac
-}
-```
-
-通知失敗（network エラー等）は sweep 本体を止めない (`|| true`)。
+各所で `sweep_notify "<title>" "<msg>" "<emoji>"` を呼ぶ。**`.sweep/notify.url` が存在しなければ通知は完全に no-op** なので、無ければ呼び出し箇所ごと無視してよい。存在する場合のみ `references/notifications.md` を読み、関数定義と通知タイミング表に従う。
 
 ## テレメトリ（`.sweep/metrics.jsonl`）
 
@@ -494,20 +414,7 @@ jq -nc \
   >> .sweep/metrics.jsonl
 ```
 
-**集計例:**
-
-```bash
-# 直近 sweep の所要時間統計
-jq -s 'group_by(.skill) | map({skill: .[0].skill, avg: (map(.duration_sec) | add/length | floor), n: length})' .sweep/metrics.jsonl
-
-# 失敗率
-jq -s '[.[] | select(.status != "merged")] | length' .sweep/metrics.jsonl
-
-# CI respawn ヒートマップ
-jq -s 'map(select(.ci_respawns > 0)) | group_by(.ci_respawns) | map({respawns: .[0].ci_respawns, n: length})' .sweep/metrics.jsonl
-```
-
-ファイルは `.gitignore` 対象。
+集計クエリは `references/metrics-queries.md`（フェーズ3-1 で使う）。ファイルは `.gitignore` 対象。
 
 ## フェーズ3: 完了報告と spinoff 追跡
 
@@ -638,7 +545,4 @@ echo "Report: $report"
 
 ## 失敗時の挙動
 
-- サブスキル失敗 / PR 作成失敗 / 直接マージ失敗のいずれも、Issue 番号をキューに残したまま中断し、ロック (`.sweep/lock`) は削除してユーザーに報告する
-- ポーリング中の `CLOSED null` は1回目はサブスキル再実行、2回連続でユーザー判断
-- キューファイルが壊れた場合は `--abort` で全削除してフェーズ1からやり直す
-- 同じ Issue で2回連続して同じエラーが出たらユーザーに判断を仰ぐ（無限ループ防止）
+`references/abort-and-recovery.md` を参照（失敗が起きたときだけ読めばよい）。
