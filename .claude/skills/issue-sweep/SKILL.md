@@ -16,8 +16,9 @@ user-invocable: true
 - `/issue-sweep #<parent>` — 指定した **フェーズ Issue**（`split-from:#<parent>` ラベル付き子 Issue を持つ親）に対しては、子 Issue 群に自動展開してそれだけ処理する。親本体は実装対象にしない（フェーズ単位の一括実装に使える）
 - `/issue-sweep --abort` — 実行中の sweep を中止しキュー / ロックを削除（後述）
 - `/issue-sweep --parallel <N>` — 同時に処理する Issue 数（**デフォルト 5**、上限 5）。依存関係のない Issue を最大 N 件並列で agent に渡す。ユーザーに値を確認せず常にこのデフォルトで起動する
-- `/issue-sweep --no-follow-spinoffs` — sweep 中に spinoff された Issue を最後に再 sweep するのを抑止（デフォルトは spinoff が出なくなるまで自動追跡）
-- `/issue-sweep --max-rounds <N>` — spinoff 追跡の上限周回数（**デフォルト 10、最大 20**）。通常はこの値に到達する前に spinoff が枯れて自然終了する。明示指定された場合のみその値を使う
+- `/issue-sweep --no-follow-spinoffs` — sweep 中に spinoff された Issue を再 sweep するのを抑止（追跡ゼロ。検出結果はレポート列挙のみ）
+- `/issue-sweep --max-rounds <N>` — spinoff 追跡の上限周回数（**デフォルト 1、最大 20**）。デフォルトでは「今回の sweep が直接生んだ spinoff」までを 1 周だけ処理し、**その spinoff がさらに生んだ孫 spinoff は追わない**（レポート列挙に落とす）。孫以降まで自律的に枯らしたい場合のみ明示的に大きい値を渡す
+- `/issue-sweep --follow-all-spinoffs` — 追跡対象の重要度フィルタ（3-0 参照）を外し、検出した spinoff を重要度によらず全件再 sweep する
 
 ## 前提条件
 
@@ -111,7 +112,7 @@ fi
      - 本文に「依存: #N」「blocked by #N」等の明示依存がない
    - 上記すべて自動判定で、**並列セーフ条件の判定がつかない場合は sequential** に倒す（誤判定で並列にして失敗するより、保守的に処理した方が結果的に速い）
    - **並列上書きの記録**: split-from sequential を上書きして並列起動した Issue ペアは、起動直前にメインのテキスト出力で「#A と #B を並列起動（スコープ disjoint: A=apps/web/foo/, B=cmd/worker/bar/）」と 1 行宣言する（後でレポートから挙動を追えるように）
-3. **Issue の自動分割（fan-out）**: 以下の除外条件に該当しない全 Issue について `/issue-split-auto #<n>` を `Agent(subagent_type=claude)` 経由で呼び出す。**文字数や H2 数のような表層メトリクスで事前フィルタしない** — 短くてもスコープが混在してることはあるし、長くても単一機能で分割不要なことはある。split-auto 側で本文と関連仕様書を実際に読んで判定させる:
+3. **Issue の自動分割（fan-out）**: 以下の除外条件に該当しない全 Issue について `/issue-split-auto #<n>` を `Agent(subagent_type=claude, model=sonnet)` 経由で呼び出す。**モデルは `sonnet` を明示する** — このステージは Issue 本文を読んでスコープ境界を切り出し JSON を返すだけで、コード生成も CI 突破も伴わない。Issue 数ぶん並列起動されるので単価が効く一方、判定を外しても親のまま維持されるだけで下方リスクが小さい。**文字数や H2 数のような表層メトリクスで事前フィルタしない** — 短くてもスコープが混在してることはあるし、長くても単一機能で分割不要なことはある。split-auto 側で本文と関連仕様書を実際に読んで判定させる:
    - `bug` ラベルが付いていない
    - `split-from:#<m>` ラベルが付いていない（既に分割された子ではない）
 
@@ -128,6 +129,7 @@ fi
 8. **`.sweep/state.json` を初期化**:
    ```bash
    queue_total=$(wc -l < .sweep/queue.txt | tr -d ' ')
+   max_rounds=${max_rounds:-1}   # --max-rounds 未指定時のデフォルト
    jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
          --argjson qt "$queue_total" --argjson mr "$max_rounds" '{
      skill: "issue-sweep",
@@ -377,8 +379,10 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - **engineer agent 内で `refine-git` の代わりに `refine` を起動する**（全体スキャンになり、Issue と無関係な既存指摘でマージゲートが永久に落ちる）
 - **反復冒頭の base branch 最新化をスキップする**（前 Issue のマージ分を取り込まず古い base で次を実装すると競合・無駄作業の原因）
 - **ユーザーに並列度（--parallel）を確認する**（デフォルト 5 で常に起動。必要なら明示指定された値を使う）
-- **spinoff 検出をスキップして sweep を終わらせる**（実装中に作られた子 Issue を放置すると「自律連続実装」の意味が薄れる。デフォルト 10 周まで自動追跡、spinoff 0 で自然終了）
-- **「spinoff も追跡しますか？」「次の round に進みますか？」のような確認をユーザーに取る**（デフォルトで全 round 自動継続する。`--no-follow-spinoffs` が明示指定されているとき以外、ユーザーに二択を投げない）
+- **spinoff 検出（3-0）自体をスキップして sweep を終わらせる**（実装中に作られた子 Issue の存在を報告しないのは禁止。追跡しない分は必ずレポートに列挙する）
+- **`max_rounds` のデフォルトを自己判断で 1 より大きくする**（1 round = spinoff 件数ぶんの `impl-wt` フルサイクル。増やすのはユーザーが明示指定した時だけ）
+- **重要度フィルタで落ちた spinoff（`spinoff_deferred`）をレポートに書かずに捨てる**
+- **「spinoff も追跡しますか？」「次の round に進みますか？」のような確認をユーザーに取る**（`max_rounds` の範囲内で自動継続し、超えたら黙って列挙に落とす。ユーザーに二択を投げない）
 - **メインが CI 緑後にマージするのを忘れる**（agent は PR 作成までで返るため、メインがポーリングして直接マージしないと sweep が永久に止まる）
 - **agent 内で `gh pr merge` を叩く**（マージはメインの責務。agent は PR 作成までで返す）
 - マージ完了確認をスキップして次の Issue に進む（PR が closed/CI fail なまま埋もれる）
@@ -509,7 +513,7 @@ jq -s 'map(select(.ci_respawns > 0)) | group_by(.ci_respawns) | map({respawns: .
 
 ### 3-0. spinoff 検出と再 sweep 判定
 
-実装中に `/spinoff-issue --parent #N` で作成された Issue が **キュー構築後** に生成されているため、それらを拾い直す:
+実装中の発見が `impl-wt` のフェーズ3 で `/spinoff-issue --batch` により **キュー構築後** に起票されているため、それらを拾い直す:
 
 ```bash
 # 今回 sweep が処理した親 Issue 番号一覧（フェーズ1 で展開した子 Issue を含む）
@@ -525,30 +529,38 @@ new_issues=$(gh issue list --state open \
 # spinoff 由来を判定: /spinoff-issue が付与する `spinoff` ラベルを主シグナルとし、
 # 本文 "元: #N"（spinoff-issue のテンプレ）または "Parent: #N"（後方互換）から親番号を取り出し、
 # PROCESSED_IDS と一致するものを抽出
-spinoff_ids=$(echo "$new_issues" | jq -r --arg ids "$PROCESSED_IDS" '
+#   `high` = 再 sweep（impl-wt フルサイクル）まで自動で回す重要度かどうか
+spinoff_json=$(echo "$new_issues" | jq -c --arg ids "$PROCESSED_IDS" '
   ($ids | split(",") | map(tonumber)) as $parents
-  | .[]
-  | select(
-      ([.labels[]?.name] | index("spinoff")) != null
-    )
-  | select(
-      ( [ .body // "" | scan("(?:元|[Pp]arent):\\s*#?([0-9]+)") ] | .[0]? | tonumber? ) as $body_parent
-      | $body_parent != null and ($parents | index($body_parent)) != null
-    )
-  | .number
-')
+  | [ .[]
+      | select(([.labels[]?.name] | index("spinoff")) != null)
+      | select(
+          # scan はキャプチャ付きだと [["3"]] を返すので flatten してから数値化する
+          ( [ .body // "" | scan("(?:元|[Pp]arent):\\s*#?([0-9]+)") ] | flatten | .[0]? | tonumber? ) as $body_parent
+          | $body_parent != null and ($parents | index($body_parent)) != null
+        )
+      | { number,
+          high: ([.labels[]?.name]
+                 | any(. == "severity:critical" or . == "severity:high" or . == "priority:high")) }
+    ]')
+
+spinoff_all=$(echo "$spinoff_json" | jq -r '.[].number')
+# 再 sweep 対象は重要度の高いものだけ。--follow-all-spinoffs 指定時は spinoff_all をそのまま使う
+spinoff_ids=$(echo "$spinoff_json" | jq -r '.[] | select(.high) | .number')
+spinoff_deferred=$(echo "$spinoff_json" | jq -r '.[] | select(.high | not) | .number')
 ```
 
 判定:
-- `spinoff_ids` が **空** → 通常の終了処理（3-1 以降）
-- `spinoff_ids` がある かつ `--no-follow-spinoffs` 指定なし かつ `round_count < max_rounds`:
+- `spinoff_all` が **空** → 通常の終了処理（3-1 以降）
+- `spinoff_ids` がある かつ `--no-follow-spinoffs` 指定なし かつ `round_count < max_rounds`（**デフォルト 1**）:
   - 通知 `sweep_notify "spinoffs detected" "${#spinoff_ids} 件を再 sweep" ":arrows_counterclockwise:"`
   - `round_count += 1` をインクリメント
   - `spinoff_ids` を新規キューとして `.sweep/queue.txt` に書き出す
   - **フェーズ2 に戻る**（ロック / 通知 URL / メトリクスは引き継ぎ、`sweep_start_iso` のみ次周開始時刻に更新）
-- 上限到達または `--no-follow-spinoffs` 指定時:
-  - レポートに「未処理 spinoffs」セクションを追加して列挙
-  - 通知 `sweep_notify "spinoffs left unprocessed" "${#spinoff_ids} 件、要手動 sweep" ":warning:"`
+- 上限到達（デフォルトでは 2 周目に入ろうとした時点で必ずここに来る）または `--no-follow-spinoffs` 指定時:
+  - レポートに「未処理 spinoffs」セクションを追加して `spinoff_all` を列挙
+  - 通知 `sweep_notify "spinoffs left unprocessed" "${#spinoff_all} 件、要手動 sweep" ":warning:"`
+- `spinoff_deferred` が空でない場合は、再 sweep の有無にかかわらずレポートに **「未追跡 spinoffs（重要度フィルタで対象外）」** セクションを追加して列挙する（黙って握り潰さない）
 
 ### 3-1. 完了報告
 

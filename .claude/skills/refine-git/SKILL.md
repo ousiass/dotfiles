@@ -187,8 +187,9 @@ MINOR (excess minor が <minor - max_minor> 件あるので優先度高いもの
 - 上記以外のファイルは編集しない。指摘の修正に差分外ファイルの変更が不可欠な場合は、
   修正せず {"failure": "out_of_scope_required: <ファイル> <理由>"} を返して判断を委ねる
 - ただし修正に伴うテストファイルの新規追加は許可する（回帰テストは必須）
-- 差分外に別の問題を見つけても直さない。/spinoff-issue で Issue に切り出すか、
-  最終 JSON の spinoff に記録して次に進む
+- 差分外に別の問題を見つけても直さない。**Issue も作らない**（`/spinoff-issue` を呼ばない）。
+  最終 JSON の spinoff に記録するだけにして次に進む。フェーズ3 のレポート
+  `## Out of scope` に集約される
 
 手順:
 1. `git checkout <branch>` で切り替え
@@ -231,6 +232,8 @@ $(echo "$findings" | jq -r '.out_of_scope[]? | "- [\(.file // "?"):\(.line // 0)
 EOF
 ```
 
+各反復の修正 agent が返した `spinoff` 配列も同じセクションに追記する（重複は除く）。この一覧が「Issue 化するか」をユーザーが判断する材料になるので、**空でない限り必ず出力する**。
+
 ## 禁止行動
 
 - **メインスレッド自身がコードを修正する**（CTO は実装に触らない、impl-wt や issue-sweep と同じ原則）
@@ -241,6 +244,7 @@ EOF
 - **全体スキャン版のレビュースキル（`code-review` / `doc-drift` / `spec-audit`）を起動する**（必ず `-git` 版を使う。全体版が要るなら `/refine` か `/refine-sweep`）
 - **`halt-review` / `atomic-review` を引数なしで起動する**（プロジェクト全体走査になる。必ず差分内の対象パスを引数で渡す）
 - **差分外のファイルを修正する**（2-4 のスコープ制約を修正 agent のプロンプトから省略しない。差分外の問題は `out_of_scope` / `spinoff` に記録するだけ）
+- **修正ループ内で `/spinoff-issue` を呼ぶ**（fix agent は `max_iter` 回起動されるので反復回数ぶん Issue が量産される。差分外の発見はレポートの `## Out of scope` に集約し、Issue 化するかはユーザーが判断する）
 - **`out_of_scope` の指摘を閾値判定に含める**（差分外の既存問題で永久にループが収束しなくなる）
 - **必須レビュー（code-review-git / doc-drift-git / spec-audit-git）の一部をスキップする**（全観点を統合して判定するため）
 - **HALT プロジェクトで halt-review をスキップする**（HAS_HALT=true なら必ず並列起動）

@@ -29,11 +29,21 @@ If any of the following occurs, redo that phase. Skipping for "context savings" 
 - Committing with unimplemented tests or dummy assertions (e.g., `expect(true).toBe(true)`)
 - Self-reviewing instead of calling the `review` agent
 - Skipping lint/format without attempting to run (skipping is allowed only after running and confirming no settings exist)
-- **Deferring out-of-scope findings to "report later", "list in PR body", or "mention in final summary"** (anything short of filing an issue on the spot is a violation; writing "discovered but not filed" in the PR body or final report is itself forbidden)
+- **Deferring out-of-scope findings to "report later", "list in PR body", or "mention in final summary"** (anything short of appending to `.sweep/spinoff-draft.jsonl` on the spot is a violation; writing "discovered but not filed" in the PR body or final report is itself forbidden)
+- **Calling `/spinoff-issue-en` individually per finding** (filing is consolidated into the single `--batch` call at Phase 3)
 
 If scope reduction is needed, redo Phase 1 scope splitting and confirm with the user instead of skipping phases.
 
-If you discover **work independent of the current scope** during implementation (unrelated bugs, out-of-scope improvements, refactors that need their own PR), **stop work the moment you notice** and call `/spinoff-issue-en --parent <parent issue#> <summary>` to create the issue, then resume the current scope. Batching findings at the end of a sub-step, at the end of a scope, or at Phase 3 is not allowed (they get forgotten or substituted by PR-body lists). Always pass the parent Issue number recorded in Phase 1 via `--parent` (omit only when there is no parent issue, e.g. text-driven runs).
+If you discover **work independent of the current scope** during implementation (unrelated bugs, out-of-scope improvements, refactors that need their own PR), **append one line to `.sweep/spinoff-draft.jsonl` the moment you notice**:
+
+```bash
+mkdir -p .sweep
+jq -nc --arg parent "<parent issue#>" --arg type "<bug|feat|chore|refactor|docs>" \
+       --arg title "<summary>" --arg files "<file:line>" --arg why "<why it is not mixed into this scope>" \
+       '{parent:$parent, type:$type, title:$title, files:$files, why:$why}' >> .sweep/spinoff-draft.jsonl
+```
+
+**Do not create the issue here** (do not call `/spinoff-issue-en`). Filing happens once, in bulk, at Phase 3. The "gets forgotten / substituted by a PR-body list" failure is prevented by the file, so on-the-spot filing is unnecessary. **Deferring the append itself is still forbidden** (recalling findings at the end of a sub-step or scope is not allowed). Always put the parent Issue number recorded in Phase 1 into `parent` (empty string only when there is no parent issue, e.g. text-driven runs). `.sweep/` is a working-file directory — never include it in a commit.
 
 ## Phase 1: Requirements Analysis and Scope Splitting
 
@@ -98,7 +108,7 @@ If you discover **work independent of the current scope** during implementation 
 
 1. Confirm all scopes are implemented
 2. Run full test suite
-3. **Out-of-scope findings self-check**: Explicitly verify and declare that no out-of-scope findings remain un-filed. If any remain, call `/spinoff-issue-en` now and create the issue(s) before proceeding. Writing "discovered but not filed" in the PR body or final report is forbidden.
+3. **Bulk-file out-of-scope findings**: If `.sweep/spinoff-draft.jsonl` exists and is non-empty, call `/spinoff-issue-en --batch .sweep/spinoff-draft.jsonl` **exactly once** to file them all, then delete the draft. Also explicitly verify and declare that no finding is missing from the draft (append it first, then file). Writing "discovered but not filed" in the PR body or final report is forbidden.
 4. Create PR with `gh pr create --base <base-branch>`
    - **Use the base branch recorded in Phase 1. Never fall back to `main` or `master`.**
    - If unclear, check fork point with `git log --oneline --graph HEAD...main`
