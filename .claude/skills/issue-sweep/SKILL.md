@@ -16,6 +16,7 @@ user-invocable: true
 - `/issue-sweep #<parent>` — 指定した **フェーズ Issue**（`split-from:#<parent>` ラベル付き子 Issue を持つ親）に対しては、子 Issue 群に自動展開してそれだけ処理する。親本体は実装対象にしない（フェーズ単位の一括実装に使える）
 - `/issue-sweep --abort` — 実行中の sweep を中止しキュー / ロックを削除（後述）
 - `/issue-sweep --parallel <N>` — 同時に処理する Issue 数（**デフォルト 5**、上限 5）。依存関係のない Issue を最大 N 件並列で agent に渡す。ユーザーに値を確認せず常にこのデフォルトで起動する
+- `/issue-sweep --no-batch` — 関連 Issue のバッチ編成（フェーズ1-4）を無効化し、常に 1 Issue = 1 PR で処理する
 - `/issue-sweep --no-follow-spinoffs` — sweep 中に spinoff された Issue を再 sweep するのを抑止（追跡ゼロ。検出結果はレポート列挙のみ）
 - `/issue-sweep --max-rounds <N>` — spinoff 追跡の上限周回数（**デフォルト 1、最大 20**）。デフォルトでは「今回の sweep が直接生んだ spinoff」までを 1 周だけ処理し、**その spinoff がさらに生んだ孫 spinoff は追わない**（レポート列挙に落とす）。孫以降まで自律的に枯らしたい場合のみ明示的に大きい値を渡す
 - `/issue-sweep --follow-all-spinoffs` — 追跡対象の重要度フィルタ（3-0 参照）を外し、検出した spinoff を重要度によらず全件再 sweep する
@@ -110,11 +111,25 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
    ```
 
    返ってきた JSON の `children` がある場合、キュー内の親番号 `<n>` を `children` の配列に置換する。`children` が空（分割不要判定）または `created: false` の場合は親のまま維持。
-4. `.sweep/queue.txt` に Issue 番号を1行ずつ書き出す（空行・コメント禁止）
-5. キュー件数とラベル別内訳をユーザーに表示する
-6. 現在のブランチ（`git branch --show-current`）を「ベースブランチ」として表示する。違うブランチで進めたい場合はここでチェックアウトし直してから続行する
-7. 「中止したい時は `/issue-sweep --abort` または `rm .sweep/queue.txt`」を1行案内する
-8. **`.sweep/state.json` を初期化**:
+4. **バッチ編成（1 worktree にまとめる Issue 群を決める）**: 分割後の Issue 群のうち、以下をすべて満たす組を 1 バッチにまとめる。バッチは **1 worktree / 1 ブランチ / 1 PR** で処理し、まとめてマージする:
+   - 次のいずれかで関連が強い:
+     - 同一 parent の `split-from:#<n>` 兄弟である
+     - 本文の「## スコープ」「## 影響範囲」「## ファイル」等から読み取れる対象ファイル / ディレクトリ集合が **重なる**
+   - `serial-only` / `no-parallel` / `isolated` / `migration` / `schema-change` / `breaking-change` のいずれのラベルも持たない
+   - バッチ内に循環依存がない（「依存: #N」を辿って一列に並べられる）
+
+   **2 の並列判定との関係**: 2 は「scope が disjoint だから別々に走らせて安全か」を見る。バッチは逆に「scope が近接しているから 1 本にまとめた方が得か」を見る。**2 で sequential に倒された Issue 群（特に同一 parent の split-from 兄弟）が最有力のバッチ候補**。バッチにまとめた Issue は互いに並列起動しない（同じ worktree で順に実装するため）。
+
+   件数の上限は設けない。ただし **6 件以上のバッチを作る場合のみ**「#a,#b,… の N 件を 1 PR にまとめます（PR が大きくなります）」と 1 行宣言してから進む（確認は取らない）。
+5. `.sweep/queue.txt` に **1 行 = 1 バッチ**で書き出す（空行・コメント禁止）。バッチはカンマ区切り、単独はそのまま:
+   ```
+   12,13,14
+   27
+   ```
+6. キュー件数（バッチ数と Issue 総数）とラベル別内訳をユーザーに表示する
+7. 現在のブランチ（`git branch --show-current`）を「ベースブランチ」として表示する。違うブランチで進めたい場合はここでチェックアウトし直してから続行する
+8. 「中止したい時は `/issue-sweep --abort` または `rm .sweep/queue.txt`」を1行案内する
+9. **`.sweep/state.json` を初期化**:
    ```bash
    queue_total=$(wc -l < .sweep/queue.txt | tr -d ' ')
    max_rounds=${max_rounds:-1}   # --max-rounds 未指定時のデフォルト
@@ -157,13 +172,19 @@ git pull --ff-only origin "$base_branch" 2>/dev/null || true
 - worktree は branch 名で分離されるので衝突しない前提
 - 上限は 5。それ以上は API rate limit と CI スロット競合のリスクが高い
 
-### 2-1. キュー先頭の Issue 番号を取得
-`head -n<N> .sweep/queue.txt`（N は `--parallel`、デフォルト 5）。依存先がキューに残っているものは除外する
+### 2-1. キュー先頭のバッチを取得
+`head -n<N> .sweep/queue.txt`（N は `--parallel`、デフォルト 5）。**1 行 = 1 バッチ**なので、各行をカンマで分割して Issue 群にする（`12,13,14` → #12 #13 #14）。依存先がキューに残っているバッチは除外する。
+
+並列度 N はバッチ単位で数える（バッチ内の Issue は同一 worktree で順に処理するので並列にはしない）。
 
 ### 2-2. 既存 PR の冪等性チェック（メインスレッド）
 
+バッチのブランチ名（2-3 の規約 `sweep/issues-<a>-<b>-…`）で探す。無ければ Issue 番号でも探す（sweep 以外の経路で作られた PR を拾うため）:
+
 ```bash
-gh pr list --search "#<n> in:title,body" --state all --json number,state,mergedAt
+gh pr list --head "sweep/issues-<a>-<b>" --state all --json number,state,mergedAt
+# 見つからなければバッチ先頭の Issue 番号でフォールバック
+gh pr list --search "#<a> in:title,body" --state all --json number,state,mergedAt
 ```
 
 判定:
@@ -171,7 +192,12 @@ gh pr list --search "#<n> in:title,body" --state all --json number,state,mergedA
 - `state == OPEN` → **既存 PR あり**。agent 起動（2-3）はスキップし、PR 番号を引き継いで 2-4（ポーリング）へ
 - それ以外 → 通常フロー（2-3）
 
-### 2-3. サブエージェントで Issue を1件丸ごと処理
+### 2-3. サブエージェントでバッチを丸ごと処理
+
+**バッチ件数で使うプロンプトを分ける**:
+- **1 件** → 「初回起動プロンプト」（wt 版スキルが worktree ごと面倒を見る、従来どおり）
+- **2 件以上** → 「バッチ起動プロンプト」（sweep 側で worktree を 1 つ作り、非 wt 版スキルを順に回して PR を 1 本にまとめる）
+
 
 **worktree スナップショット**: agent 起動前に `git worktree list --porcelain | grep '^worktree ' | awk '{print $2}' | sort > /tmp/wt-before` を実行（2-7 の差分検知で使用）。
 
@@ -181,7 +207,7 @@ gh pr list --search "#<n> in:title,body" --state all --json number,state,mergedA
 - `description`: `"Issue #<n> implementation"`
 - `prompt`: 自己完結したプロンプトを渡す。**初回起動**と **CI fix 起動** の2モード:
 
-**初回起動プロンプト:**
+**初回起動プロンプト（バッチ件数 = 1）:**
 
 ```
 Issue #<n> を1件、最後まで自律的に処理してください。メインスレッドには PR 情報だけを返します。
@@ -212,7 +238,42 @@ Issue #<n> を1件、最後まで自律的に処理してください。メイ�
 - **critical/major が残った状態で 5 の success JSON を返してはならない**（4 のゲート判定を必ず通す）。
 ```
 
-**CI fix 起動プロンプト**（メインスレッドが 2-4 ポーリング中に CI 失敗を検知した場合に使用）:
+**バッチ起動プロンプト（バッチ件数 ≥ 2）:**
+
+```
+Issue #<a>, #<b>, #<c> を **1 つの worktree にまとめて** 処理してください。メインスレッドには PR 情報だけを返します。
+
+手順:
+1. worktree を 1 つ作る:
+   git worktree add <repo>-sweep-<a> -b sweep/issues-<a>-<b>-<c> <base_branch>
+   以降のすべての作業をこの worktree ディレクトリ内で行う。
+2. 各 Issue を **依存順に** 1 件ずつ処理する。Issue ごとに `gh issue view <n> --json labels` でラベルを見てスキルを選ぶ:
+   - bug → /bug-fix #<n>
+   - それ以外 → /impl #<n>
+   **wt 版（/impl-wt, /bug-fix-wt）は使わない**（worktree は 1 で作成済み。wt 版を呼ぶと worktree が二重に作られる）。
+   起動時に「**複数 Issue を 1 ブランチに積むので PR は呼び出し元が作る。PR 作成はスキップして commit + push までで返すこと**」と明示する。
+   各サブスキルのその他の禁止行動（フェーズスキップ・テスト省略・スコープ外発見の未 issue 化）は厳守。
+3. 全 Issue の実装が終わったら push し、`gh pr create --base <base_branch>` で **PR を 1 本だけ** 作る:
+   - タイトルに全 Issue 番号を含める
+   - 本文に対象 Issue を全件列挙し、各 Issue でやったことを 1 行ずつ書く
+   - `gh pr edit <PR番号> --add-issue <各 Issue URL>` で全件リンクする（Closes は使わない）
+4. `/refine-git --no-merge --max-minor <5 × バッチ件数>` を Skill ツールで起動して研磨する。
+   **minor 閾値を件数比例で渡すこと**（既定の 5 のままだと複数 Issue 分の差分では到達できず max_iter で打ち切られる）。
+   **必ず `refine` ではなく `refine-git` を使う**（`refine` はリポジトリ全体が対象。Issue と無関係な既存問題でマージゲートが落ち続ける）。
+5. **マージゲート判定**（必須）: `critical_remaining == 0 ∧ major_remaining == 0` ならマージコマンドは叩かず PR 作成までで返す（マージはメインの責務）。満たさなければ failure として返す。
+6. 成功時の JSON 1行:
+   {"issues": [<a>,<b>,<c>], "pr_number": <N>, "pr_url": "<URL>", "branch": "sweep/issues-<a>-<b>-<c>", "skills": ["<Issue ごとに使ったスキル>"], "refine_status": "<clean|iter_limit|agent_failed>", "refine_iters": <K>, "critical_remaining": <N>, "major_remaining": <N>, "minor_remaining": <N>}
+7. 失敗時の JSON（**どの Issue で転んだかを必ず含める**。切り分けに使う）:
+   {"failure": "<1行で原因>", "phase": "<どのフェーズ>", "failed_issue": <n>, "completed_issues": [<実装まで終わった Issue>], "pr_number": <あれば>, "pr_url": "<あれば>"}
+
+返答ルール:
+- 上記 JSON 以外を最終メッセージに含めない（メインスレッドが parse する）。
+- 「ユーザーに確認してから次へ進みます」等で停止しない。失敗または完了まで進める。
+- マージはメインスレッドが行う（`gh pr merge` は叩かない）。
+- **critical/major が残った状態で 6 の success JSON を返してはならない**（5 のゲート判定を必ず通す）。
+```
+
+**CI fix 起動プロンプト**（メインスレッドが 2-4 ポーリング中に CI 失敗を検知した場合に使用。バッチでも PR は 1 本なのでそのまま使える）:
 
 ```
 PR #<PR番号>（branch: <branch>）の CI で以下の check が失敗しました:
@@ -296,9 +357,13 @@ done
 
 マージ完了後、対応する Issue を明示的に close する。CI 再実行回数も併記して監査性を上げる:
 
+**バッチ内の全 Issue を close する**（1 PR が複数 Issue を閉じる）:
+
 ```bash
-gh issue close <n> --comment "Closed by PR #<PR番号> (merged via /issue-sweep, CI respawns=${respawn_count})"
-sweep_notify "Merged" "#${n} (PR #${PR}, $(( $(date +%s) - start_ts ))s)" ":white_check_mark:"
+for n in $batch_issues; do   # バッチのカンマ区切りを空白区切りにしたもの
+  gh issue close "$n" --comment "Closed by PR #<PR番号> (merged via /issue-sweep, CI respawns=${respawn_count})" || true
+done
+sweep_notify "Merged" "#$(echo $batch_issues | tr ' ' ',') (PR #${PR}, $(( $(date +%s) - start_ts ))s)" ":white_check_mark:"
 ```
 
 - 親 sub-skill 群（impl-wt 等）は意図的に `Closes #N` を使わない設計だが、sweep ではマージ → close を直結したいので sweep 側で補う
@@ -371,6 +436,9 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - 「ここで停止します」「次に進む前に確認してください」とユーザー判断を待って止まる（Stop Hook が押し戻す）
 - ベースブランチを途中で変える
 - フェーズ0 の lock 取得をスキップする
+- **バッチ（2 件以上）で wt 版スキル（`/impl-wt`, `/bug-fix-wt`）を呼ぶ**（worktree が二重に作られる。バッチでは sweep 側が作った worktree 内で非 wt 版を使う）
+- **バッチで `refine-git` の `--max-minor` を件数比例にせず既定の 5 のまま呼ぶ**（複数 Issue 分の差分では閾値に到達できず `max_iter` で打ち切られる）
+- **バッチの一部 Issue だけ close してキューから消す**（マージされた PR が閉じるはずの Issue を取りこぼす。2-5 で全件 close する）
 - **`.sweep/state.json` を `phase=terminal` にする前にキュー残数 = 0 と spinoff 検出済みを確認しない**（キュー処理途中で「ここで終わったことにする」のは禁止）
 - **state.json の `evidence` が空のままフェーズ3 に進む / レポートに `## Evidence` を書かない**（各 Issue 完了で metrics 行参照を追加し、レポートではそれを引用する）
 
@@ -380,7 +448,7 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 
 ## テレメトリ（`.sweep/metrics.jsonl`）
 
-各 Issue の処理完了時 / 失敗時に **JSON 1行を append** する。後で `jq` で集計可能。
+各**バッチ**の処理完了時 / 失敗時に **JSON 1行を append** する（バッチ = 1 PR）。後で `jq` で集計可能。
 
 **書き出すタイミング:**
 - 正常マージ完了（2-5 の Issue close 直後）
@@ -389,10 +457,13 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 
 **スキーマ:**
 
+`issues` がバッチの全 Issue、`issue` はその先頭（既存クエリとの後方互換のため残す）。
+
 ```json
-{"ts":"<ISO8601>","issue":42,"skill":"impl-wt","duration_sec":423,"agent_attempts":1,"ci_respawns":0,"pr_number":127,"pr_url":"https://...","status":"merged"}
-{"ts":"<ISO8601>","issue":51,"skill":"bug-fix-wt","duration_sec":1820,"agent_attempts":3,"ci_respawns":2,"pr_number":131,"pr_url":"https://...","status":"ci_gave_up","failed_checks":"unit-tests,lint"}
-{"ts":"<ISO8601>","issue":53,"skill":null,"duration_sec":12,"agent_attempts":1,"ci_respawns":0,"pr_number":null,"pr_url":null,"status":"agent_failed","failure":"<理由>"}
+{"ts":"<ISO8601>","issue":42,"issues":[42],"skill":"impl-wt","duration_sec":423,"agent_attempts":1,"ci_respawns":0,"pr_number":127,"pr_url":"https://...","status":"merged"}
+{"ts":"<ISO8601>","issue":12,"issues":[12,13,14],"skill":"impl","duration_sec":2140,"agent_attempts":1,"ci_respawns":0,"pr_number":129,"pr_url":"https://...","status":"merged"}
+{"ts":"<ISO8601>","issue":51,"issues":[51],"skill":"bug-fix-wt","duration_sec":1820,"agent_attempts":3,"ci_respawns":2,"pr_number":131,"pr_url":"https://...","status":"ci_gave_up","failed_checks":"unit-tests,lint"}
+{"ts":"<ISO8601>","issue":53,"issues":[53],"skill":null,"duration_sec":12,"agent_attempts":1,"ci_respawns":0,"pr_number":null,"pr_url":null,"status":"agent_failed","failure":"<理由>","failed_issue":53}
 ```
 
 **status 値:** `merged` / `ci_gave_up` / `agent_failed` / `aborted` / `manual_close`
@@ -400,9 +471,10 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 **実装:** 2-1 で `start_ts=$(date +%s)` を記録し、2-5 / 2-8 の直前で:
 
 ```bash
+issues=$(printf '%s\n' $batch_issues | jq -sc 'map(tonumber)')   # バッチの全 Issue
 jq -nc \
   --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  --argjson issue "$n" \
+  --argjson issues "$issues" \
   --arg skill "$skill_used" \
   --argjson dur "$(( $(date +%s) - start_ts ))" \
   --argjson att "$agent_attempts" \
@@ -410,7 +482,7 @@ jq -nc \
   --argjson pr "$pr_number" \
   --arg url "$pr_url" \
   --arg status "$status" \
-  '{ts:$ts,issue:$issue,skill:$skill,duration_sec:$dur,agent_attempts:$att,ci_respawns:$resp,pr_number:$pr,pr_url:$url,status:$status}' \
+  '{ts:$ts,issue:$issues[0],issues:$issues,skill:$skill,duration_sec:$dur,agent_attempts:$att,ci_respawns:$resp,pr_number:$pr,pr_url:$url,status:$status}' \
   >> .sweep/metrics.jsonl
 ```
 
@@ -425,7 +497,9 @@ jq -nc \
 ```bash
 # 今回 sweep が処理した親 Issue 番号一覧（フェーズ1 で展開した子 Issue を含む）
 PROCESSED_IDS=$(jq -r --arg since "$sweep_start_iso" \
-  'select(.ts >= $since and (.source | startswith("refine") | not) and (.issue|tostring) != "") | .issue' \
+  'select(.ts >= $since and ((.source // "") | startswith("refine") | not))
+   | if .issues then .issues[] else .issue end
+   | select(. != null)' \
   .sweep/metrics.jsonl | sort -u | tr '\n' ',' | sed 's/,$//')
 
 # sweep 開始以降に作成された OPEN Issue を取得
@@ -509,11 +583,11 @@ mkdir -p .sweep
   echo
   echo "## Per-Issue"
   echo
-  echo "| Issue | Skill | Duration | Status | PR | Respawns |"
+  echo "| Issues | Skill | Duration | Status | PR | Respawns |"
   echo "|---|---|---|---|---|---|"
   jq -r --arg since "$sweep_start_iso" \
-    'select(.ts >= $since and (.source | startswith("refine") | not)) |
-     "| #\(.issue) | \(.skill // "-") | \(.duration_sec)s | \(.status) | \(.pr_url // "-") | \(.ci_respawns // 0) |"' \
+    'select(.ts >= $since and ((.source // "") | startswith("refine") | not)) |
+     "| \((.issues // [.issue]) | map("#\(.)") | join(", ")) | \(.skill // "-") | \(.duration_sec)s | \(.status) | \(.pr_url // "-") | \(.ci_respawns // 0) |"' \
     .sweep/metrics.jsonl
   echo
   echo "## Evidence"
@@ -523,8 +597,8 @@ mkdir -p .sweep
   echo
   echo "## Failures & Manual Intervention"
   jq -r --arg since "$sweep_start_iso" \
-    'select(.ts >= $since and .status != "merged") |
-     "- **#\(.issue)** (\(.status)): \(.failure // .failed_checks // "-") — PR \(.pr_url // "n/a")"' \
+    'select(.ts >= $since and ((.source // "") | startswith("refine") | not) and .status != "merged") |
+     "- **\((.issues // [.issue]) | map("#\(.)") | join(", "))** (\(.status))\(if .failed_issue then " — 転んだのは #\(.failed_issue)" else "" end): \(.failure // .failed_checks // "-") — PR \(.pr_url // "n/a")"' \
     .sweep/metrics.jsonl
   if [[ -f .sweep/refine-metrics.jsonl ]]; then
     echo

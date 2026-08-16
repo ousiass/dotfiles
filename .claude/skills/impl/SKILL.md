@@ -108,6 +108,7 @@ jq -nc --arg parent "<親Issue番号>" --arg type "<bug|feat|chore|refactor|docs
 2. 全体テストを実行
 3. **スコープ外発見の一括 issue 化**: `.sweep/spinoff-draft.jsonl` が存在し空でなければ `/spinoff-issue --batch .sweep/spinoff-draft.jsonl` を **1 回だけ** 呼んで一括起票し、完了後に draft を削除する。加えて draft に未記載の発見が残っていないかを明示的に確認・宣言する（残っていれば append してから起票する）。PR 本文や最終報告に「発見だが未 issue 化」を書くのは禁止
 4. `gh pr create --base <ベースブランチ>` でPRを作成
+   - **例外 — バッチ実装時**: 呼び出し元（`issue-sweep` のバッチモード等）が「複数 Issue を 1 ブランチに積むので PR は呼び出し元が作る」と明示している場合に限り、PR 作成をスキップして commit + push までで返してよい。この場合は最終報告に「PR 未作成（呼び出し元に委譲）」と明記する。**呼び出し元の明示指示がないのにスキップするのは従来どおり禁止**
    - **ベースブランチはフェーズ1で記録した開始時のブランチを指定する。`main` や `master` にフォールバックしないこと。**
    - 不明な場合は `git log --oneline --graph HEAD...main` 等で分岐元を確認する
    - Issue 指定時: タイトルに Issue 番号を含め、PR作成後に `gh pr edit <PR番号> --add-issue <Issue URL>` でリンクする（Closes は使わない）

@@ -74,6 +74,7 @@ user-invocable: true
 ## Phase 4: Pull Request
 
 1. Create PR with `gh pr create --base <base-branch>`
+   - **Exception — batch implementation**: Only when the caller (e.g. `issue-sweep` in batch mode) explicitly states that several Issues are being stacked onto one branch and the caller will open the PR, you may skip PR creation and return after commit + push. Say "PR not created (delegated to caller)" in the final report. **Skipping without that explicit instruction remains forbidden.**
    - **Use the base branch recorded in Phase 1. Never fall back to `main` or `master`.**
    - If unclear, check fork point with `git log --oneline --graph HEAD...main`
    - With Issue: Include Issue number in title, then link via `gh pr edit <PR#> --add-issue <Issue URL>` after creation (do not use Closes keyword)

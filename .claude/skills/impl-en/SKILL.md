@@ -110,6 +110,7 @@ jq -nc --arg parent "<parent issue#>" --arg type "<bug|feat|chore|refactor|docs>
 2. Run full test suite
 3. **Bulk-file out-of-scope findings**: If `.sweep/spinoff-draft.jsonl` exists and is non-empty, call `/spinoff-issue-en --batch .sweep/spinoff-draft.jsonl` **exactly once** to file them all, then delete the draft. Also explicitly verify and declare that no finding is missing from the draft (append it first, then file). Writing "discovered but not filed" in the PR body or final report is forbidden.
 4. Create PR with `gh pr create --base <base-branch>`
+   - **Exception — batch implementation**: Only when the caller (e.g. `issue-sweep` in batch mode) explicitly states that several Issues are being stacked onto one branch and the caller will open the PR, you may skip PR creation and return after commit + push. Say "PR not created (delegated to caller)" in the final report. **Skipping without that explicit instruction remains forbidden.**
    - **Use the base branch recorded in Phase 1. Never fall back to `main` or `master`.**
    - If unclear, check fork point with `git log --oneline --graph HEAD...main`
    - With Issue: Include Issue number in title, then link via `gh pr edit <PR#> --add-issue <Issue URL>` after creation (do not use Closes keyword)
