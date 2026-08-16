@@ -168,7 +168,7 @@ git pull --ff-only origin "$base_branch" 2>/dev/null || true
 - 各反復の冒頭で「依存関係なし ∧ `serial-only` フラグなし ∧ 同 parent 並列でない先頭 N 件」を取得
 - フェーズ1 で `serial-only` 判定された Issue は **必ず単独反復で処理**（他の Issue と同じバッチに入れない）
 - N 件の Agent を **同一メッセージ内で並列起動**（`Agent` ツールを N 回呼ぶ）
-- 全 agent の返答を集めた後、各 PR を順にポーリング（2-4）→ Issue close（2-5）→ キューから該当行を削除（2-6）
+- 全 agent の返答を集めた後、**全 PR を 1 つのループで同時に監視**（2-4）し、緑になった PR から順に マージ → Issue close（2-5）→ キューから該当行を削除（2-6）
 - worktree は branch 名で分離されるので衝突しない前提
 - 上限は 5。それ以上は API rate limit と CI スロット競合のリスクが高い
 
@@ -297,61 +297,73 @@ agent の返答 JSON を parse して PR 番号を取得する。`failure` が�
 
 ### 2-4. CI 緑を待ってメインが直接マージ（メインスレッド）
 
-`statusCheckRollup` をポーリングし、全 check 完了 ∧ FAILURE なし ∧ OPEN のときに `gh pr merge <PR> --merge --delete-branch` を直接実行する:
+**この反復で作られた PR を全部まとめて 1 つのループで監視し、緑になったものから順にマージする。** PR ごとに順番待ちしない（`--parallel 5` で 5 本作ったなら CI 待ちも 5 本同時に進む。直列に待つと待ち時間が本数分積み上がる）。
 
 ```bash
-respawn_count=0
-while true; do
-  payload=$(gh pr view <PR> --json state,mergedAt,statusCheckRollup)
-  state=$(echo "$payload" | jq -r .state)
-  merged=$(echo "$payload" | jq -r '.mergedAt // "null"')
-  failed_checks=$(echo "$payload" | jq -r '[.statusCheckRollup[]? | select(.conclusion == "FAILURE") | .name] | join(",")')
-  pending=$(echo "$payload" | jq '[.statusCheckRollup[]? | select(.conclusion == null and .status != "COMPLETED")] | length')
+declare -A respawn        # PR番号 -> 再起動回数
+declare -A issues_of      # PR番号 -> その PR が閉じる Issue 群（空白区切り）
+pending_prs=( <この反復で作られた全 PR 番号> )
 
-  if [[ "$state" == "MERGED" ]]; then break; fi
+while (( ${#pending_prs[@]} > 0 )); do
+  still=()
+  for pr in "${pending_prs[@]}"; do
+    payload=$(gh pr view "$pr" --json state,mergedAt,statusCheckRollup)
+    state=$(jq -r .state <<<"$payload")
+    merged=$(jq -r '.mergedAt // "null"' <<<"$payload")
+    failed_checks=$(jq -r '[.statusCheckRollup[]? | select(.conclusion == "FAILURE") | .name] | join(",")' <<<"$payload")
+    waiting=$(jq '[.statusCheckRollup[]? | select(.conclusion == null and .status != "COMPLETED")] | length' <<<"$payload")
 
-  if [[ "$state" == "CLOSED" && "$merged" == "null" ]]; then
-    # 手動 close 検知 → 1回目は agent 再起動、2回目はユーザー判断
-    if (( respawn_count >= 1 )); then exit 1; fi
-    respawn_count=$((respawn_count+1))
-    # 2-3 の「初回起動プロンプト」で再 spawn → 2-2 冪等性チェックで既存 PR を処理
-    continue
-  fi
-
-  if [[ -n "$failed_checks" && "$pending" -eq 0 ]]; then
-    # CI 確定失敗 → CI fix 起動プロンプトで agent 再 spawn
-    if (( respawn_count >= 2 )); then
-      gh pr comment <PR> --body "sweep: CI が 3 回連続で失敗（checks: $failed_checks）。自動修正を諦めユーザー判断を仰ぎます。"
-      sweep_notify "Manual intervention needed" "Issue #${n} PR #${PR}: CI 3回連続失敗 ($failed_checks)" ":rotating_light:"
-      echo "CI が3回連続で失敗。ユーザー判断を仰ぐ。失敗 checks: $failed_checks" >&2
-      exit 1
+    # マージ確定 → この PR は監視対象から外し、2-5 / 2-6 をこの場で実行する
+    if [[ "$state" == "MERGED" ]]; then
+      continue
     fi
-    respawn_count=$((respawn_count+1))
-    gh pr comment <PR> --body "sweep: CI 失敗を検知（attempt ${respawn_count}/3、checks: $failed_checks）。修正 agent を再起動します。"
-    sweep_notify "CI failed" "PR #${PR} attempt ${respawn_count}/3: $failed_checks" ":warning:"
-    # 2-3 の「CI fix 起動プロンプト」を使って agent 起動。返答 fixed=true なら continue で次ループへ
-    continue
-  fi
 
-  # 全 check 完了 ∧ FAILURE なし ∧ 未マージ → メインが直接マージ
-  if [[ "$pending" -eq 0 && -z "$failed_checks" && "$state" == "OPEN" ]]; then
-    if gh pr merge <PR> --merge --delete-branch 2>/tmp/merge-err; then
-      sweep_notify "merged" "PR #${PR}" ":white_check_mark:"
-      continue  # 次ループで state==MERGED を検知して break
-    else
-      err=$(cat /tmp/merge-err)
-      sweep_notify "merge failed" "PR #${PR}: $err" ":x:"
-      echo "merge failed for PR #${PR}: $err" >&2
-      exit 1
+    if [[ "$state" == "CLOSED" && "$merged" == "null" ]]; then
+      # 手動 close 検知 → 1回目は agent 再起動、2回目は諦めて監視から外す
+      if (( ${respawn[$pr]:-0} >= 1 )); then
+        sweep_notify "Manual intervention needed" "PR #${pr}: 手動 close が続いたため諦め" ":rotating_light:"
+        continue
+      fi
+      respawn[$pr]=$(( ${respawn[$pr]:-0} + 1 ))
+      # 2-3 の起動プロンプトで再 spawn → 2-2 冪等性チェックで既存 PR を処理
+      still+=("$pr"); continue
     fi
-  fi
 
-  sleep 60
+    if [[ -n "$failed_checks" && "$waiting" -eq 0 ]]; then
+      # CI 確定失敗 → CI fix 起動プロンプトで agent 再 spawn
+      if (( ${respawn[$pr]:-0} >= 2 )); then
+        gh pr comment "$pr" --body "sweep: CI が 3 回連続で失敗（checks: $failed_checks）。自動修正を諦めユーザー判断を仰ぎます。"
+        sweep_notify "Manual intervention needed" "PR #${pr}: CI 3回連続失敗 ($failed_checks)" ":rotating_light:"
+        continue   # 諦めて監視から外す（他の PR の監視は続ける）
+      fi
+      respawn[$pr]=$(( ${respawn[$pr]:-0} + 1 ))
+      gh pr comment "$pr" --body "sweep: CI 失敗を検知（attempt ${respawn[$pr]}/3、checks: $failed_checks）。修正 agent を再起動します。"
+      sweep_notify "CI failed" "PR #${pr} attempt ${respawn[$pr]}/3: $failed_checks" ":warning:"
+      # 2-3 の「CI fix 起動プロンプト」で agent 起動
+      still+=("$pr"); continue
+    fi
+
+    # 全 check 完了 ∧ FAILURE なし ∧ 未マージ → その場でマージ
+    if [[ "$waiting" -eq 0 && -z "$failed_checks" && "$state" == "OPEN" ]]; then
+      if gh pr merge "$pr" --merge --delete-branch 2>/tmp/merge-err; then
+        sweep_notify "merged" "PR #${pr}" ":white_check_mark:"
+        # 次ループで MERGED を検知して外れる
+      else
+        sweep_notify "merge failed" "PR #${pr}: $(cat /tmp/merge-err)" ":x:"
+        continue   # 監視から外してユーザー報告に回す
+      fi
+    fi
+
+    still+=("$pr")   # まだ CI 実行中
+  done
+  pending_prs=("${still[@]}")
+  (( ${#pending_prs[@]} > 0 )) && sleep 60
 done
 ```
 
+- **PR がマージ成立した時点で、その PR の 2-5（Issue close）と 2-6（キュー削除）をその場で実行する。** 全 PR が揃うのを待たない
 - ポーリング中のメインは sleep + `gh`/`jq` のみで「思考」しないので context は増えず、Stop Hook がキューを見るので止まらない
-- respawn 上限（同一 PR で agent 再起動 2 回）に達したら `gh run view` のログを添えてユーザー判断を仰ぐ
+- respawn 上限（同一 PR で agent 再起動 2 回）に達した PR は**その PR だけ**監視から外し、`gh run view` のログを添えてユーザー判断に回す。**他の PR の監視は続行する**（1 本の失敗で反復全体を止めない）
 
 ### 2-5. Issue を close（sweep 限定の振る舞い）
 
@@ -370,10 +382,11 @@ sweep_notify "Merged" "#$(echo $batch_issues | tr ' ' ',') (PR #${PR}, $(( $(dat
 - `split-from:#<parent>` ラベルが付いた子 Issue の場合、すべての兄弟 Issue が close されたかチェックし、全 close なら親 Issue も `gh issue close <parent> --comment "All split children merged"` で閉じる
 - close に失敗（権限・既に closed 等）してもキュー処理は続行する
 
-### 2-6. キューから先頭行を削除 + state.json 更新
-**Issue close 完了後に実行**:
+### 2-6. キューから該当バッチの行を削除 + state.json 更新
+**Issue close 完了後、その PR の分だけ実行する**（並列監視では PR ごとに完了時刻が違うので、先頭行決め打ちで消さない）:
 ```bash
-sed -i '1d' .sweep/queue.txt
+# 該当バッチの行（例: "12,13,14"）を消す。先頭行とは限らない
+grep -vxF "$batch_line" .sweep/queue.txt > .sweep/queue.tmp && mv .sweep/queue.tmp .sweep/queue.txt
 
 # state.json を更新（処理済み 1 件分カウント・evidence append）
 metrics_line=$(wc -l < .sweep/metrics.jsonl | tr -d ' ')
@@ -430,6 +443,8 @@ agent が `failure` を返した場合は同じ Issue で次回再起動時に w
 - **「spinoff も追跡しますか？」「次の round に進みますか？」のような確認をユーザーに取る**（`max_rounds` の範囲内で自動継続し、超えたら黙って列挙に落とす。ユーザーに二択を投げない）
 - **メインが CI 緑後にマージするのを忘れる / マージ完了を確認せず次の Issue に進む**（agent は PR 作成までで返るため、メインがポーリングして直接マージしないと sweep が永久に止まり、PR が closed/CI fail のまま埋もれる）
 - **agent 内で `gh pr merge` を叩く**（マージはメインの責務。agent は PR 作成までで返す）
+- **複数 PR がある反復で、PR を 1 本ずつ順番に CI 待ちする**（待ち時間が本数分積み上がる。2-4 の 1 ループで全 PR を同時監視し、緑になったものから順にマージする）
+- **1 本の PR の CI 失敗で反復全体の監視を止める**（諦めるのはその PR だけ。他は監視を続ける）
 - **CI 失敗を検知せずポーリングを継続する**（無限待機の原因）
 - **失敗 check 名を agent に伝えず「とりあえず再実行」を頼む**（agent が原因不明のまま盲目的に手を入れる事故を防ぐ）
 - agent の返答 JSON 以外をメイン context に取り込もうとする（agent 内部の Plan/Develop/Review ログをメインに残すのは禁止）

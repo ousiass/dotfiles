@@ -159,11 +159,19 @@ if critical == 0 && major == 0 && minor <= max_minor:
   → success, フェーズ3 へ
 if iter >= max_iter:
   → stuck, フェーズ3 へ（残指摘ありで終了）
+if 2 反復連続で (critical + major) が前回以下に減っていない:
+  → stuck(no_progress), フェーズ3 へ
 otherwise:
   → 2-4 へ
 ```
 
+**no_progress の判定**: state.json の `last_counts` に前回の値が入っている。今回の `critical + major` が前回と同じかそれ以上なら「停滞」を 1 つ数え、**2 回連続で停滞したら打ち切る**（1 回で切らないのは、修正の副作用で一時的に増えることがあるため）。減っていれば停滞カウントを 0 に戻す。
+
+同じ指摘を何周も回し続けるのが `max_iter` までの時間の大半を占めるので、直せない指摘は早めに人に返す。フェーズ3 のレポートには `status: stuck(no_progress)` と、停滞した時点の残指摘を必ず載せる。
+
 ### 2-4. 修正 agent
+
+agent を起動する**前に**メインスレッドで `prev_head=$(git rev-parse HEAD)` を控える（2-5 で「今回の修正で触ったファイル」を出すのに使う）。
 
 ```
 Agent({
@@ -206,12 +214,24 @@ MINOR (excess minor が <minor - max_minor> 件あるので優先度高いもの
 
 ### 2-5. 次の反復
 
-修正 push により差分が広がっているため、`changed_files` を再取得してからフェーズ2-1 に戻る:
+修正 push により差分が広がっているため、`changed_files` を再取得する:
 
 ```bash
+prev_head=$(git rev-parse HEAD)   # ← 2-4 の修正 push の *前* に控えておいた値
 merge_base=$(git merge-base "$base_ref" HEAD)
 changed_files=$(git diff --name-only "$merge_base"...HEAD)
 ```
+
+**2 周目以降はレビュー範囲を絞る。** 1 周目で見た差分の大半は修正で変わっていないので、全差分を毎回スキャンし直すのは無駄:
+
+```bash
+# レビュー範囲 = 前回の修正で触ったファイル ∪ 未解決指摘があるファイル
+touched=$(git diff --name-only "$prev_head"...HEAD)
+unresolved=$(echo "$findings" | jq -r '(.critical + .major + .minor)[].file // empty')
+review_scope=$(printf '%s\n%s\n' "$touched" "$unresolved" | sort -u | grep -v '^$')
+```
+
+次の反復では `changed_files` ではなく `review_scope` を各レビュー agent に渡す（差分外アンカーの除外 2-1 は `changed_files` のままでよい。スコープ判定と閲覧範囲は別）。`review_scope` が空になることはない（空なら閾値を満たしているはずなので 2-3 で success になっている）。
 
 `iter+=1` してフェーズ2-1 に戻る。
 
@@ -238,8 +258,10 @@ EOF
 
 - **メインスレッド自身がコードを修正する**（CTO は実装に触らない、impl-wt や issue-sweep と同じ原則）
 - review agent と fix agent を同じ呼び出しで混ぜる（独立性を保つ）
-- 閾値到達してないのに「もういいでしょう」とループを打ち切る
+- 閾値到達してないのに「もういいでしょう」とループを打ち切る（打ち切ってよいのは `max_iter` 到達と 2-3 の no_progress 判定のときだけ）
 - `max_iter` を超えても無限ループする
+- **停滞（2 反復連続で critical+major が減らない）を無視して `max_iter` まで回し続ける**（直せない指摘を何周も回すのが所要時間の大半を占める。早めに人に返す）
+- **2 周目以降も全差分をスキャンし直す**（2-5 の `review_scope` に絞る。変わっていないファイルを毎回読み直さない）
 - minor の修正で副作用バグを入れない（修正後の review で critical が出たら反復継続）
 - **全体スキャン版のレビュースキル（`code-review` / `doc-drift` / `spec-audit`）を起動する**（必ず `-git` 版を使う。全体版が要るなら `/refine` か `/refine-sweep`）
 - **`halt-review` / `atomic-review` を引数なしで起動する**（プロジェクト全体走査になる。必ず差分内の対象パスを引数で渡す）
