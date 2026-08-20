@@ -34,7 +34,7 @@ sync_codex_mcp() {
     names=$(jq -r '.mcpServers // {} | keys[]' "$src")
     [[ -z "$names" ]] && { log "mcpServers が空のためスキップ"; return; }
 
-    local name type
+    local name type err
     while IFS= read -r name; do
         type=$(jq -r ".mcpServers[\"$name\"].type // \"stdio\"" "$src")
         codex mcp remove "$name" >/dev/null 2>&1 || true
@@ -42,10 +42,10 @@ sync_codex_mcp() {
         if [[ "$type" == "http" ]]; then
             local url
             url=$(jq -r ".mcpServers[\"$name\"].url" "$src")
-            if codex mcp add "$name" --url "$url" >/dev/null 2>&1; then
+            if err=$(codex mcp add "$name" --url "$url" 2>&1); then
                 log "  + $name (http: $url)"
             else
-                warn "  ! $name の登録に失敗"
+                warn "  ! $name の登録に失敗: ${err//$'\n'/ }"
             fi
         else
             local cmd_bin
@@ -62,10 +62,10 @@ sync_codex_mcp() {
                 env_args+=(--env "$k=$v")
             done < <(jq -r ".mcpServers[\"$name\"].env // {} | to_entries[] | \"\(.key)\t\(.value)\"" "$src")
 
-            if codex mcp add "$name" "${env_args[@]+"${env_args[@]}"}" -- "$cmd_bin" "${args[@]+"${args[@]}"}" >/dev/null 2>&1; then
+            if err=$(codex mcp add "$name" "${env_args[@]+"${env_args[@]}"}" -- "$cmd_bin" "${args[@]+"${args[@]}"}" 2>&1); then
                 log "  + $name (stdio: $cmd_bin ${args[*]+${args[*]}})"
             else
-                warn "  ! $name の登録に失敗"
+                warn "  ! $name の登録に失敗: ${err//$'\n'/ }"
             fi
         fi
     done <<< "$names"

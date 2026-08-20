@@ -40,7 +40,7 @@ install_agent_skills() {
 # 既存の実体ディレクトリ（ユーザー自作 skill）は保護する。
 link_agent_skills() {
     local src_root="$HOME/.agents/skills"
-    [[ -d "$src_root" ]] || return
+    [[ -d "$src_root" ]] || return 0
 
     local claude_dst="$HOME/.claude/skills"
     local codex_dst="$HOME/.codex/skills"
@@ -77,7 +77,7 @@ link_agent_skills() {
 sync_agent_skills_gitignore() {
     local src_root="$HOME/.agents/skills"
     local gitignore="$DOTFILES_DIR/.claude/skills/.gitignore"
-    [[ -d "$src_root" ]] || return
+    [[ -d "$src_root" ]] || return 0
     mkdir -p "$(dirname "$gitignore")"
 
     local tmp
