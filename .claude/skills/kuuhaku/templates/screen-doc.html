@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{画面ID}} {{画面名}} — 理解</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&display=swap">
+<style>
+/* ===== デザイントークン ===== */
+:root {
+  --kh-accent:       #2563EB;
+  --kh-accent-dark:  #1D4ED8;
+  --kh-accent-light: #EFF6FF;
+  --kh-text:       #1A1A1A;
+  --kh-text-light: #666666;
+  --kh-text-muted: #999999;
+  --kh-border:  #E5E7EB;
+  --kh-bg:      #FFFFFF;
+  --kh-bg-gray: #F7F8FA;
+  --kh-bg-dark: #0D1117;
+  --kh-error:   #E53E3E;
+  --kh-radius:      12px;
+  --kh-radius-lg:   20px;
+  --kh-radius-pill: 100px;
+  --kh-shadow-card:   0 16px 48px rgba(0,0,0,.06);
+  --kh-focus-ring:    0 0 0 3px rgba(37,99,235,.10);
+  --kh-transition: .3s cubic-bezier(.4,0,.2,1);
+  --kh-font: "Noto Sans JP", -apple-system, BlinkMacSystemFont, sans-serif;
+  --kh-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --kh-container: 1120px;
+  --kh-gutter: 24px;
+  --kh-section-y: 96px;   /* 空間で章を区切る */
+  /* --- 幅: セクションの主役で決める（記載ルール.md「幅の決め方」） --- */
+  /* コンテナ幅は1本だけ（左端を揃える）。行長はブロックの内側余白で作る */
+  --kh-measure: 50em;     /* 本文の行長。0.9rem基準で全角50文字ぶん */
+  /* ---- kuuhaku 追加トークン（記載ルール.md で定義予定の確度表現） ---- */
+  --kh-warn:      #B45309; /* 穴候補・警告 */
+  --kh-warn-bg:   #FEF6EC;
+}
+body { font-family: var(--kh-font); color: var(--kh-text); background: var(--kh-bg); line-height: 1.8; -webkit-font-smoothing: antialiased; margin: 0; }
+h1, h2, h3, h4 { letter-spacing: -.01em; font-weight: 700; }
+a { color: var(--kh-accent); text-decoration: none; transition: var(--kh-transition); }
+a:hover { color: var(--kh-accent-dark); }
+.kh-container { max-width: var(--kh-container); margin: 0 auto; padding: 0 var(--kh-gutter); }
+.kh-label { display: inline-block; font-size: .8rem; font-weight: 500; color: var(--kh-accent); letter-spacing: .15em; text-transform: uppercase; margin-bottom: 8px; }
+.kh-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; background: var(--kh-accent-light); border-radius: var(--kh-radius); font-size: .82rem; font-weight: 500; color: var(--kh-accent-dark); }
+.kh-deflist { display: flex; flex-direction: column; margin: 0; }
+.kh-deflist > div { display: flex; padding: 12px 0; border-bottom: 1px solid var(--kh-border); }
+.kh-deflist > div:last-child { border-bottom: none; }
+.kh-deflist dt { width: 200px; flex-shrink: 0; font-size: .8rem; font-weight: 500; color: var(--kh-text-light); }
+.kh-deflist dd { margin: 0; font-size: .88rem; }
+.kh-textarea { width: 100%; box-sizing: border-box; padding: 12px 16px; font-family: var(--kh-font); font-size: .9rem; color: var(--kh-text); background: var(--kh-bg); border: 1.5px solid var(--kh-border); border-radius: var(--kh-radius); outline: none; transition: var(--kh-transition); min-height: 80px; resize: vertical; }
+.kh-textarea:focus { border-color: var(--kh-accent); box-shadow: var(--kh-focus-ring); }
+.kh-btn { display: inline-flex; align-items: center; justify-content: center; padding: 12px 32px; font-family: var(--kh-font); font-size: .9rem; font-weight: 500; border: none; border-radius: var(--kh-radius-pill); cursor: pointer; transition: var(--kh-transition); background: var(--kh-accent); color: #fff; }
+.kh-btn:hover { background: var(--kh-accent-dark); }
+
+/* ===== kuuhaku レイアウト ===== */
+.kh-header { background: var(--kh-bg-dark); color: #fff; padding: 72px 0 64px; }
+.kh-header h1 { margin: 0 0 16px; font-size: 1.9rem; }
+.kh-header .meta { font-size: .8rem; color: rgba(255,255,255,.6); font-family: var(--kh-font-mono); }
+.kh-toc { padding: 28px 0; border-bottom: 1px solid var(--kh-border); font-size: .82rem; }
+.kh-toc a { margin-right: 24px; line-height: 2.2; white-space: nowrap; color: var(--kh-text-light); }
+.kh-toc a:hover { color: var(--kh-accent); }
+/* 区切りは罫線ではなく余白と地色で作る（白 → グレー → 白） */
+section.kh { padding: var(--kh-section-y) 0; }
+section.kh--gray { background: var(--kh-bg-gray); }
+section.kh h2 { font-size: 1.3rem; margin: 0 0 40px; }
+section.kh h2 .num { color: var(--kh-accent); font-family: var(--kh-font-mono); margin-right: 12px; font-weight: 400; }
+section.kh h3 { font-size: 1rem; margin: 48px 0 16px; }
+section.kh h3:first-of-type { margin-top: 0; }
+section.kh > .kh-container > p { max-width: var(--kh-measure); }
+/* 全セクションで幅を揃える。左端が動かないので視線の基準線が1本になる */
+
+/* ===== 確度表現（ジャンル×確度の2軸 — 記載ルール.md 正本の試作） ===== */
+.src { font-size: .72rem; color: var(--kh-text-muted); font-family: var(--kh-font-mono); display: block; margin-top: 14px; line-height: 1.6; }
+/* タグが確度を言うので、枠で囲わない。左罫と地色だけで区別する */
+.kh-meiki, .kh-jisso, .kh-suisoku, .kh-ana {
+  padding: 24px 32px; margin: 24px 0; font-size: .9rem;
+  border-left: 3px solid transparent; border-radius: 0 var(--kh-radius) var(--kh-radius) 0;
+  /* 背景は全幅で切らず、右の内側余白を伸ばして行長だけ制限する。
+     広い画面 → 余白が伸びる／狭い画面 → 32pxで下げ止まり自然に縮む */
+  padding-right: max(32px, calc(100% - var(--kh-measure) - 32px));
+}
+.kh-meiki   { border-left-color: var(--kh-accent);     background: var(--kh-accent-light); }
+.kh-jisso   { border-left-color: var(--kh-border);     background: var(--kh-bg-gray); }
+.kh-suisoku { border-left-style: dashed; border-left-color: var(--kh-text-muted); background: transparent; color: var(--kh-text-light); padding-left: 33px; }
+.kh-ana     { border-left-color: var(--kh-warn);       background: var(--kh-warn-bg); }
+section.kh--gray .kh-jisso { background: #fff; }  /* グレー地の上では白に反転 */
+.kh-tag { display: inline-block; font-size: .68rem; font-weight: 700; letter-spacing: .08em; padding: 3px 12px; border-radius: var(--kh-radius-pill); margin-bottom: 12px; }
+.kh-tag--meiki   { background: var(--kh-accent); color: #fff; }
+.kh-tag--jisso   { background: var(--kh-text); color: #fff; }
+.kh-tag--suisoku { background: var(--kh-text-muted); color: #fff; }
+.kh-tag--trade   { background: #fff; color: var(--kh-accent-dark); border: 1px solid var(--kh-accent); }
+.kh-tag--ana     { background: var(--kh-warn); color: #fff; }
+.kh-tag--kakudo  { background: var(--kh-warn-bg); color: var(--kh-warn); border: 1px solid var(--kh-warn); }
+/* 確度は3段階で色を変える（同色だと差が読めない） */
+.kh-tag--k-high { background: var(--kh-warn);    color: #fff; }                                    /* 確度高: 塗り */
+.kh-tag--k-mid  { background: var(--kh-warn-bg); color: var(--kh-warn); border: 1px solid var(--kh-warn); } /* 要確認: 枠 */
+.kh-tag--k-low  { background: var(--kh-bg);      color: var(--kh-text-light); border: 1px dashed var(--kh-text-muted); } /* 意図の可能性: 破線・無彩色 */
+table.kh-table { width: 100%; border-collapse: collapse; font-size: .85rem; margin: 24px 0; }
+table.kh-table th { text-align: left; padding: 14px 16px 12px 0; background: transparent; border-bottom: 1.5px solid var(--kh-text); font-size: .75rem; font-weight: 500; color: var(--kh-text-light); letter-spacing: .04em; }
+table.kh-table td { padding: 16px 16px 16px 0; border-bottom: 1px solid var(--kh-border); vertical-align: top; line-height: 1.7; }
+table.kh-table th:last-child, table.kh-table td:last-child { padding-right: 0; }
+section.kh--gray table.kh-table th { background: transparent; }
+.kh-q { background: var(--kh-bg-gray); border-radius: var(--kh-radius-lg); padding: 28px 32px; margin: 32px 0 0; }
+.kh-q h4 { margin: 0 0 14px; font-size: .85rem; color: var(--kh-text-light); font-weight: 500; }
+code { font-family: var(--kh-font-mono); font-size: .82em; background: var(--kh-bg-gray); padding: 2px 6px; border-radius: 4px; }
+pre { font-family: var(--kh-font-mono); font-size: .8rem; background: var(--kh-bg-dark); color: #E6EDF3; padding: 24px 28px; border-radius: var(--kh-radius); overflow-x: auto; line-height: 1.8; margin: 24px 0; }
+img.kh-shot { max-width: 100%; border-radius: var(--kh-radius-lg); box-shadow: var(--kh-shadow-card); display: block; }
+.kh-note { font-size: .78rem; color: var(--kh-text-muted); line-height: 1.7; }
+/* セクション冒頭の「何を見るか・なぜ見るか」。解説の前に前提を渡す */
+.kh-lead { font-size: .88rem; color: var(--kh-text-light); margin: -20px 0 28px; padding-left: 16px; border-left: 2px solid var(--kh-border); max-width: var(--kh-measure); }
+.kh-lead strong { color: var(--kh-text); }
+.kh-lead .why { display: block; margin-top: 6px; font-size: .82rem; }
+.kh-lead .why::before { content: "→ 穴の見つけ方: "; color: var(--kh-accent); font-weight: 500; }
+.kh-def { display: inline-block; font-size: .78rem; background: var(--kh-bg-gray); border-radius: var(--kh-radius); padding: 2px 10px; margin-top: 6px; color: var(--kh-text-light); }
+
+/* ===== フローティング疑問UI（キャラ） ===== */
+#kh-buddy {
+  position: fixed; right: 28px; bottom: 28px; z-index: 100;
+  width: 76px; height: 76px; border-radius: 50%; cursor: grab;
+  border: 3px solid #fff; box-shadow: 0 8px 28px rgba(0,0,0,.18);
+  overflow: hidden; background: var(--kh-accent-light);
+  transition: box-shadow .2s, border-color .2s;
+  padding: 0; touch-action: none; user-select: none; -webkit-user-select: none;
+}
+/* transform は使わない（矩形計算がズレてドラッグが壊れるため） */
+#kh-buddy:hover { box-shadow: 0 14px 36px rgba(37,99,235,.4); border-color: var(--kh-accent-light); }
+#kh-buddy.dragging { cursor: grabbing; box-shadow: 0 22px 52px rgba(37,99,235,.55); border-color: var(--kh-accent); transition: none; }
+#kh-buddy img {
+  width: 132%; height: 132%; object-fit: cover;
+  margin: -16% 0 0 -16%; display: block; /* 元画像の暗い縁を外に逃がす */
+}
+#kh-buddy .kh-badge-count {
+  position: absolute; top: -4px; right: -4px; min-width: 22px; height: 22px;
+  border-radius: 11px; background: var(--kh-warn); color: #fff;
+  font-size: .7rem; font-weight: 700; line-height: 22px; text-align: center;
+  border: 2px solid #fff; display: none;
+}
+#kh-tip {
+  position: fixed; right: 112px; bottom: 46px; z-index: 99;
+  background: var(--kh-text); color: #fff; font-size: .78rem;
+  padding: 8px 14px; border-radius: var(--kh-radius-pill);
+  white-space: nowrap; opacity: 0; pointer-events: none;
+  transition: opacity var(--kh-transition);
+}
+#kh-buddy:hover + #kh-tip { opacity: 1; }
+
+#kh-panel {
+  position: fixed; z-index: 101;
+  width: 440px; max-width: calc(100vw - 32px);
+  background: #fff; border: 1px solid var(--kh-border);
+  border-radius: var(--kh-radius-lg); box-shadow: 0 20px 60px rgba(0,0,0,.22);
+  padding: 20px; display: none;
+}
+#kh-panel.open { display: block; }
+#kh-panel h4 { margin: 0 0 10px; font-size: .95rem; }
+#kh-panel textarea { min-height: 110px; font-size: .88rem; }
+#kh-panel .kh-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+#kh-panel .kh-actions button { flex: none; padding: 10px 18px; font-size: .82rem; }
+.kh-btn-ghost { background: transparent !important; color: var(--kh-text-light) !important; border: 1px solid var(--kh-border) !important; }
+/* セクション指定（自動検出＋手動上書き） */
+.kh-secrow { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.kh-secrow select {
+  flex: 1; min-width: 0; padding: 8px 12px; font-family: var(--kh-font); font-size: .82rem;
+  color: var(--kh-text); background: var(--kh-bg); border: 1.5px solid var(--kh-border);
+  border-radius: var(--kh-radius); outline: none;
+}
+.kh-secrow select:focus { border-color: var(--kh-accent); box-shadow: var(--kh-focus-ring); }
+.kh-secrow select.manual { border-color: var(--kh-warn); background: var(--kh-warn-bg); }
+.kh-auto-pill { font-size: .66rem; font-weight: 700; letter-spacing: .06em; padding: 3px 9px; border-radius: var(--kh-radius-pill); white-space: nowrap; }
+.kh-auto-pill.is-auto   { background: var(--kh-accent-light); color: var(--kh-accent-dark); }
+.kh-auto-pill.is-manual { background: var(--kh-warn); color: #fff; cursor: pointer; }
+.kh-saved-list { margin-top: 14px; border-top: 1px solid var(--kh-border); padding-top: 12px; max-height: 200px; overflow-y: auto; }
+.kh-saved-item { font-size: .8rem; color: var(--kh-text-light); padding: 7px 0; border-bottom: 1px dashed var(--kh-border); line-height: 1.6; }
+.kh-saved-item .sec { color: var(--kh-accent); font-weight: 500; }
+.kh-saved-item .del { float: right; color: var(--kh-text-muted); cursor: pointer; padding-left: 8px; }
+.kh-saved-item .del:hover { color: var(--kh-error); }
+#kh-mini-export { display: none; width: 100%; box-sizing: border-box; margin-top: 10px; font-size: .72rem; max-height: 160px; }
+@media (max-width: 560px) {
+  #kh-panel { width: calc(100vw - 24px); left: 12px !important; right: 12px !important; }
+}
+@media print { #kh-buddy, #kh-tip, #kh-panel { display: none !important; } }
+
+/* ===== レスポンシブ ===== */
+@media (max-width: 900px) {
+  :root { --kh-section-y: 72px; }
+  .kh-meiki, .kh-jisso, .kh-suisoku, .kh-ana { padding: 20px 24px; padding-right: max(24px, calc(100% - var(--kh-measure) - 24px)); }
+  .kh-q { padding: 24px 24px; }
+  section.kh h2 { margin-bottom: 32px; }
+  section.kh h3 { margin-top: 40px; }
+}
+@media (max-width: 768px) {
+  :root { --kh-section-y: 64px; }
+  .kh-header { padding: 48px 0 40px; }
+  .kh-header h1 { font-size: 1.5rem; }
+  .kh-header .meta { font-size: .72rem; line-height: 2; }
+  section.kh h2 { font-size: 1.15rem; margin-bottom: 24px; }
+  .kh-meiki, .kh-jisso, .kh-suisoku, .kh-ana { padding: 18px 20px; margin: 20px 0; padding-right: 20px; }
+  .kh-q { padding: 20px; }
+  pre { padding: 18px 20px; font-size: .74rem; }
+  /* 表は横スクロールで守る（縦積みにすると対応関係が読めなくなる） */
+  table.kh-table { display: block; overflow-x: auto; white-space: nowrap; }
+  table.kh-table td, table.kh-table th { white-space: normal; min-width: 8em; }
+  .kh-deflist > div { flex-direction: column; gap: 4px; }
+  .kh-deflist dt { width: auto; }
+  #kh-buddy { width: 62px; height: 62px; right: 16px; bottom: 16px; }
+  #kh-tip { display: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="kh-header">
+  <div class="kh-container">
+    <span class="kh-label">kuuhaku — 画面理解（試作）</span>
+    <h1>{{画面ID}} {{画面名}}</h1>
+    <div class="meta">
+      生成: {{YYYY-MM-DD}} ／ HEAD: {{hash}} ({{commit日時}}・{{鮮度}}) ／ 足場レベル: {{L1〜L3}} ／ PJ: {{project}}
+    </div>
+  </div>
+</header>
+
+<nav class="kh-toc">
+  <div class="kh-container">
+    <a href="#s1">1 この画面は何か</a>
+    <a href="#s3">3 地図</a>
+    <a href="#s4">4 表示される情報</a>
+    <a href="#s5">5 操作</a>
+    <a href="#s6">6 前後の画面</a>
+    <a href="#s7">7 この画面の外にあるもの</a>
+    <a href="#s8">8 ロール差</a>
+    <a href="#s9">9 なぜこの設計か</a>
+    <a href="#s10">10 穴候補</a>
+    <a href="#s11">11 実物確認</a>
+    <a href="#s12">12 疑問の書き出し</a>
+  </div>
+</nav>
+
+<!-- ================================================================
+     ここから本文。§1〜§12 は FR-3 の必須セクション。
+     不要な §2 は初回生成では出さない（再訪時のみ）。
+     ■ 文章スタイル（品詞の数量を最小化する）
+       削る: 前置き / 修飾語 / 抽象語 / 接続語 / 言い換えの重複
+       結論・理由・必要な例だけを書く。意味がすぐ届く文を優先する。
+       強度は「かなり」「おそらく」などの副詞で足さず、内容で出す。
+       → 確度はタグと枠線が示すので、文中にヘッジ副詞を書かない（二重表現）。
+         ✕「使われ方はおそらく〜画面」 ○「出社した管理者が朝一番に開く画面」
+         ✕「〜の可能性が常にある」     ○「〜する」
+         ✕「〜になっている」           ○「〜」
+       一文一義。読点4つ／3行を超えたら分割。用語は1概念=1語。
+
+     ■ 幅（コンテナは1本。行長は内側の余白で作る）
+       セクションごとに幅を切り替えない。左端が動くと視線の基準線が崩れる。
+       行長の制限は max-width ではなく、背景ブロックの右内側余白で作る:
+         padding-right: max(32px, calc(100% - var(--kh-measure) - 32px));
+         → 広い画面は余白が伸びて50文字で頭打ち／狭い画面は32pxで下げ止まり自然に縮む
+         → 背景が途中で切れないので、右側は「死んだ空白」でなく内側余白になる
+       表・画像・コードは幅の制限なし。中身が画面に応じて伸縮する。
+       強調したいセクションだけ class="kh kh--gray"（1ページに1〜2箇所まで）。
+
+     ■ 確度タグの使い分け（templates/writing-rules.md が正本）:
+       kh-meiki   … 仕様書に明記      （引用＋出典。断定可）
+       kh-jisso   … 実装のみ          （実線枠。「実装ではこうなっている」）
+       kh-suisoku … 推測              （点線枠。「〜と読める」）
+       kh-ana     … 穴候補            （警告色。確度3段階を併記）
+       トレードオフ … 設計判断は必ず対比表で。断定文を使わない
+     全セクションに <span class="src">出典: ファイル:行</span> を付ける。
+     ================================================================ -->
+
+<!-- ================================================================
+     ■ kh-lead は全セクションに必須（記載ルール.md「前提を先に渡す」）
+       過去に発覚した最大の欠陥への対策。何の話かを言う前に中身を始めない。
+       構造（1〜2行でよい。前置きを足すのではなく、読む目的を先に渡す）:
+         <strong>見るもの</strong>: 何を見るか
+         <span class="why">…</span>       → 自動で「→ 穴の見つけ方: 」が前に付く
+         <span class="kh-def">…</span>    → 初出の独自語だけ。無ければ削除する
+       型番号は単独で使わない。「型5（数字の定義欠落）」のように必ず名前を添える。
+     ================================================================ -->
+
+<section class="kh" id="s1">
+  <div class="kh-container">
+    <h2><span class="num">§1</span>この画面は何か</h2>
+    <p class="kh-lead"><strong>見るもの</strong>: {{誰が使い、何をする画面か}}
+      <span class="why">{{役割を取り違えると以降の判定を全部間違える。何が主役の画面かを先に決める}}</span>
+    </p>
+    <div class="kh-meiki">
+      <span class="kh-tag kh-tag--meiki">明記</span><br>
+      {{誰が・いつ・何のために使うか}}
+      <span class="src">出典: {{s1_出典}}</span>
+    </div>
+    <dl class="kh-deflist" style="margin-top:16px">
+      <div><dt>使う人</dt><dd>{{ロール}}</dd></div>
+      <div><dt>URL系統</dt><dd><code>{{url}}</code></dd></div>
+      <div><dt>利用者層でいうと</dt><dd>{{作業者 / 管理者 / 発注元}}</dd></div>
+      <div><dt>着手順序での位置</dt><dd>{{フェーズと、この画面が何の定義元になるか}}</dd></div>
+    </dl>
+  </div>
+</section>
+
+<!-- ================================================================
+     §2 前回からの変化 … **再訪時のみ**出力（FR-11）。初回生成では section ごと削除する。
+     nav にも <a href="#s2">2 前回からの変化</a> を足す。
+
+     ■ 何を書くか（再生成で構造を確定）
+       1. 差分の規模を1行で（コミット数・追加削除行数・該当セクションの行数変化）
+       2. 変化ごとに h3 → 確度タグ付きブロック → 出典
+       3. 前回の穴候補がどうなったかを必ず書く（埋まった / 残っている / 誤検出だった）
+       4. 「前回 vs 現在」の対比は表にする（文章で書くと差が読めない）
+
+     ■ 埋まった穴の書き方
+       git で当時の状態を確認してから書く: git show <前回hash>:<path> | awk '/^## P-0XX/,/^## P-0YY/'
+       「今どこかに定義がある」だけでは判定できない。**前回時点で無かったか**を確認する。
+       別issueの副産物で埋まることがある（検出した穴が別issueの作業で1日後に埋まった事例がある）。
+
+     ↓ 再訪時はこのコメントを外して使う
+<section class="kh kh--gray" id="s2">
+  <div class="kh-container">
+    <h2><span class="num">§2</span>前回からの変化</h2>
+    <p class="kh-lead"><strong>見るもの</strong>: 前回生成（{{前回日付}}・<code>{{前回hash}}</code>）から今日までに、この画面の仕様と実装がどう変わったか。
+      <span class="why">前に検出した穴が、別issueの作業で埋まっていることがある。<strong>古い検出結果のまま起票すると事実誤認になる</strong>（意図的な変更を見落とした事実誤認と同型の事故）。</span>
+    </p>
+    <p style="font-size:.9rem">{{差分の規模。コミット数・追加削除行数・該当セクションの行数変化}}</p>
+
+    <h3 style="font-size:1rem">変化1: {{見出し}}</h3>
+    <div class="kh-meiki">
+      <span class="kh-tag kh-tag--meiki">明記</span><br>
+      {{何がどう変わったか}}
+      <table class="kh-table" style="margin-top:12px">
+        <tr><th></th><th>前回 <code>{{前回hash}}</code></th><th>現在 <code>{{現在hash}}</code></th></tr>
+        <tr><td>{{項目}}</td><td>{{当時}}</td><td>{{現在}}</td></tr>
+      </table>
+      <span class="src">出典: {{s2_出典}} / 当時の状態は <code>git show {{前回hash}}:{{path}}</code> で確認</span>
+    </div>
+  </div>
+</section>
+     ================================================================ -->
+
+<section class="kh" id="s3">
+  <div class="kh-container">
+    <h2><span class="num">§3</span>地図 — mockスクリーンショット</h2>
+    <p class="kh-lead"><strong>見るもの</strong>: 画面の実際の姿と、mockが仕様とズレている箇所。
+      <span class="why">mockと仕様の食い違いは、それ自体が<strong>型4（mock乖離）</strong>の穴候補。ここで先に拾う。</span>
+    </p>
+    <img class="kh-shot" src="_assets/mock_screen.png" alt="{{画面名}} mock">
+    <p class="kh-note">出典: {{mockパス}}。{{上から何がどう並ぶか}}</p>
+    <!-- mock乖離があれば kh-ana ブロックを足す。列の欠落・名称不一致は表で対比させる -->
+  </div>
+</section>
+
+<section class="kh kh--gray" id="s4">
+  <div class="kh-container">
+    <!-- 見出しは画面の性質で選ぶ:
+         集計がある画面 → 「表示される情報 — 数字はどう計算されるか」
+         集計がない画面（マスタ等） → 「表示される情報 — テーブルの列と、警告が出る条件」 -->
+    <h2><span class="num">§4</span>表示される情報 — {{数字はどう計算されるか / テーブルの列と、警告が出る条件}}</h2>
+    <p class="kh-lead"><strong>見るもの</strong>: {{何の値が出るか。集計なら計算条件、マスタなら列と表示規則}}
+      <span class="why">{{条件が仕様に書かれていなければ、そこが穴}}</span>
+      <span class="kh-def">{{初出の独自語の定義。無ければこの行を削る}}</span>
+    </p>
+    <!-- 型5「数字の定義欠落」を最も丁寧に扱う。定義が無ければ kh-ana に落とす。
+         ■ データ構造が絡む画面では、抽象的な説明より先に実テーブルの列と行の具体例を出す
+           （利用者プロファイルの教訓。列名だけでなく実データの値を入れる）
+         ■ 条件分岐は文章で書かず、状態ごとの比較表を3行以上で出す（同 2026-07-17 の教訓） -->
+    {{各要素の意味と集計述語}}
+  </div>
+</section>
+
+<section class="kh" id="s5">
+  <div class="kh-container">
+    <h2><span class="num">§5</span>操作できること</h2>
+    <p class="kh-lead"><strong>見るもの</strong>: 押せるもの・絞り込めるものと、その結果。
+      <span class="why">実装にあって仕様に無い操作は<strong>型1（規定なし）</strong>の穴。逆に仕様にあって実装に無いものは実装バグ。<strong>両方向</strong>を突き合わせる。</span>
+    </p>
+    <table class="kh-table">
+      <tr><th>操作</th><th>結果</th><th>確度</th></tr>
+      {{rows_s5_操作}}
+    </table>
+    <!-- 「無い操作」を表の行にしない（2026-08-14）。左端に操作名が並ぶと実装済みに見える。
+         探して無かったものは、この文でまとめて書く。 -->
+    <p class="kh-note">{{探したが無かった操作を1文で。例: スキップも、ログイン画面へ戻るリンクも無い。この画面に来たら送信以外の出口が無い}}</p>
+  </div>
+</section>
+
+<section class="kh" id="s6">
+  <div class="kh-container">
+    <h2><span class="num">§6</span>前後の画面</h2>
+    <p class="kh-lead"><strong>見るもの</strong>: どこから来て、どこへ行くか。
+      <span class="why">リンク先が実態と合わないのは<strong>型6（導線の欠落・誤り）</strong>。リンク先の変更が仕様書に反映されない形。</span>
+    </p>
+    <dl class="kh-deflist">
+      <div><dt>来る</dt><dd>{{遷移元}}</dd></div>
+      <div><dt>行く</dt><dd>{{遷移先}}</dd></div>
+    </dl>
+  </div>
+</section>
+
+<section class="kh" id="s7">
+  <div class="kh-container">
+    <h2><span class="num">§7</span>この画面の外にあるもの</h2>
+    <p class="kh-lead"><strong>見るもの</strong>: この画面に出てくる概念のうち、定義が別ファイルにあるもの。
+      <span class="why">これを書かないと「この画面に書かれていない＝穴」と誤判定する。<strong>別画面で担保済みなら穴ではなく役割分担。</strong></span>
+    </p>
+    <!-- FR-13の中核。ここを書かないと「この画面で完結している」と誤解する -->
+    <!-- 3列にする（2026-08-14）。「どこ」をファイルパスで書くと場所の説明にならない。
+         中央は人間が指させる場所（画面名・システム領域）、右は決定の中身。パスは出典として下に置く。 -->
+    <table class="kh-table">
+      <tr><th>この画面で見える概念</th><th>どこが決めているか</th><th>どう決まっているか</th></tr>
+      {{rows_s7_定義元}}
+    </table>
+    <p class="kh-note">この表は _概念の住所録.md に蓄積し、次の画面で再利用する。</p>
+  </div>
+</section>
+
+<section class="kh" id="s8">
+  <div class="kh-container">
+    <h2><span class="num">§8</span>ロールによる差</h2>
+    <p class="kh-lead"><strong>見るもの</strong>: 誰が入れて、どの範囲を見られるか。
+      <span class="why">範囲の指定が抜けると、権限外のデータが見える事故になる。</span>
+    </p>
+    <table class="kh-table">
+      <tr><th>ロール</th><th>アクセス</th><th>範囲</th></tr>
+      {{rows_s8_ロール}}
+    </table>
+  </div>
+</section>
+
+<section class="kh" id="s9">
+  <div class="kh-container">
+    <h2><span class="num">§9</span>なぜこの設計か — トレードオフ</h2>
+    <p class="kh-lead"><strong>見るもの</strong>: 設計の分かれ道と、それぞれの代償。
+      <span class="why">正解を覚えるためではない。<strong>制約が変われば答えも変わる</strong>ので、判断の材料を持つために見る。</span>
+    </p>
+    <p style="font-size:.9rem"><span class="kh-tag kh-tag--trade">トレードオフ</span> {{s9_論点}}</p>
+    <table class="kh-table">
+      <tr><th></th><th>案A: {{s9_案Aの名前}}</th><th>案B: {{s9_案Bの名前}}</th></tr>
+      <tr><td><strong>やったこと</strong></td><td>{{s9_A_やったこと}}</td><td>{{s9_B_やったこと}}</td></tr>
+      <tr><td><strong>得たもの</strong></td><td>{{s9_A_得たもの}}</td><td>{{s9_B_得たもの}}</td></tr>
+      <tr><td><strong>払ったもの</strong></td><td>{{s9_A_払ったもの}}</td><td>{{s9_B_払ったもの}}</td></tr>
+    </table>
+    <p class="kh-note">{{s9_どちらが現行か・選んだ形跡があるか}}<span class="src">出典: {{s9_出典}}</span></p>
+    <!-- 「払ったもの」が空欄の案は理解できていない証拠。埋まるまで書かない（記載ルール.md）
+         現行案が選ばれた理由を読み取れたら kh-suisoku で足す。断定はしない
+
+         プレースホルダは全て固有名にしてある（2026-08-14）。
+         {{rows}} を同名で複数置いていたため、上から順に置換して §9→§10 で中身がずれる事故が起きた。
+         同名のプレースホルダを増やさないこと。トレードオフが2本以上なら
+         {{s9_2本目_...}} のように連番を付けて足す。 -->
+  </div>
+</section>
+
+<section class="kh kh--gray" id="s10">
+  <div class="kh-container">
+    <h2><span class="num">§10</span>穴候補</h2>
+    <p class="kh-lead"><strong>見るもの</strong>: 仕様の空白のうち、放置すると利用者層の誰かが困るもの。
+      <span class="why">起票の前に2つを通した — <strong>横断チェック</strong>（他ファイルに定義があるか）と<strong>地雷チェック</strong>（既存issue・意図的な変更履歴があるか）。</span>
+      <span class="kh-def">確度: <strong>確度高</strong>＝他に定義なし・既存issueなし ／ <strong>要確認</strong>＝担保が未確認 ／ <strong>意図の可能性</strong>＝意図的な変更履歴あり ／ <strong>起票不可</strong>＝既存issueが同じものを扱っている</span>
+    </p>
+    <table class="kh-table">
+      <tr><th>候補</th><th>型</th><th>確度</th><th>担保状況・次の一手</th></tr>
+      {{rows_s10_穴候補}}
+    </table>
+    <!-- 既存issueと重複したものは表から消さない。<s>で取り消し線＋issue番号と根拠を書く。
+         「捨てた」件数も成果の測り方に加算する -->
+
+    <h3 style="font-size:1rem">自分で決められる／人に聞くべき</h3>
+    <table class="kh-table">
+      <tr><th>候補</th><th>分類</th><th>理由</th></tr>
+      {{rows_s10_分類}}
+    </table>
+
+    <!-- 「人に聞くべき」が1件でもあれば、誰に何を聞くかの文案を必ず付ける（SKILL.md規定）。
+         無い場合はこの kh-jisso ブロックごと削除する -->
+    <div class="kh-jisso">
+      <span class="kh-tag kh-tag--jisso">相談の文案（{{s10_相談する候補番号と要旨}}）</span><br>
+      {{誰宛か}}<br><br>
+      {{何を確認したいか。現状の実装・仕様の記述・自分の理解・どちらに寄せたいかを1段落で}}
+    </div>
+  </div>
+</section>
+
+<section class="kh" id="s11">
+  <div class="kh-container">
+    <h2><span class="num">§11</span>実物確認 — CCが確認した結果</h2>
+    <p class="kh-lead"><strong>見るもの</strong>: §10の候補のうち、実物で確定させたものと、まだ確定していないもの。
+      <span class="why">画面だけ見ても分からないものがある。画面上は正常に見えていて、実DBクエリで初めて出る欠陥がある。</span>
+    </p>
+    <!-- 2026-08-18 改訂: 確認はCCが実施する（環境の起動・画面操作・API直叩き・SQL・スクショ取得）。
+         本人の役割は結果を読んで判断し、上長へ送ること。手順書を渡して終わりにしない。
+         テーブル・カラム名は仕様書のDB設計で照合し、推測が残る場合は明記する。
+         環境が完全でなくても止まらない。読み取りだけの確認を先に済ませ、
+         できなかったものは「未確認」と書いて済んだものと分ける。 -->
+
+    <h3>確認した環境</h3>
+    <p>{{起動コマンドと、いつ実行して何が動いたか}}</p>
+    <p><strong>状態</strong>: {{どの部品が動き、どれが動かなかったか。動かない理由は名前で示す}}</p>
+
+    <h3>確認の結果</h3>
+    <!-- 済んだものと未確認を同じ表に並べ、「分かったこと」の欄で区別する。
+         済: 実測値を書く（列が無い・0件だった等）／未: 何が足りなくて止まっているかを書く -->
+    <table class="kh-table">
+      <tr><th>何を</th><th>どうやって</th><th>分かったこと</th></tr>
+      {{rows_s11_確認できること}}
+    </table>
+
+    {{候補ごとの詳細。実行したSQL・コマンドと、その出力から言えることを書く}}
+    <div class="kh-q">
+      <h4>結果を読んで気づいたこと（本人が記入）</h4>
+      <textarea class="kh-textarea" data-kh="s11-result" placeholder="上の結果を見て引っかかったこと・上長に伝えたいことをここに"></textarea>
+    </div>
+  </div>
+</section>
+
+<section class="kh" id="s12">
+  <div class="kh-container">
+    <h2><span class="num">§12</span>疑問 — 書き込んで、書き出す</h2>
+    <p style="font-size:.9rem">キャラ（右下）からその場で書ける。ここは腰を据えて書く用。<strong>入力は自動保存</strong>。「書き出す」でMarkdownをコピーし <code>疑問.md</code> に貼る。</p>
+    <!-- 欄を増やすときは data-kh を q-c, q-d… と足し、script側の labels にも同じキーを追加する -->
+    <div class="kh-q">
+      <h4>{{セクション名A}}について</h4>
+      <textarea class="kh-textarea" data-kh="q-a" placeholder="{{q_a_疑問の例}}"></textarea>
+    </div>
+    <div class="kh-q">
+      <h4>{{セクション名B}}について</h4>
+      <textarea class="kh-textarea" data-kh="q-b" placeholder="{{q_b_疑問の例}}"></textarea>
+    </div>
+    <div class="kh-q">
+      <h4>その他なんでも</h4>
+      <textarea class="kh-textarea" data-kh="q-free" placeholder=""></textarea>
+    </div>
+    <p style="margin-top:20px">
+      <button class="kh-btn" onclick="khExport()">疑問を書き出す（Markdownをコピー）</button>
+      <span id="kh-export-status" class="kh-note" style="margin-left:12px"></span>
+    </p>
+    <pre id="kh-export-fallback" style="display:none"></pre>
+  </div>
+</section>
+
+<!-- ===== フローティング疑問UI ===== -->
+<button id="kh-buddy" type="button" aria-label="疑問を書く（ドラッグで移動）">
+  <img src="{{キャラ画像のパス。使わないなら親要素ごと消す}}" alt="">
+  <span class="kh-badge-count" id="kh-badge">0</span>
+</button>
+<div id="kh-tip">読みながら疑問をメモ</div>
+
+<div id="kh-panel">
+  <h4>疑問をメモ</h4>
+  <div class="kh-secrow">
+    <select id="kh-sec-select" onchange="khOnSecChange()" title="疑問をどのセクションに紐づけるか"></select>
+    <span class="kh-auto-pill is-auto" id="kh-auto-pill" onclick="khBackToAuto()" title="クリックで自動検出に戻す">自動</span>
+  </div>
+  <textarea class="kh-textarea" id="kh-mini-input" placeholder="ここに書いて保存。読み進めながら何度でも追加できます（Cmd+Enter で保存）"></textarea>
+  <div class="kh-actions">
+    <button class="kh-btn" onclick="khSaveMini()">保存</button>
+    <button class="kh-btn kh-btn-ghost" onclick="khExport()">全部コピー</button>
+    <button class="kh-btn kh-btn-ghost" onclick="khTogglePanel()">閉じる</button>
+    <span class="kh-note" id="kh-mini-status"></span>
+  </div>
+  <textarea id="kh-mini-export" class="kh-textarea" readonly></textarea>
+  <div class="kh-saved-list" id="kh-saved-list"></div>
+</div>
+
+<footer style="padding:32px 0; background: var(--kh-bg-gray);">
+  <div class="kh-container kh-note">
+    kuuhaku ／ 生成 {{YYYY-MM-DD}} ／ 利用者プロファイル: {{接続状況}} ／
+    確度タグ: <span class="kh-tag kh-tag--meiki">明記</span> <span class="kh-tag kh-tag--jisso">実装のみ</span> <span class="kh-tag kh-tag--suisoku">推測</span> <span class="kh-tag kh-tag--trade">トレードオフ</span> <span class="kh-tag kh-tag--ana">穴候補</span>
+  </div>
+</footer>
+
+<script>
+// ===== localStorage 自動保存（FR-7。file://での動作は要検証＝この試作の検証項目） =====
+const KH_PREFIX = 'kuuhaku:{{画面ID}}:';  // 画面ごとに必ず変える（localStorageの衝突防止）
+let khStorageOk = true;
+try {
+  localStorage.setItem(KH_PREFIX + '_test', '1');
+  localStorage.removeItem(KH_PREFIX + '_test');
+} catch (e) { khStorageOk = false; }
+
+document.querySelectorAll('textarea[data-kh]').forEach(ta => {
+  const key = KH_PREFIX + ta.dataset.kh;
+  if (khStorageOk) {
+    const saved = localStorage.getItem(key);
+    if (saved) ta.value = saved;
+    ta.addEventListener('input', () => localStorage.setItem(key, ta.value));
+  }
+});
+if (!khStorageOk) {
+  document.getElementById('kh-export-status').textContent = '⚠ localStorage不可: 入力はページを閉じると消えます。書く前に書き出してください。';
+}
+
+// ===== フローティング疑問UI =====
+const KH_MINI_KEY = KH_PREFIX + 'mini';
+const KH_POS_KEY  = KH_PREFIX + 'buddypos';
+let khManualSection = null; // 手動で選ばれたセクションid（nullなら自動検出）
+
+// --- セクション一覧を作り、プルダウンを埋める（自動検出のリスクヘッジ） ---
+const khSections = Array.from(document.querySelectorAll('section.kh'));
+const khSecList = khSections.map(s => ({
+  id: s.id,
+  label: (s.querySelector('h2') ? s.querySelector('h2').textContent.trim().replace(/\s+/g, ' ') : s.id)
+}));
+const khSel = document.getElementById('kh-sec-select');
+khSecList.forEach(x => {
+  const o = document.createElement('option');
+  o.value = x.id; o.textContent = x.label;
+  khSel.appendChild(o);
+});
+{ const o = document.createElement('option'); o.value = '__free'; o.textContent = '（セクション指定なし）'; khSel.appendChild(o); }
+
+// --- 自動検出：画面上部に最も近い section ---
+function khDetectSection() {
+  let best = null, bestScore = Infinity;
+  khSections.forEach(s => {
+    const r = s.getBoundingClientRect();
+    if (r.bottom > 120 && r.top < window.innerHeight * 0.6) {
+      const score = Math.abs(r.top - 120);
+      if (score < bestScore) { bestScore = score; best = s; }
+    }
+  });
+  return best ? best.id : (khSections[0] ? khSections[0].id : '__free');
+}
+function khUpdateHere() {
+  if (khManualSection) return;            // 手動指定中は自動で書き換えない
+  const id = khDetectSection();
+  if (khSel.value !== id) khSel.value = id;
+}
+function khOnSecChange() {                 // 手で選んだら手動モードに固定
+  khManualSection = khSel.value;
+  khSel.classList.add('manual');
+  const p = document.getElementById('kh-auto-pill');
+  p.textContent = '手動 ✕'; p.className = 'kh-auto-pill is-manual';
+}
+function khBackToAuto() {
+  khManualSection = null;
+  khSel.classList.remove('manual');
+  const p = document.getElementById('kh-auto-pill');
+  p.textContent = '自動'; p.className = 'kh-auto-pill is-auto';
+  khUpdateHere();
+}
+function khCurrentSecLabel() {
+  const v = khSel.value;
+  if (v === '__free') return '（セクション指定なし）';
+  const f = khSecList.find(x => x.id === v);
+  return f ? f.label : v;
+}
+window.addEventListener('scroll', khUpdateHere, { passive: true });
+
+// --- キャラのドラッグ移動（位置は保存。パネルは開く向きを自動反転） ---
+const khBuddy = document.getElementById('kh-buddy');
+const khPanel = document.getElementById('kh-panel');
+let khDrag = null;      // ドラッグ中の状態
+let khPos  = null;      // {left, top} 位置の唯一の真実。DOMから読み返さない
+let khSuppressClick = false;
+
+function khGetPos() {
+  if (!khPos) {                       // 初回のみDOMから読む（transformなしなので正確）
+    const r = khBuddy.getBoundingClientRect();
+    khPos = { left: r.left, top: r.top };
+  }
+  return khPos;
+}
+function khApplyPos(left, top) {
+  const m = 8, w = khBuddy.offsetWidth || 76, h = khBuddy.offsetHeight || 76;
+  left = Math.max(m, Math.min(window.innerWidth  - w - m, left));
+  top  = Math.max(m, Math.min(window.innerHeight - h - m, top));
+  khPos = { left, top };
+  khBuddy.style.left = left + 'px';
+  khBuddy.style.top  = top  + 'px';
+  khBuddy.style.right = 'auto'; khBuddy.style.bottom = 'auto';
+  if (khPanel.classList.contains('open')) khPositionPanel();
+}
+function khPositionPanel() {
+  const b = khBuddy.getBoundingClientRect();
+  const pw = khPanel.offsetWidth || 440, ph = khPanel.offsetHeight || 380, gap = 14;
+  // 横: キャラが右寄りなら左に開く
+  let left = (b.left > window.innerWidth / 2) ? b.right - pw : b.left;
+  left = Math.max(12, Math.min(window.innerWidth - pw - 12, left));
+  // 縦: キャラが下寄りなら上に開く
+  let top = (b.top > window.innerHeight / 2) ? b.top - ph - gap : b.bottom + gap;
+  top = Math.max(12, Math.min(window.innerHeight - ph - 12, top));
+  khPanel.style.left = left + 'px';
+  khPanel.style.top  = top  + 'px';
+  khPanel.style.right = 'auto'; khPanel.style.bottom = 'auto';
+}
+khBuddy.addEventListener('pointerdown', e => {
+  if (e.button !== 0 && e.pointerType === 'mouse') return;
+  e.preventDefault();
+  const p = khGetPos();
+  khDrag = { dx: e.clientX - p.left, dy: e.clientY - p.top, sx: e.clientX, sy: e.clientY, moved: false, id: e.pointerId };
+  try { khBuddy.setPointerCapture(e.pointerId); } catch (_) {}
+  khBuddy.classList.add('dragging');
+});
+khBuddy.addEventListener('pointermove', e => {
+  if (!khDrag || e.pointerId !== khDrag.id) return;
+  // 開始点からの距離で判定（movementX は capture 中に0になる環境がある）
+  if (!khDrag.moved && Math.hypot(e.clientX - khDrag.sx, e.clientY - khDrag.sy) > 4) khDrag.moved = true;
+  if (khDrag.moved) khApplyPos(e.clientX - khDrag.dx, e.clientY - khDrag.dy);
+});
+function khEndDrag(e) {
+  if (!khDrag || (e.pointerId !== undefined && e.pointerId !== khDrag.id)) return;
+  const moved = khDrag.moved;
+  khDrag = null;
+  khBuddy.classList.remove('dragging');
+  try { khBuddy.releasePointerCapture(e.pointerId); } catch (_) {}
+  if (moved) {
+    khSuppressClick = true;                       // 直後のclickを1回だけ無視
+    if (khStorageOk && khPos) localStorage.setItem(KH_POS_KEY, JSON.stringify(khPos));
+  } else {
+    khTogglePanel();                              // 動かしていなければクリック扱い
+  }
+}
+khBuddy.addEventListener('pointerup', khEndDrag);
+khBuddy.addEventListener('pointercancel', khEndDrag);
+khBuddy.addEventListener('click', e => {          // onclick属性との二重発火を断つ
+  if (khSuppressClick) { khSuppressClick = false; e.preventDefault(); e.stopPropagation(); }
+});
+// 保存済み位置を復元
+(function () {
+  if (!khStorageOk) return;
+  try {
+    const p = JSON.parse(localStorage.getItem(KH_POS_KEY) || 'null');
+    if (p && typeof p.left === 'number' && typeof p.top === 'number') khApplyPos(p.left, p.top);
+  } catch (e) {}
+})();
+window.addEventListener('resize', () => {
+  if (khPos) khApplyPos(khPos.left, khPos.top);   // 画面外に出ないよう再clamp
+  if (khPanel.classList.contains('open')) khPositionPanel();
+});
+
+function khLoadMini() {
+  if (!khStorageOk) return [];
+  try { return JSON.parse(localStorage.getItem(KH_MINI_KEY) || '[]'); } catch (e) { return []; }
+}
+function khStoreMini(arr) {
+  if (khStorageOk) localStorage.setItem(KH_MINI_KEY, JSON.stringify(arr));
+  khRenderMini();
+}
+function khRenderMini() {
+  const arr = khLoadMini();
+  const badge = document.getElementById('kh-badge');
+  badge.textContent = arr.length;
+  badge.style.display = arr.length ? 'block' : 'none';
+  const list = document.getElementById('kh-saved-list');
+  list.innerHTML = arr.length
+    ? arr.map((q, i) => '<div class="kh-saved-item"><span class="del" onclick="khDelMini(' + i + ')">×</span><span class="sec">' + khEsc(q.sec) + '</span><br>' + khEsc(q.text) + '</div>').join('')
+    : '<div class="kh-note">まだ保存された疑問はありません</div>';
+}
+function khEsc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function khDelMini(i) { const arr = khLoadMini(); arr.splice(i, 1); khStoreMini(arr); }
+
+function khTogglePanel() {
+  khPanel.classList.toggle('open');
+  if (khPanel.classList.contains('open')) {
+    khUpdateHere(); khPositionPanel();
+    document.getElementById('kh-mini-input').focus();
+  }
+}
+function khSaveMini() {
+  const ta = document.getElementById('kh-mini-input');
+  const txt = ta.value.trim();
+  const status = document.getElementById('kh-mini-status');
+  if (!txt) { status.textContent = '空です'; return; }
+  const arr = khLoadMini();
+  arr.push({ sec: khCurrentSecLabel(), text: txt, at: new Date().toISOString().slice(0, 10) });
+  khStoreMini(arr);
+  ta.value = '';
+  status.textContent = '✓ 保存（下に追加）';
+  setTimeout(() => status.textContent = '', 2000);
+  khPositionPanel();
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') khPanel.classList.remove('open');
+  if ((e.metaKey || e.ctrlKey) && e.key === 'i') { e.preventDefault(); khTogglePanel(); }
+  // Cmd/Ctrl + Enter で保存（パネル内から手を離さず書き続けられる）
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && khPanel.classList.contains('open')) {
+    e.preventDefault(); khSaveMini();
+  }
+});
+khUpdateHere();
+khRenderMini();
+
+// ===== Markdown書き出し（clipboard API → execCommand → 画面表示 の3段フォールバック） =====
+function khBuildMd() {
+  // 疑問欄を増やしたら、data-kh のキーと同じものをここにも足す（足さないと書き出しでキー名がそのまま出る）
+  const labels = { 's11-result': '§11 結果を読んで気づいたこと', 'q-a': '{{セクション名A}}', 'q-b': '{{セクション名B}}', 'q-free': 'その他' };
+  const today = new Date().toISOString().slice(0, 10);
+  let md = '';
+  // フローティングUIで保存した疑問（セクション別）
+  khLoadMini().forEach(q => {
+    md += '## ' + q.at + ' ' + q.sec + '\n\n**疑問**: ' + q.text + '\n\n**CCの回答**: \n\n**残る不明点 / 人に聞くこと**: \n\n---\n\n';
+  });
+  // 各セクションの固定textarea
+  document.querySelectorAll('textarea[data-kh]').forEach(ta => {
+    if (ta.value.trim()) {
+      md += '## ' + today + ' ' + (labels[ta.dataset.kh] || ta.dataset.kh) + '\n\n**疑問**: ' + ta.value.trim() + '\n\n**CCの回答**: \n\n**残る不明点 / 人に聞くこと**: \n\n---\n\n';
+    }
+  });
+  return md || '（入力がありません）';
+}
+function khExport() {
+  const md = khBuildMd();
+  const inPanel = khPanel.classList.contains('open');
+  const status = document.getElementById(inPanel ? 'kh-mini-status' : 'kh-export-status');
+  const count = khLoadMini().length + Array.from(document.querySelectorAll('textarea[data-kh]')).filter(t => t.value.trim()).length;
+  const done = () => {
+    status.textContent = '✓ ' + count + '件コピー → 疑問.md に貼る';
+    if (inPanel) setTimeout(() => status.textContent = '', 4000);
+  };
+  const showFallback = () => {
+    if (inPanel) {
+      const ta = document.getElementById('kh-mini-export');
+      ta.value = md; ta.style.display = 'block'; ta.select();
+      status.textContent = '手動でコピーしてください';
+      khPositionPanel();
+    } else {
+      const pre = document.getElementById('kh-export-fallback');
+      pre.textContent = md; pre.style.display = 'block';
+      status.textContent = 'コピーできない環境です。下のテキストを手動でコピーしてください。';
+    }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(md).then(done).catch(() => khExecCopy(md) ? done() : showFallback());
+  } else {
+    khExecCopy(md) ? done() : showFallback();
+  }
+}
+function khExecCopy(text) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (e) { return false; }
+}
+</script>
+</body>
+</html>
