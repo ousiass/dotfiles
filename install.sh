@@ -62,6 +62,9 @@ main() {
     install_bun
     install_rustup
     install_fnm
+    # node 製 CLI (claude/codex/gemini/wrangler 等) より前に Node を入れる。
+    # 後回しにすると codex 等が `env: node が無い` で起動できない。
+    install_node_lts
     install_go
 
     install_claude_code
@@ -97,7 +100,6 @@ main() {
     setup_profile_paths
     setup_global_gitignore
     install_fisher
-    install_node_lts
     sync_nvim_plugins
     set_default_shell
 
