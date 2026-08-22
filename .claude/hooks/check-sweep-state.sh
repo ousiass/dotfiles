@@ -35,9 +35,9 @@ fi
 SKILL=$(jq -r '.skill // "sweep"' "$STATE" 2>/dev/null)
 ITER=$(jq -r '.iteration // 0' "$STATE" 2>/dev/null)
 COUNTS=$(jq -c '.last_counts // {}' "$STATE" 2>/dev/null)
-EVIDENCE_N=$(jq -r '.evidence | length // 0' "$STATE" 2>/dev/null)
+REMAINING=$(jq -r '.queue_remaining // "-"' "$STATE" 2>/dev/null)
 
-echo "${SKILL}: .sweep/state.json は phase=${PHASE}（iter=${ITER}, last_counts=${COUNTS}, evidence=${EVIDENCE_N} entries）で terminal に到達していません。" >&2
+echo "${SKILL}: .sweep/state.json は phase=${PHASE}（iter=${ITER}, queue_remaining=${REMAINING}, last_counts=${COUNTS}）で terminal に到達していません。" >&2
 echo "閾値到達まで review→fix を反復するか、状況に応じて termination_reason を設定して phase=terminal にしてから停止してください。" >&2
-echo "（review を再実行せず推定で terminal にするのは禁止。.sweep/state.json の evidence に最新の review レポートパスを必ず記録すること）" >&2
+echo "（推定で terminal にするのは禁止。失敗で打ち切る場合も termination_reason を設定してレポートを生成すること）" >&2
 exit 2

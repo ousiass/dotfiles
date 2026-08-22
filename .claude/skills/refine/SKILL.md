@@ -114,14 +114,14 @@ findings=$(printf '%s\n' "$resp_code" "$resp_doc" "$resp_spec" "$resp_halt" "$re
 if critical == 0 && major == 0 && minor <= max_minor:
   → success, フェーズ3 へ
 if iter >= max_iter:
-  → stuck, フェーズ3 へ（残指摘ありで終了）
+  → status=iter_limit, フェーズ3 へ（残指摘ありで終了）
 if 2 反復連続で (critical + major) が前回以下に減っていない:
-  → stuck(no_progress), フェーズ3 へ
+  → status=no_progress, フェーズ3 へ
 otherwise:
   → 2-4 へ
 ```
 
-**no_progress の判定**: state.json の `last_counts` に前回の値が入っている。今回の `critical + major` が前回と同じかそれ以上なら「停滞」を 1 つ数え、**2 回連続で停滞したら打ち切る**（1 回で切らないのは、修正の副作用で一時的に増えることがあるため）。減っていれば停滞カウントを 0 に戻す。フェーズ3 のレポートには `status: stuck(no_progress)` と停滞時点の残指摘を必ず載せる。
+**no_progress の判定**: state.json の `last_counts` に前回の値が入っている。今回の `critical + major` が前回と同じかそれ以上なら「停滞」を 1 つ数え、**2 回連続で停滞したら打ち切る**（1 回で切らないのは、修正の副作用で一時的に増えることがあるため）。減っていれば停滞カウントを 0 に戻す。フェーズ3 のレポートには `status: no_progress` と停滞時点の残指摘を必ず載せる。status 名は `references/merge-and-report.md` の enum から選び、enum 外の文字列（`stuck` 等）を作らない。
 
 **打ち切りの目安**: 全体スキャンは初回の指摘件数が大きくなりやすい。1 PR に収まらない規模（critical + major が 30 件超など）と判明した時点で、`refine-sweep` への切り替えをユーザーに提案してよい。
 
@@ -156,7 +156,7 @@ MINOR (excess minor が <minor - max_minor> 件あるので優先度高いもの
 })
 ```
 
-失敗時はループ中断し stuck 扱いでフェーズ3 へ。
+失敗時はループ中断し `status=agent_failed` でフェーズ3 へ。
 
 ### 2-5. 次の反復
 
@@ -191,9 +191,8 @@ review_scope=$(printf '%s\n%s\n' "$touched" "$unresolved" | sort -u | grep -v '^
 - **HALT プロジェクトで halt-review をスキップする**（HAS_HALT=true なら必ず並列起動）
 - **Atomic Design プロジェクトで atomic-review をスキップする**（HAS_ATOMIC=true なら必ず並列起動。HAS_HALT=true との排他は検知側で担保）
 - **フロントエンドプロジェクトで Atomic Design 未採用のまま続行する**（フェーズ1 の IS_FRONTEND ガードで必ず中断すること）
-- **`.sweep/state.json` を `phase=terminal` にする前に最終 review を再実行せず、推定で `clean` を宣言する**
-- **`.sweep/state.json` の `evidence` 配列が空のままフェーズ3 に進む / terminal 化する**
-- レポートに `## Evidence` セクションを書かない
+- **マージまで行うのに、最終 review を再実行せず推定で `clean` を宣言する**（`--no-merge` 時は最終反復の結果をそのまま使う）
+- **呼び出し元 sweep が所有している `.sweep/state.json` を上書きする / `phase=terminal` にする**（`references/common-setup.md` 手順4 のガード参照）
 - **status=clean なのにマージをスキップする**（`--no-merge` 明示時を除く）
 - **`gh pr merge --auto` を使う**（リポジトリ設定 `allow_auto_merge` の有無に挙動が依存し、OFF だと GraphQL エラーで止まる。CI 緑をポーリングしてから直接マージする方式に統一）
 - マージ完了確認をスキップしてレポート生成に進む

@@ -21,6 +21,7 @@ user-invocable: true
 - `/refine-git` — 現在のブランチ / PR を対象
 - `/refine-git #<PR番号>` — 特定 PR を対象
 - `/refine-git --max-minor <N>` — minor 指摘の上限（デフォルト 5）
+- `/refine-git --skip-minor` — minor 指摘を閾値判定と修正対象から外す（検出とレポートは行う）。`issue-sweep` からの呼び出しは常にこれを付ける
 - `/refine-git --max-iter <N>` — レビューループ反復上限（デフォルト 10）
 - `/refine-git --no-merge` — 研磨のみでマージしない（デフォルトは CI 緑を待って直接マージまで実行）
 
@@ -61,9 +62,24 @@ scope_label="\`${base_ref}...HEAD\` の差分のみ（$(printf '%s\n' "$changed_
 
 ### 1-9. レビュー対象スキル一覧の決定（すべて差分スコープ版）
 
-- 常に: `code-review-git`, `doc-drift-git`, `spec-audit-git`
-- `HAS_HALT=true` のみ: `halt-review` を追加（**変更ファイルのパスを引数で渡す**）
-- `HAS_ATOMIC=true` のみ: `atomic-review` を追加（**変更ファイルのパスを引数で渡す**）
+**候補（`source` 名）:**
+
+- 常に候補: `code-review-git`, `doc-drift-git`, `spec-audit-git`
+- `HAS_HALT=true` のみ候補に追加: `halt-review`（**変更ファイルのパスを引数で渡す**）
+- `HAS_ATOMIC=true` のみ候補に追加: `atomic-review`（**変更ファイルのパスを引数で渡す**）
+
+**毎反復で全候補を起動するのではない。** 反復ごとの起動対象は次のルールで決める:
+
+| 反復 | 起動する source |
+|---|---|
+| `iter = 0` | **全候補** |
+| `iter ≥ 1` | 「前回反復で critical または major を 1 件以上出した source」∪「`doc_dirty=true` なら `doc-drift-git` / `spec-audit-git`」 |
+
+`doc_dirty` は「直前の修正が `docs/` 配下または `*.md` を触ったか」（2-5 で更新。`iter=0` は必ず `true`）。ドキュメント乖離はコードだけ直しても変化しないので、docs を触っていない反復で再スキャンするのは無駄。逆に docs を編集した反復では、その編集自体が新たな乖離を生むので再走させる。
+
+**起動しなかった source の指摘は、前回反復の結果をそのまま持ち越して閾値判定に混ぜる**（起動しなかったことを「解決した」と扱ってはならない）。
+
+このルールにより、**指摘ゼロだった観点は 2 周目以降走らない**（`code-review-git` が 1 周目でクリーンなら実質初回のみ）。トレードオフとして、その観点が拾うはずだった「修正の副作用」を見逃す可能性は残る（CI が最後の砦）。
 
 `halt-review` / `atomic-review` には差分版が存在しないため、`changed_files` のうち各スキルの対象拡張子（`.templ` / `.go` / `.ts` / `.tsx` / `.vue` 等）に該当するパスだけを引数として渡し、走査範囲を差分に限定する。該当パスが 0 件ならそのスキルは起動しない。
 
@@ -79,6 +95,7 @@ scope_label="\`${base_ref}...HEAD\` の差分のみ（$(printf '%s\n' "$changed_
 - 対象は `<base_ref>...HEAD` の差分のみ。差分に含まれないファイルはレビューしない
 - 指摘は必ず差分内のファイル:行にアンカーする。差分外の既存問題は報告しない
 - 差分外に重大な問題を見つけた場合は `out_of_scope` 配列に入れる（修正対象にはせず、レポートに残すだけ）
+- 差分内の指摘であっても、**修正に差分外の非ドキュメントファイル**（実装コード・型定義・CI / 設定ファイル）の変更が不可欠なものは severity ではなく `out_of_scope` に入れる（fix agent が構造的に直せないため）。**ドキュメント / 仕様書の更新漏れはこれに該当しない** — 2-4 で差分外でも編集を許可しているので通常の指摘として扱う
 
 ```
 Agent({
@@ -102,6 +119,7 @@ PR #<n>（branch: <branch>）に対して /code-review-git を Skill ツール�
 """
 })
 
+# 1-9 の起動ルールに合致する source だけ起動する（iter>=1 は前回 critical/major を出した source ＋ doc_dirty）
 Agent({
   description: "refine-git iter <iter+1> — doc-drift-git",
   ... 同様、/doc-drift-git を <base_ref> 付きで実行、 "source": "doc-drift-git" で返す
@@ -113,14 +131,14 @@ Agent({
   # --report-only により Issue 作成と対話がスキップされ、レポートのみ返る
 })
 
-# HAS_HALT=true のときのみ追加（変更ファイルのパスを引数で渡す）
+# HAS_HALT=true ∧ 起動ルール合致のときのみ（変更ファイルのパスを引数で渡す）
 Agent({
   description: "refine-git iter <iter+1> — halt-review",
   ... /halt-review <差分内の対象パス列> を実行、 "source": "halt-review" で返す
   # 引数のパス以外は走査させない。指摘も差分内に限定させる
 })
 
-# HAS_ATOMIC=true のときのみ追加（変更ファイルのパスを引数で渡す）
+# HAS_ATOMIC=true ∧ 起動ルール合致のときのみ（変更ファイルのパスを引数で渡す）
 Agent({
   description: "refine-git iter <iter+1> — atomic-review",
   ... /atomic-review <差分内の対象パス列> を実行、 "source": "atomic-review" で返す
@@ -148,6 +166,8 @@ findings=$(echo "$findings" | jq --argjson cf "$(printf '%s\n' "$changed_files" 
 
 `out_of_scope` は**閾値判定にも修正対象にも含めない**（フェーズ3 のレポートに記録するだけ）。
 
+**1-9 の起動ルールで起動しなかった source の分は、前回反復の返答をそのまま再利用して集約に混ぜる。** 起動しなかった source を空扱いにすると未解決の指摘が消えて誤って閾値に到達する。
+
 ### 2-2. テレメトリ追記 + state.json 更新
 
 `refine` の `references/state-and-telemetry.md` の「反復ごとのテレメトリ追記 + state.json 更新」を実行する（`source` は `refine-git` になる）。
@@ -155,19 +175,23 @@ findings=$(echo "$findings" | jq --argjson cf "$(printf '%s\n' "$changed_files" 
 ### 2-3. 閾値判定
 
 ```
-if critical == 0 && major == 0 && minor <= max_minor:
-  → success, フェーズ3 へ
+if critical == 0 && major == 0 && (skip_minor || minor <= max_minor):
+  → status=clean, フェーズ3 へ
 if iter >= max_iter:
-  → stuck, フェーズ3 へ（残指摘ありで終了）
+  → status=iter_limit, フェーズ3 へ（残指摘ありで終了）
 if 2 反復連続で (critical + major) が前回以下に減っていない:
-  → stuck(no_progress), フェーズ3 へ
+  → status=no_progress, フェーズ3 へ
 otherwise:
   → 2-4 へ
 ```
 
+**status は `merge-and-report.md` の enum（`clean` / `iter_limit` / `no_progress` / `agent_failed` / `merge_failed` / `ci_gave_up`）から選ぶ。`stuck` のような enum 外の文字列を作らない**（呼び出し元の `issue-sweep` が parse する）。
+
+`--skip-minor` 指定時（`issue-sweep` からの呼び出しは常にこれ）は minor を閾値判定にも 2-4 の修正対象にも含めない。minor は命名・コメント・readability なので直すたびに差分が広がって新しい minor が生え、`max_iter` まで反復が回り続ける。呼び出し元のマージゲートが minor を見ていないなら、その反復は丸ごと無駄。
+
 **no_progress の判定**: state.json の `last_counts` に前回の値が入っている。今回の `critical + major` が前回と同じかそれ以上なら「停滞」を 1 つ数え、**2 回連続で停滞したら打ち切る**（1 回で切らないのは、修正の副作用で一時的に増えることがあるため）。減っていれば停滞カウントを 0 に戻す。
 
-同じ指摘を何周も回し続けるのが `max_iter` までの時間の大半を占めるので、直せない指摘は早めに人に返す。フェーズ3 のレポートには `status: stuck(no_progress)` と、停滞した時点の残指摘を必ず載せる。
+同じ指摘を何周も回し続けるのが `max_iter` までの時間の大半を占めるので、直せない指摘は早めに人に返す。フェーズ3 のレポートには `status: no_progress` と、停滞した時点の残指摘を必ず載せる。
 
 ### 2-4. 修正 agent
 
@@ -188,13 +212,18 @@ MAJOR:
 
 MINOR (excess minor が <minor - max_minor> 件あるので優先度高いものを <minor - max_minor> 件以上修正):
 <minor 指摘を列挙>
+（`--skip-minor` 指定時はこの MINOR ブロックを渡さない）
 
 **スコープ制約（厳守）**:
 - 変更してよいのは以下の差分内ファイルのみ:
   <changed_files を列挙>
-- 上記以外のファイルは編集しない。指摘の修正に差分外ファイルの変更が不可欠な場合は、
+- **例外1（ドキュメント）**: `docs/**`、リポジトリ直下の `*.md`、仕様書ディレクトリ配下のファイルは
+  **差分外でも編集を許可する**。doc-drift-git / spec-audit-git の指摘は本質的に
+  「コードは変わったのにドキュメントが追随していない」なので、差分外の docs を触れないと
+  原理的に修正不能になる。ドキュメント更新はその PR の責務として扱う
+- **例外2（テスト）**: 修正に伴うテストファイルの新規追加は許可する（回帰テストは必須）
+- 上記以外の差分外ファイル（実装コード・型定義・CI / 設定ファイル）の変更が不可欠な場合は、
   修正せず {"failure": "out_of_scope_required: <ファイル> <理由>"} を返して判断を委ねる
-- ただし修正に伴うテストファイルの新規追加は許可する（回帰テストは必須）
 - 差分外に別の問題を見つけても直さない。**Issue も作らない**（`/spinoff-issue` を呼ばない）。
   最終 JSON の spinoff に記録するだけにして次に進む。フェーズ3 のレポート
   `## Out of scope` に集約される
@@ -210,7 +239,7 @@ MINOR (excess minor が <minor - max_minor> 件あるので優先度高いもの
 })
 ```
 
-失敗時はループ中断し stuck 扱いでフェーズ3 へ。
+失敗時はループ中断し `status=agent_failed` でフェーズ3 へ。
 
 ### 2-5. 次の反復
 
@@ -229,6 +258,16 @@ changed_files=$(git diff --name-only "$merge_base"...HEAD)
 touched=$(git diff --name-only "$prev_head"...HEAD)
 unresolved=$(echo "$findings" | jq -r '(.critical + .major + .minor)[].file // empty')
 review_scope=$(printf '%s\n%s\n' "$touched" "$unresolved" | sort -u | grep -v '^$')
+```
+
+**次反復の起動対象を確定する**（1-9 のルール）:
+
+```bash
+# 直前の修正が docs を触ったか
+if echo "$touched" | grep -qE '^(docs/|.*\.md$)'; then doc_dirty=true; else doc_dirty=false; fi
+
+# 今回 critical/major を出した source（次反復で再走する対象）
+active_sources=$(echo "$findings" | jq -r '.by_source | to_entries[] | select(.value.c > 0 or .value.m > 0) | .key')
 ```
 
 次の反復では `changed_files` ではなく `review_scope` を各レビュー agent に渡す（差分外アンカーの除外 2-1 は `changed_files` のままでよい。スコープ判定と閲覧範囲は別）。`review_scope` が空になることはない（空なら閾値を満たしているはずなので 2-3 で success になっている）。
@@ -265,16 +304,20 @@ EOF
 - minor の修正で副作用バグを入れない（修正後の review で critical が出たら反復継続）
 - **全体スキャン版のレビュースキル（`code-review` / `doc-drift` / `spec-audit`）を起動する**（必ず `-git` 版を使う。全体版が要るなら `/refine` か `/refine-sweep`）
 - **`halt-review` / `atomic-review` を引数なしで起動する**（プロジェクト全体走査になる。必ず差分内の対象パスを引数で渡す）
-- **差分外のファイルを修正する**（2-4 のスコープ制約を修正 agent のプロンプトから省略しない。差分外の問題は `out_of_scope` / `spinoff` に記録するだけ）
+- **差分外のファイルを修正する**（2-4 のスコープ制約を修正 agent のプロンプトから省略しない。差分外の問題は `out_of_scope` / `spinoff` に記録するだけ）。ただし **2-4 の例外1（`docs/**` / `*.md` / 仕様書）と例外2（テスト追加）は差分外でも編集可**
+- **doc-drift-git / spec-audit-git の指摘を「差分外のファイルが要るから」と修正せず捨てる**（ドキュメントは 2-4 の例外1 で編集可。`out_of_scope` に落としてよいのは実装コード・型定義・設定ファイルの差分外変更が必要なケースだけ）
+- **`--skip-minor` 指定時に minor を閾値判定または修正対象に含める**（`issue-sweep` のマージゲートは minor を見ていないので、その反復は丸ごと無駄になる）
+- **1-9 の起動ルールで起動しなかった source の前回指摘を持ち越さず、解決したものとして閾値判定する**（未解決の指摘を抱えたまま `clean` を宣言することになる）
+- **2 周目以降も全候補 source を起動する**（1-9 の表に従う。前回クリーンだった観点を毎反復走らせるのが所要時間の大きな部分を占める）
+- **`stuck` など `merge-and-report.md` の enum に無い status 名を作る**（呼び出し元が parse できない。`no_progress` を使う）
 - **修正ループ内で `/spinoff-issue` を呼ぶ**（fix agent は `max_iter` 回起動されるので反復回数ぶん Issue が量産される。差分外の発見はレポートの `## Out of scope` に集約し、Issue 化するかはユーザーが判断する）
 - **`out_of_scope` の指摘を閾値判定に含める**（差分外の既存問題で永久にループが収束しなくなる）
-- **必須レビュー（code-review-git / doc-drift-git / spec-audit-git）の一部をスキップする**（全観点を統合して判定するため）
+- **初回反復（`iter=0`）で候補 source の一部をスキップする**（1 周目は必ず全観点。絞れるのは 2 周目以降だけ）
 - **HALT プロジェクトで halt-review をスキップする**（HAS_HALT=true なら必ず並列起動）
 - **Atomic Design プロジェクトで atomic-review をスキップする**（HAS_ATOMIC=true なら必ず並列起動。HAS_HALT=true との排他は検知側で担保）
 - **フロントエンドプロジェクトで Atomic Design 未採用のまま続行する**（フェーズ1 の IS_FRONTEND ガードで必ず中断すること）
-- **`.sweep/state.json` を `phase=terminal` にする前に最終 review を再実行せず、推定で `clean` を宣言する**
-- **`.sweep/state.json` の `evidence` 配列が空のままフェーズ3 に進む / terminal 化する**
-- レポートに `## Evidence` セクションを書かない
+- **最終反復のレビュー結果を確認せず、推定で `clean` を宣言する**（`--no-merge` 時は最終反復の結果をそのまま使う。確認のための re-review はしない）
+- **呼び出し元 sweep が所有している `.sweep/state.json` を上書きする / `phase=terminal` にする**（`common-setup.md` 手順4 のガード参照。sweep のキュー処理を静かに終わらせる原因）
 - **status=clean なのにマージをスキップする**（`--no-merge` 明示時を除く）
 - **`gh pr merge --auto` を使う**（リポジトリ設定 `allow_auto_merge` の有無に挙動が依存し、OFF だと GraphQL エラーで止まる。CI 緑をポーリングしてから直接マージする方式に統一）
 - マージ完了確認をスキップしてレポート生成に進む

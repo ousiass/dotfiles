@@ -7,20 +7,24 @@
 引数が `--abort` の場合は以下を実行して終了する（他フェーズに進まない）:
 
 ```bash
-rm -f .sweep/queue.txt .sweep/lock
+SWEEP_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")}/.sweep"
+rm -f "$SWEEP_DIR/queue.txt" "$SWEEP_DIR/lock" "$SWEEP_DIR/attempts.json"
 # state.json があれば terminal 化（履歴を残すため削除しない）
-if [[ -f .sweep/state.json ]]; then
+if [[ -f "$SWEEP_DIR/state.json" ]]; then
   jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '.phase = "terminal" | .termination_reason = "aborted" | .updated_at = $now' \
-    .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
+    "$SWEEP_DIR/state.json" > "$SWEEP_DIR/state.json.tmp" && mv "$SWEEP_DIR/state.json.tmp" "$SWEEP_DIR/state.json"
 fi
+# 残った worktree の掃除
+git worktree prune
 ```
 
 完了後「sweep を中止しキュー / ロックを削除しました」とユーザーに報告。
 
 ## 失敗時の挙動
 
-- サブスキル失敗 / PR 作成失敗 / 直接マージ失敗のいずれも、Issue 番号をキューに残したまま中断し、ロック (`.sweep/lock`) は削除してユーザーに報告する
-- ポーリング中の `CLOSED null` は1回目はサブスキル再実行、2回連続でユーザー判断
+- **1 バッチの失敗で sweep 全体を止めない。** 2-9 の `attempts.json` が 2 に達したバッチだけ諦め、キューから該当行を消して metrics に `agent_failed` を記録し、残りのバッチを流し続ける
+- 諦めたバッチは**必ずキューから消す**。残すと Stop Hook が停止をブロックし続けて sweep が終われない
+- 観測時の `CLOSED ∧ merged == false`（手動 close）は1回目は agent 再起動、2回連続でユーザー判断
 - キューファイルが壊れた場合は `--abort` で全削除してフェーズ1からやり直す
-- 同じ Issue で2回連続して同じエラーが出たらユーザーに判断を仰ぐ（無限ループ防止）
+- **すべてのバッチが諦めに終わった場合も、フェーズ3 に進んで terminal 化とレポート生成を行う**（`termination_reason = "batch_failed"`）。記録が残らないまま終わるのが最悪

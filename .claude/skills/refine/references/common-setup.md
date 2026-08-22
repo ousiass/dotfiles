@@ -23,12 +23,36 @@ start_ts=$(date +%s)
 iter=0
 max_minor=5      # --max-minor で上書き
 max_iter=10      # --max-iter で上書き
+skip_minor=false # --skip-minor で true（refine-git のみ。issue-sweep からは常に true）
+
+# `.sweep/` は **常にメインリポジトリ側** を指す。worktree 内で走っても分裂させない
+# （worktree を消すとテレメトリが消え、Stop Hook が別ファイルを見る事故になる）
+SWEEP_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")}/.sweep"
+mkdir -p "$SWEEP_DIR"
 ```
 
-## 4. `.sweep/state.json` の初期化
+以降 `.sweep/...` と書かれた箇所はすべて `$SWEEP_DIR/...` を指す。
+
+## 4. `.sweep/state.json` の初期化（**所有権ガード必須**）
+
+`.sweep/` はメインリポジトリ共有なので、`issue-sweep` から呼ばれた場合は **sweep が state.json の所有者**になる。上書きすると sweep の進行状態（`queue_remaining` など）が壊れ、フェーズ3 で `phase=terminal` にした瞬間に **Stop Hook のブロックが解除されて sweep がキュー途中で静かに終わる**。
 
 ```bash
-mkdir -p .sweep
+# 既存 state.json が別スキルのもので、かつ未 terminal → sweep が所有中。触らない
+owner=$(jq -r '.skill // ""' "$SWEEP_DIR/state.json" 2>/dev/null)
+owner_phase=$(jq -r '.phase // ""' "$SWEEP_DIR/state.json" 2>/dev/null)
+if [[ -n "$owner" && "$owner" != "$skill_name" && "$owner_phase" != "terminal" ]]; then
+  OWNS_STATE=false   # state.json は一切書かない（テレメトリのみ書く）
+else
+  OWNS_STATE=true
+fi
+```
+
+`OWNS_STATE=false` のときは以下の初期化・更新・terminal 化をすべてスキップし、`$SWEEP_DIR/refine-metrics.jsonl` への追記だけ行う。呼び出し元の sweep が停止制御を握っているので、Stop Hook 対策は不要。
+
+`OWNS_STATE=true` のときのみ:
+
+```bash
 jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       --arg skill "$skill_name" \
       --argjson mi "$max_iter" --argjson mm "$max_minor" \
@@ -38,10 +62,9 @@ jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   phase: "iterating", iteration: 0, max_iter: $mi,
   thresholds: {critical: 0, major: 0, minor: $mm},
   last_counts: {critical: null, major: null, minor: null},
-  evidence: [],
   termination_reason: null,
   pr_number: $pr
-}' > .sweep/state.json
+}' > "$SWEEP_DIR/state.json"
 ```
 
 スキーマと更新規則の詳細は `state-and-telemetry.md` を参照。
@@ -81,12 +104,22 @@ if [[ -f package.json ]] && grep -qE '"(react|vue|next|nuxt)"[[:space:]]*:' pack
   IS_FRONTEND=true
 fi
 if [[ "$IS_FRONTEND" == "true" ]] && [[ "$HAS_HALT" != "true" ]] && [[ "$HAS_ATOMIC" != "true" ]]; then
-  echo "ERROR: フロントエンドプロジェクト (react/vue/next/nuxt) ですが Atomic Design 構造 (atoms/molecules/organisms) が見つかりません。"
-  echo "  $skill_name はフロント回りで Atomic Design 準拠を必須としています。"
-  echo "  対応: components/, src/components/, app/components/ のいずれかに atoms/ + (molecules/ or organisms/) を配置してください。"
-  jq --arg reason "atomic_design_required" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-     '.termination_reason = $reason | .phase = "terminal" | .updated_at = $now' \
-     .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
-  exit 2
+  msg="フロントエンドプロジェクト (react/vue/next/nuxt) ですが Atomic Design 構造 (atoms/molecules/organisms) が見つかりません。"
+  if [[ "$OWNS_STATE" == "false" ]]; then
+    # sweep 経由（issue-sweep の engineer agent 等）→ warn に降格して続行
+    echo "WARN: $msg"
+    echo "  研磨と無関係な構造規約で全 Issue のマージゲートを落とさないため、警告のみで続行します。"
+    echo "  atomic-review はスキップされます（HAS_ATOMIC=false）。"
+  else
+    echo "ERROR: $msg"
+    echo "  $skill_name はフロント回りで Atomic Design 準拠を必須としています。"
+    echo "  対応: components/, src/components/, app/components/ のいずれかに atoms/ + (molecules/ or organisms/) を配置してください。"
+    jq --arg reason "atomic_design_required" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+       '.termination_reason = $reason | .phase = "terminal" | .updated_at = $now' \
+       "$SWEEP_DIR/state.json" > "$SWEEP_DIR/state.json.tmp" && mv "$SWEEP_DIR/state.json.tmp" "$SWEEP_DIR/state.json"
+    exit 2
+  fi
 fi
 ```
+
+**ユーザーが直接 `/refine-git` を叩いた場合（`OWNS_STATE=true`）は従来どおり停止する。** 停止するのは「規約違反を人に知らせる」ためであり、自律実行中の sweep を全滅させるためではない。
