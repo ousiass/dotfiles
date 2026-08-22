@@ -15,7 +15,8 @@ user-invocable: true
 - `/issue-sweep #<n1> #<n2> ...` — Issue 番号を直接指定
 - `/issue-sweep #<parent>` — 指定した **フェーズ Issue**（`split-from:#<parent>` ラベル付き子 Issue を持つ親）に対しては、子 Issue 群に自動展開してそれだけ処理する。親本体は実装対象にしない（フェーズ単位の一括実装に使える）
 - `/issue-sweep --abort` — 実行中の sweep を中止しキュー / ロックを削除（後述）
-- `/issue-sweep --parallel <N>` — **同時に抱える in-flight バッチ数**の上限（実装中 + CI 待ち + マージ待ちの合計。**デフォルト 5**、上限 5）。ユーザーに値を確認せず常にこのデフォルトで起動する
+- `/issue-sweep --parallel <N>` — **同時に走る実装 agent 数**の上限（**デフォルト 5**、上限 5）。ユーザーに値を確認せず常にこのデフォルトで起動する
+- `/issue-sweep --max-inflight <M>` — **同時に抱える未マージ PR 数**の上限（実装中 + CI 待ち + マージ待ち。**デフォルト 10**、上限 15）。CI 待ちが実装スロットを食い潰さないよう `--parallel` とは別枠
 - `/issue-sweep --no-batch` — 関連 Issue のバッチ編成（フェーズ1-4）を無効化し、常に 1 Issue = 1 PR で処理する
 - `/issue-sweep --no-follow-spinoffs` — sweep 中に spinoff された Issue を再 sweep するのを抑止（追跡ゼロ。検出結果はレポート列挙のみ）
 - `/issue-sweep --max-rounds <N>` — spinoff 追跡の上限周回数（**デフォルト 1、最大 20**）。デフォルトでは「今回の sweep が直接生んだ spinoff」までを 1 周だけ処理し、**その spinoff がさらに生んだ孫 spinoff は追わない**（レポート列挙に落とす）。孫以降まで自律的に枯らしたい場合のみ明示的に大きい値を渡す
@@ -87,78 +88,123 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 
 ## フェーズ1: Issue キューの構築
 
-1. 引数を解釈する
-   - 引数なし: `gh issue list --state open --json number,labels,title --limit 200`
-   - `label:<name>`: `gh issue list --state open --label <name> --json number,labels,title --limit 200`
-   - `#<n>` 列挙: 各 Issue を `gh issue view <n> --json number,labels,title`
-   - **親 Issue 自動展開**: 列挙された各 `#<n>` について、`gh issue list --state open --search "label:split-from:#<n>" --json number,labels,title` で子 Issue を検索:
-     - **子が見つかった場合**: その親 `#<n>` は **トラッカーとみなしキューから除外**し、代わりに子 Issue 群をキューに含める（親本体は実装対象にしない）
-     - **子が見つからない場合**: その `#<n>` 自身をキューに残す
-     - これにより `/issue-sweep #100`（#100 が 5 子持ちのフェーズ Issue）で「そのフェーズに属する 5 件だけ」を端から処理する運用が可能
-2. 順序と**単独処理フラグ**を決定する（ユーザーには確認しない）
-   - **明示的依存**: 本文の「依存: #N」「blocked by #N」「Depends on #N」「Blocked by #N」「Closes/Fixes #N」を依存とみなし、依存先を先に処理する
-   - **優先度**: `priority:p0` / `p1` 等のラベルを優先
-   - **`serial-only` フラグ**: 以下のいずれかに該当する Issue は `serial-only` としてマークし、**単独のバッチとして単独反復で処理する**（他のバッチと同時に走らせない）
-     - `serial-only` / `no-parallel` / `isolated` ラベルが付いている
+### 1-1. 対象 Issue の取得
+
+引数を解釈して対象を集める:
+
+- 引数なし: `gh issue list --state open --json number,labels,title --limit 200`
+- `label:<name>`: 同上に `--label <name>`
+- `#<n>` 列挙: `gh issue list --state open --json number,labels,title --limit 200` を 1 回だけ叩き、その結果から指定番号を抽出する（Issue ごとに `gh issue view` を叩かない）
+
+**親 Issue の自動展開**: `split-from:` ラベル付きの Issue を **1 コールでまとめて**取得し、ローカルで親ごとに束ねる（以前は Issue ごとに `gh issue list --search` を叩いていた）:
+
+```bash
+gh issue list --state open --search "label:split-from" \
+  --json number,labels,title --limit 200
+```
+
+- 対象に含まれる `#<n>` が上記の結果に子を持っていた場合、その親は **トラッカーとみなしキューから除外**し、子 Issue 群をキューに含める
+- 子を持たない `#<n>` はそれ自身をキューに残す
+- これにより `/issue-sweep #100`（5 子持ちのフェーズ Issue）で「そのフェーズの 5 件だけ」を端から処理できる
+
+### 1-2. Issue 解析（1 Issue = 1 agent = 1 パス）
+
+**Issue 本文の読み取りはここだけ。** 以前は「依存・並列禁止の判定」「`issue-split-auto` の分割判定」「バッチ編成のスコープ読み取り」で同じ本文を 3 回読んでいた。1 回の解析でまとめて返させる。
+
+`bug` ラベル付き、または `split-from:` ラベル付き（既に分割された子）の Issue は**分割判定だけスキップし、スコープ / 依存の解析は行う**。
+
+`Agent(subagent_type=claude, model=sonnet)` で起動する。**モデルは `sonnet` を明示する** — 本文と関連仕様書を読んで JSON を返すだけで、コード生成も CI 突破も伴わない。**同時起動は最大 5 件**（`--parallel` とは独立の固定上限）。6 件以上あれば 5 件ずつのウェーブに分け、各ウェーブが揃ってから次を出す。
+
+```
+Issue #<n> を解析して JSON 1行だけを返してください。実装は一切しないこと。
+
+1. 分割判定（`bug` / `split-from:` ラベルが付いている場合はこの手順をスキップ）:
+   `/issue-split-auto #<n>` を Skill ツールで実行し、スコープが混在していれば子 Issue に分割する。
+   **文字数や H2 数のような表層メトリクスで事前に判断しない** — 短くてもスコープが混在している
+   ことはあるし、長くても単一機能で分割不要なことはある。本文と関連仕様書を実際に読んで判定する。
+2. 分割後の各 Issue（分割しなかった場合は #<n> 自身）について、本文から以下を読み取る:
+   - `scope`: 「## スコープ」「## 影響範囲」「## ファイル」等から読み取れる対象ファイル /
+     ディレクトリのパス集合。読み取れなければ空配列
+   - `depends_on`: 「依存: #N」「blocked by #N」「Depends on #N」「Closes/Fixes #N」の番号
+   - `serial_only`: 次のいずれかに該当すれば true
+     - `serial-only` / `no-parallel` / `isolated` ラベル
      - 本文に「並列禁止」「sequential only」「do not parallelize」等の明示記述
-     - `migration` / `schema-change` / `breaking-change` ラベル（スキーマ変更や破壊的変更は他作業と競合しやすい）
-     - 本文に DB マイグレーション・依存パッケージのメジャー更新・設定ファイル（CI / Lint / package.json 等）変更が含まれる旨の記述
+     - `migration` / `schema-change` / `breaking-change` ラベル
+     - 本文に DB マイグレーション・依存パッケージのメジャー更新・設定ファイル
+       （CI / Lint / package.json 等）変更が含まれる旨の記述
+   - `priority`: `priority:p0` / `p1` 等のラベルがあればその値
 
-   **並列可否そのものはここで決めない。** スコープ集合の計算は手順4 のバッチ編成で 1 回だけ行い、「**同じバッチ = 直列、別のバッチ = 並列**」という単一のルールに落とす（以前はここで disjoint 判定をして並列に倒し、手順4 で overlap 判定をしてバッチにまとめる、という逆向きの判定を 2 回やっていた）。
-3. **Issue の自動分割（fan-out）**: 以下の除外条件に該当しない全 Issue について `/issue-split-auto #<n>` を `Agent(subagent_type=claude, model=sonnet)` 経由で呼び出す。**モデルは `sonnet` を明示する** — このステージは Issue 本文を読んでスコープ境界を切り出し JSON を返すだけで、コード生成も CI 突破も伴わない。Issue 数ぶん並列起動されるので単価が効く一方、判定を外しても親のまま維持されるだけで下方リスクが小さい。**文字数や H2 数のような表層メトリクスで事前フィルタしない** — 短くてもスコープが混在してることはあるし、長くても単一機能で分割不要なことはある。split-auto 側で本文と関連仕様書を実際に読んで判定させる:
-   - `bug` ラベルが付いていない
-   - `split-from:#<m>` ラベルが付いていない（既に分割された子ではない）
+返す JSON（分割しなかった場合は units が 1 要素）:
+{"parent": <n>, "split": <true|false>, "units": [{"issue": <n>, "scope": ["apps/web/foo/"], "depends_on": [12], "serial_only": false, "priority": "p1"}]}
 
-   **同時起動は最大 5 件まで**（`--parallel` の値とは独立の固定上限）。対象が 6 件以上ある場合は 5 件ずつのウェーブに分けて起動し、各ウェーブの返答が揃ってから次を出す。Issue 40 件で 40 agent が同時に立つのを防ぐ。
+失敗時: {"parent": <n>, "error": "<1行で原因>"}
 
-   呼び出し prompt 例:
-   ```
-   /issue-split-auto #<n> を実行し、結果の JSON 1行だけを返してください。
-   ```
+返答ルール: 上記 JSON 以外を最終メッセージに含めない。
+```
 
-   返ってきた JSON の `children` がある場合、キュー内の親番号 `<n>` を `children` の配列に置換する。`children` が空（分割不要判定）または `created: false` の場合は親のまま維持。
-4. **バッチ編成（スコープ集合の計算はここで 1 回だけ行う）**: 各 Issue 本文の「## スコープ」「## 影響範囲」「## ファイル」等から対象ファイル / ディレクトリ集合を 1 回だけ読み取り、以下で組を作る。バッチは **1 worktree / 1 ブランチ / 1 PR** で処理し、まとめてマージする:
-   - **スコープが重なる Issue、または同一 parent の `split-from:#<n>` 兄弟は同じバッチにまとめる**（同じ worktree で順に実装するので conflict しない）
-   - **スコープが disjoint な Issue は別のバッチにする**（別バッチ同士は手順2 の `serial-only` でない限り並列起動される）
-   - **スコープが読み取れない / 判定がつかない Issue は、同一 parent の兄弟がいればその兄弟と同じバッチに寄せる。兄弟もいなければ単独バッチ**（誤判定で無関係な Issue を 1 PR に混ぜるより保守的に倒す）
-   - `serial-only` が付いた Issue は他と混ぜず単独バッチ
-   - バッチ内に循環依存がない（「依存: #N」を辿って一列に並べられる）
+`error` が返った Issue は分割せず単独バッチとして扱い、`scope` は空・`serial_only` は false とみなす（解析失敗で sweep を止めない）。
 
-   **並列度はバッチ編成の結果として決まる。** 同じバッチ = 直列（1 worktree で順に実装）、別のバッチ = 並列（`--parallel` の上限まで同時起動）。判定はこの 1 箇所だけ。
+### 1-3. バッチ編成
 
-   件数の上限は設けない。ただし **6 件以上のバッチを作る場合のみ**「#a,#b,… の N 件を 1 PR にまとめます（PR が大きくなります）」と 1 行宣言してから進む（確認は取らない）。
-5. `$SWEEP_DIR/queue.txt` に **1 行 = 1 バッチ**で書き出す（空行・コメント禁止）。バッチはカンマ区切り、単独はそのまま:
-   ```
-   12,13,14
-   27
-   ```
-   同時に `$SWEEP_DIR/attempts.json` を `{}` で初期化する（バッチごとの試行回数。2-9 で使う）。**行の削除は `grep -vxF` の完全一致で行うので、queue.txt の行に試行回数などを混ぜてはならない。**
-6. キュー件数（バッチ数と Issue 総数）とラベル別内訳をユーザーに表示する
-7. 現在のブランチ（`git branch --show-current`）を「ベースブランチ」として表示する。違うブランチで進めたい場合はここでチェックアウトし直してから続行する
-8. 「中止したい時は `/issue-sweep --abort`」を1行案内する
-9. **`.sweep/state.json` を初期化**:
-   ```bash
-   queue_total=$(wc -l < "$SWEEP_DIR/queue.txt" | tr -d ' ')
-   max_rounds=${max_rounds:-1}   # --max-rounds 未指定時のデフォルト
-   jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-         --argjson qt "$queue_total" --argjson mr "$max_rounds" '{
-     skill: "issue-sweep",
-     started_at: $now, updated_at: $now,
-     phase: "iterating",
-     queue_total: $qt, queue_remaining: $qt,
-     processed_count: 0, merged_count: 0, failed_count: 0,
-     round: 0, max_rounds: $mr,
-     termination_reason: null
-   }' > "$SWEEP_DIR/state.json"
-   ```
+1-2 が返した `units` を材料に、**メインスレッドは本文を読まずに**組を作る。バッチは **1 worktree / 1 ブランチ / 1 PR** で処理し、まとめてマージする:
+
+- **`scope` が重なる unit、または同一 parent の兄弟は同じバッチにまとめる**（同じ worktree で順に実装するので conflict しない）
+- **`scope` が disjoint な unit は別のバッチにする**
+- **`scope` が空（読み取れなかった）unit は、同一 parent の兄弟がいればそのバッチに寄せる。兄弟もいなければ単独バッチ**（誤判定で無関係な Issue を 1 PR に混ぜるより保守的に倒す）
+- `serial_only` の unit は他と混ぜず単独バッチ
+- バッチ内は `depends_on` を辿って一列に並べる。循環していたら分割する
+- `priority` の高いバッチを先頭に、`depends_on` の依存先バッチはその前に置く
+
+**並列度はバッチ編成の結果として決まる。** 同じバッチ = 直列（1 worktree で順に実装）、別のバッチ = 並列。スコープの重なり判定はこの 1 箇所だけで、他のどこでもやらない。
+
+件数の上限は設けない。ただし **6 件以上のバッチを作る場合のみ**「#a,#b,… の N 件を 1 PR にまとめます（PR が大きくなります）」と 1 行宣言してから進む（確認は取らない）。
+
+### 1-4. キューの書き出し
+
+`$SWEEP_DIR/queue.txt` に **1 行 = 1 バッチ**で書き出す（空行・コメント禁止）。バッチはカンマ区切り、単独はそのまま:
+
+```
+12,13,14
+27
+```
+
+同時に `$SWEEP_DIR/attempts.json` を `{}` で初期化する（バッチごとの試行回数。2-7 で使う）。**行の削除は `grep -vxF` の完全一致で行うので、queue.txt の行に試行回数などを混ぜてはならない。**
+
+### 1-5. ユーザーへの提示
+
+1. キュー件数（バッチ数と Issue 総数）とラベル別内訳を表示する
+2. 現在のブランチ（`git branch --show-current`）を「ベースブランチ」として表示する。違うブランチで進めたい場合はここでチェックアウトし直してから続行する
+3. 「中止したい時は `/issue-sweep --abort`」を1行案内する
+
+### 1-6. state.json の初期化
+
+```bash
+queue_total=$(wc -l < "$SWEEP_DIR/queue.txt" | tr -d ' ')
+max_rounds=${max_rounds:-1}   # --max-rounds 未指定時のデフォルト
+jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --argjson qt "$queue_total" --argjson mr "$max_rounds" '{
+  skill: "issue-sweep",
+  started_at: $now, updated_at: $now,
+  phase: "iterating",
+  queue_total: $qt, queue_remaining: $qt,
+  processed_count: 0, merged_count: 0, failed_count: 0,
+  round: 0, max_rounds: $mr,
+  termination_reason: null
+}' > "$SWEEP_DIR/state.json"
+```
 
 ## フェーズ2: in-flight パイプライン（キューが空になるまで）
 
-**「実装 N 件 → 全部の CI 待ち → また N 件」というバリアを作らない。** CI が 10 分かかるプロジェクトでは、そのバリアがそのまま「実装 agent が 0 本の 10 分」になる。代わりに **未マージ PR を常に N 本抱えている状態を維持し、スロットが空いた瞬間に次のバッチを起動する**。
+**「実装 N 件 → 全部の CI 待ち → また N 件」というバリアを作らない。** CI が 10 分かかるプロジェクトでは、そのバリアがそのまま「実装 agent が 0 本の 10 分」になる。代わりに **スロットが空いた瞬間に次のバッチを起動する**。
 
-`--parallel N`（デフォルト 5）の意味 = **同時に抱える in-flight バッチ数の上限**（実装中 + CI 待ち + マージ待ちの合計）。
+枠は 2 つに分ける（片方が他方を食い合わないように）:
 
-**重要 — context 設計:** **1 バッチ分の実装（Plan→Develop→Commit→Push→PR 作成→研磨）は必ず `Agent` ツールに丸投げする。** メインスレッドは「キュー操作 / 冪等性チェック / agent 起動 / 状態観測 / マージ / 失敗判定」だけを行い、メイン context には PR 番号と状態だけを積む。
+- `--parallel N`（デフォルト 5、上限 5）= **同時に走る実装 agent の数**
+- `--max-inflight M`（デフォルト 10、上限 15）= **同時に抱える未マージ PR の数**（実装中 + CI 待ち + マージ待ち）
+
+CI 待ちの PR が溜まっても実装スロットは空くので、実装が止まらない。
+
+**重要 — context 設計:** **1 バッチ分の実装（Develop→Commit→Push→PR 作成→研磨）は必ず `Agent` ツールに丸投げする。** メインスレッドは「キュー操作 / PR 一覧の取得 / agent 起動 / 判定 / マージ / 失敗処理」だけを行い、メイン context には PR 番号と状態だけを積む。
 
 ### in-flight テーブル
 
@@ -172,25 +218,41 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 | `pr` | PR 番号（未作成なら null） |
 | `stage` | `implementing` / `ci` / `fixing` |
 | `ci_respawns` | CI fix agent の再起動回数 |
+| `worktree` | agent が返した worktree の絶対パス |
 | `start_ts` | バッチ開始 unix time（metrics 用） |
 
 ### メインループ
 
 in-flight が 0 かつキューが空になるまで、以下を上から順に 1 回ずつ実行して繰り返す。
 
-#### 2-0. heartbeat + base 最新化（毎ラウンド冒頭）
+#### 2-0. ラウンド冒頭（heartbeat / base 最新化 / PR 一覧の一括取得）
 
 ```bash
 echo "$PPID:$(date +%s)" > "$SWEEP_DIR/lock"
 git fetch origin "$base_branch" 2>/dev/null || true
 git pull --ff-only origin "$base_branch" 2>/dev/null || true
+
+# このラウンドで使う PR 情報を **1 コールだけ** で取る。
+# 冪等性チェック（2-1）と状態判定（2-3）の両方がこの結果を使う。
+gh pr list --state all --limit 100 \
+  --json number,headRefName,state,mergedAt,statusCheckRollup \
+  | jq -c '[.[] | {
+      pr: .number,
+      branch: .headRefName,
+      state: .state,
+      merged: (.mergedAt != null),
+      failed_checks: [.statusCheckRollup[]? | select(.conclusion == "FAILURE") | .name],
+      waiting: ([.statusCheckRollup[]? | select(.conclusion == null and .status != "COMPLETED")] | length)
+    }]'
 ```
 
 fast-forward できない場合は警告だけ出して続行する。Stop Hook がキューに残行がある限り停止をブロックするので途中で止まらず流し続ける。
 
+**PR ごと / バッチごとに `gh` を叩かない。** 以前は冪等性チェックをバッチ単位で、状態観測を PR 単位で叩いていて、ラウンドあたりのコール数が in-flight 本数に比例していた。ブランチ名は sweep が決めているので、1 回の一覧取得で全部引ける。
+
 #### 2-1. スロット補充（launch）
 
-`in_flight < N` かつキューに**起動可能な**バッチが残っていれば、空きスロット分だけ起動する。
+`実装中 < N` かつ `in_flight < M` かつキューに**起動可能な**バッチが残っていれば、空きスロット分だけ起動する。
 
 ```bash
 head -n20 "$SWEEP_DIR/queue.txt"   # 候補を眺める。1 行 = 1 バッチ
@@ -199,24 +261,15 @@ head -n20 "$SWEEP_DIR/queue.txt"   # 候補を眺める。1 行 = 1 バッチ
 起動可能の条件:
 
 - そのバッチが依存する Issue がキューにも in-flight にも残っていない
-- `serial-only` バッチの場合は **in-flight が 0 のときだけ**起動する（単独で走らせる）
-- 逆に、既に `serial-only` バッチが in-flight にいる間は他を起動しない
+- `serial_only` バッチは **in-flight が 0 のときだけ**起動する（単独で走らせる）。逆に `serial_only` バッチが in-flight にいる間は他を起動しない
 
-起動対象が決まったら **2-2 の冪等性チェックを通してから、同一メッセージ内で `Agent` を並列起動する**。
+**冪等性チェック**（2-0 で取得した PR 一覧から `branch == "sweep/issues-<a>-<b>"` を探す。追加の `gh` 呼び出しはしない）:
 
-#### 2-2. 既存 PR の冪等性チェック（起動前・メインスレッド）
+- `merged == true` → agent を起動せず 2-4（Issue close）→ 2-5（キュー削除）へ
+- `state == "OPEN"` → 既存 PR あり。agent 起動をスキップし、その PR 番号で `stage=ci` として in-flight に載せる
+- 見つからない → 2-2 で起動
 
-```bash
-gh pr list --head "sweep/issues-<a>-<b>" --state all --json number,state,mergedAt
-```
-
-- `state == MERGED` or `mergedAt != null` → **マージ済み**。agent を起動せず 2-5（Issue close）→ 2-6（キュー削除）へ
-- `state == OPEN` → **既存 PR あり**。agent 起動をスキップし、PR 番号を引き継いで `stage=ci` で in-flight に載せる
-- 見つからない → 通常フロー（2-3 で起動）
-
-**ブランチ名以外での検索はしない。** 以前は `gh pr list --search "#<a> in:title,body" --state all` にフォールバックしていたが、その Issue に言及するだけの無関係な PR を拾う危険があり、毎ラウンド API を 2 回叩くコストに見合わない。ブランチ名は sweep が決めているので、sweep が作った PR は必ずこれで見つかる。
-
-#### 2-3. 実装 agent の起動
+#### 2-2. 実装 agent の起動
 
 `Agent` ツールを以下の指定で呼ぶ:
 
@@ -224,7 +277,7 @@ gh pr list --head "sweep/issues-<a>-<b>" --state all --json number,state,mergedA
 - `description`: `"Batch #<a>[,#<b>…] implementation"`
 - `prompt`: 下記の**統一プロンプト**（バッチ件数 1 件でも同じものを使う）
 
-**worktree は必ず sweep 側が 1 つ作る。** 以前は「1 件なら wt 版スキル（`/impl-wt`）に worktree ごと任せ、2 件以上なら sweep が作る」と分岐していたが、そのために起動プロンプトが 2 本に分裂し、「誰が worktree を作ったか分からない」ので 2-7 で before/after のスナップショット差分を取る必要が生じていた。常に sweep が作れば両方消える。
+**worktree は必ず sweep 側が 1 つ作る。** 以前は「1 件なら wt 版スキルに worktree ごと任せ、2 件以上なら sweep が作る」と分岐していたため起動プロンプトが 2 本に分裂し、「誰が worktree を作ったか分からない」ので before/after のスナップショット差分を取る必要が生じていた。常に sweep が作れば両方消える。
 
 ```
 Issue #<a>[, #<b>, #<c>] を **1 つの worktree にまとめて** 処理してください。メインスレッドには JSON だけを返します。
@@ -232,18 +285,15 @@ Issue #<a>[, #<b>, #<c>] を **1 つの worktree にまとめて** 処理して�
 手順:
 1. worktree を 1 つ作る（以降のすべての作業をこのディレクトリ内で行う）:
    git worktree add <repo>-sweep-<a> -b sweep/issues-<a>[-<b>-<c>] <base_branch>
-2. 各 Issue を **依存順に** 1 件ずつ処理する。Issue ごとに `gh issue view <n> --json labels` でラベルを見てスキルを選ぶ:
-   - bug → /bug-fix #<n>
-   - design → /design-fix #<n>
-   - それ以外 → /impl #<n>
+2. 各 Issue を **依存順に** 1 件ずつ処理する。Issue ごとに `gh issue view <n> --json labels` でラベルを見てスキルを選ぶ。
+   **`--auto --no-pr` を必ず付ける**:
+   - bug → `/bug-fix #<n> --auto --no-pr`
+   - design → `/design-fix #<n> --auto --no-pr`
+   - それ以外 → `/impl #<n> --auto --no-pr`
+   `--auto` = 自律実行モード（確認を取って止まらない / Review は後段の refine-git に委ねる /
+   スコープ明記済み Issue では Plan を軽量化する）。`--no-pr` = PR は呼び出し元が 1 本作るので作らない。
    **wt 版（/impl-wt, /bug-fix-wt）は使わない**（worktree は 1 で作成済み。wt 版を呼ぶと二重に作られる）。
-   起動時に以下を明示する:
-   - 「**Review フェーズはスキップして commit + push まででよい**。後段で /refine-git が
-     code-review-git / doc-drift-git / spec-audit-git の 4 観点でレビューするので、
-     ここで実装 agent が自前レビューを回すのは同じ差分に対する二重コストになる」
-   - 「**PR 作成もスキップする**。複数 Issue を 1 ブランチに積むので PR は呼び出し元が作る」
-   各サブスキルのその他の禁止行動（フェーズスキップ・テスト省略・スコープ外発見の未 issue 化）は厳守。
-   **テストは省略しない**（Review を省くぶんテストと CI が品質の担保になる）。
+   各サブスキルのその他の禁止行動（テスト省略・サイレントスキップ・スコープ外発見の未 issue 化）は厳守。
 3. 全 Issue の実装が終わったら push し、`gh pr create --base <base_branch>` で **PR を 1 本だけ** 作る:
    - タイトルに全 Issue 番号を含める
    - 本文に対象 Issue を全件列挙し、各 Issue でやったことを 1 行ずつ書く
@@ -271,37 +321,18 @@ Issue #<a>[, #<b>, #<c>] を **1 つの worktree にまとめて** 処理して�
 - **critical/major が残った状態で 6 の success JSON を返してはならない**（5 のゲート判定を必ず通す）。
 ```
 
-返答 JSON の `worktree` を in-flight テーブルに記録する（2-7 の掃除で使う）。
+返答 JSON の `worktree` を in-flight テーブルに記録する（2-6 の掃除で使う）。
 
-#### 2-4. 状態観測（observe — bash は観測だけ）
+#### 2-3. 判定と実行（メインスレッド）
 
-**bash は「in-flight 全 PR の現在の状態を 1 回観測して JSON で吐く」ことだけを行う。** マージ・agent 再起動・諦めの判断は次の 2-5 でメインスレッド（LLM）が行う。
-
-以前はここに `while` ループを書き、その中で「agent を再 spawn する」というコメントを置いていたが、**bash から `Agent` ツールは呼べない**ので実行不能だった（CI 失敗を検知しても何も起きずに回り続ける）。観測と判定を分離する。
-
-```bash
-# 引数: in-flight の PR 番号（スペース区切り）
-for pr in $inflight_prs; do
-  gh pr view "$pr" --json number,state,mergedAt,statusCheckRollup | jq -c '{
-    pr: .number,
-    state: .state,
-    merged: (.mergedAt != null),
-    failed_checks: [.statusCheckRollup[]? | select(.conclusion == "FAILURE") | .name],
-    waiting: ([.statusCheckRollup[]? | select(.conclusion == null and .status != "COMPLETED")] | length)
-  }'
-done
-```
-
-#### 2-5. 判定と実行（decide — メインスレッド）
-
-観測 JSON の各行について、上から順に最初に当たったものを実行する:
+2-0 で取得した PR 一覧から in-flight の各 PR を引き、上から順に最初に当たったものを実行する。**判定と agent 再起動はここ（LLM 側）で行う。bash の `while` ループの中で `Agent` ツールは呼べない。**
 
 | 条件 | 実行すること |
 |---|---|
-| `merged == true` | 2-6（Issue close）→ 2-7（キュー削除）→ 2-8（worktree 掃除）→ in-flight から外す |
-| `state == CLOSED ∧ merged == false` | 手動 close。`ci_respawns == 0` なら 2-3 で再起動（2-2 の冪等性チェックが既存 PR を拾う）。1 回以上なら諦めて `sweep_notify "Manual intervention needed"`、in-flight から外して metrics に `manual_close` を記録 |
+| `merged == true` | 2-4（Issue close）→ 2-5（キュー削除）→ 2-6（worktree 掃除）→ in-flight から外す |
+| `state == "CLOSED" ∧ merged == false` | 手動 close。`ci_respawns == 0` なら 2-2 で再起動（2-1 の冪等性チェックが既存 PR を拾う）。1 回以上なら諦めて `sweep_notify "Manual intervention needed"`、in-flight から外し metrics に `manual_close` を記録してキューから該当行を消す |
 | `failed_checks` が空でない ∧ `waiting == 0` | CI 確定失敗。`ci_respawns >= 2` なら諦め（下記）。それ未満なら `ci_respawns += 1`、`gh pr comment` で attempt を記録し、**下記の CI fix プロンプトで agent を起動**して `stage=fixing` にする |
-| `waiting == 0 ∧ failed_checks 空 ∧ state == OPEN` | `gh pr merge <PR> --merge --delete-branch` を実行。成功なら次ラウンドで `merged` を検知。失敗なら `sweep_notify "merge failed"` して in-flight から外しユーザー報告に回す |
+| `waiting == 0 ∧ failed_checks 空 ∧ state == "OPEN"` | `gh pr merge <PR> --merge --delete-branch` を実行。成功なら次ラウンドで `merged` を検知。失敗なら `sweep_notify "merge failed"` して in-flight から外しユーザー報告に回す |
 | それ以外 | CI 実行中。そのまま in-flight に残す |
 
 CI を諦める場合:
@@ -324,7 +355,7 @@ PR #<PR番号>（branch: <branch>）の CI で以下の check が失敗しまし
 1. `git fetch && git checkout <branch>` で対象 branch に切り替える（既存 worktree があれば再利用）。
 2. 失敗 check のログを `gh run view --log-failed --job <job-id>` 等で取得し、原因を特定する。
 3. 修正コミットを push する。テストが必要なら追加する。
-4. push まででよい（メインが CI 再走の緑を観測して直接マージする）。
+4. push まででよい（メインが CI 再走の緑を見て直接マージする）。
 5. 完了したら以下を返す:
    {"pr_number": <N>, "fixed": true, "commit": "<sha>"}
    修正不能なら:
@@ -335,7 +366,7 @@ PR #<PR番号>（branch: <branch>）の CI で以下の check が失敗しまし
 
 **失敗 check 名を必ず渡す。** 「とりあえず再実行して」は原因不明のまま盲目的に手を入れる事故になる。
 
-#### 2-6. Issue を close（sweep 限定の振る舞い）
+#### 2-4. Issue を close（sweep 限定の振る舞い）
 
 マージ完了後、**バッチ内の全 Issue を** 明示的に close する（1 PR が複数 Issue を閉じる）:
 
@@ -350,7 +381,7 @@ sweep_notify "Merged" "#$(echo $batch_issues | tr ' ' ',') (PR #${PR}, $(( $(dat
 - `split-from:#<parent>` ラベルが付いた子 Issue の場合、すべての兄弟が close されたかチェックし、全 close なら親も `gh issue close <parent> --comment "All split children merged"` で閉じる
 - close に失敗（権限・既に closed 等）してもキュー処理は続行する
 
-#### 2-7. キュー削除 + state.json 更新
+#### 2-5. キュー削除 + state.json 更新
 
 **Issue close 完了後、そのバッチの分だけ実行する**（in-flight は完了時刻が揃わないので先頭行決め打ちで消さない）:
 
@@ -368,7 +399,7 @@ jq --arg status "$final_status" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
    && mv "$SWEEP_DIR/state.json.tmp" "$SWEEP_DIR/state.json"
 ```
 
-#### 2-8. worktree 掃除
+#### 2-6. worktree 掃除
 
 agent が返した JSON の `worktree` パスをそのまま消す。sweep が作らせた 1 つだけなので探索は不要:
 
@@ -379,7 +410,7 @@ git worktree remove --force "$wt_path" 2>/dev/null || true
 - agent が `failure` を返した場合も**必ず**消す（同じバッチの再起動時に worktree 名が衝突する）
 - 成功してマージ完了した場合、remote branch は `--delete-branch` で処理済みなので local worktree だけ消す
 
-#### 2-9. バッチ失敗時（試行回数の永続化）
+#### 2-7. バッチ失敗時（試行回数の永続化）
 
 agent が `failure` を返したら、**セッションをまたいで数えられる場所**に試行回数を記録する。メモリ上のカウンタだとセッションを張り直したときに同じバッチを無限に再試行する:
 
@@ -399,11 +430,11 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
   - **キューから該当行を削除する**（残すと Stop Hook が永久に停止をブロックし、sweep が終われない）
   - **他のバッチの処理は続行する。1 バッチの失敗で sweep 全体を止めない**
 
-#### 2-10. 待機
+#### 2-8. 待機
 
 このラウンドで何も進捗がなく（マージ 0 件・新規起動 0 件）、in-flight が残っている場合のみ `sleep 60` してから 2-0 に戻る。進捗があった場合は待たずに次のラウンドへ進む（スロットが空いたなら即補充したい）。
 
-ポーリング中のメインは `sleep` + `gh` / `jq` のみで「思考」しないので context は増えず、Stop Hook がキューを見るので止まらない。
+待機中のメインは `sleep` + `gh` / `jq` のみで「思考」しないので context は増えず、Stop Hook がキューを見るので止まらない。
 
 ## 禁止行動
 
@@ -412,19 +443,21 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 - **PR マージ完了前にキューから該当行を削除する**（最重要 — マージ忘れの根本原因）
 - **メインが CI 緑後にマージするのを忘れる / マージ完了を確認せず in-flight から外す**（agent は PR 作成までで返るため、メインが観測して直接マージしないと PR が埋もれる）
 - **agent 内で `gh pr merge` を叩く**（マージはメインの責務）
-- **バッチの一部 Issue だけ close してキューから消す**（2-6 で全件 close する）
+- **バッチの一部 Issue だけ close してキューから消す**（2-4 で全件 close する）
 - **諦めた PR / 諦めたバッチをキューに残したまま sweep を終わらせようとする**（Stop Hook が永久に停止をブロックする。諦めたら必ずキューから消して metrics に記録する）
 - **`$SWEEP_DIR/queue.txt` の行に試行回数などを書き足す**（削除が `grep -vxF` の完全一致なので消せなくなる。試行回数は `attempts.json`）
 
 **パイプライン**
 
 - **実装 → 全 PR の CI 待ち → また実装、というバリアを作る**（CI 時間がそのまま実装 agent 0 本の空白になる。スロットが空いてキューが残っているなら即補充する）
-- **CI ポーリングの `while` ループの中で agent を再起動しようとする**（bash から `Agent` ツールは呼べない。2-4 の観測と 2-5 の判定を分離する）
+- **bash の `while` ループの中で agent を再起動しようとする**（bash から `Agent` ツールは呼べない。2-0 で状態を取り、2-3 で LLM が判定する）
+- **PR ごと / バッチごとに `gh pr view` や `gh pr list --head` を叩く**（2-0 の一覧取得 1 コールで全部引ける。ラウンドあたりのコール数を in-flight 本数に比例させない）
 - **1 本の PR の CI 失敗で他の in-flight の処理を止める**（諦めるのはその PR だけ）
 - **CI 失敗を検知せず待機を継続する**（無限待機の原因）
 - **失敗 check 名を agent に伝えず「とりあえず再実行」を頼む**（原因不明のまま盲目的に手を入れる事故になる）
 - **バッチの試行回数を in-flight テーブル（メモリ）だけで数える**（セッションを張り直すと同じバッチを無限に再試行する。`attempts.json` に永続化する）
-- **1 バッチの失敗で sweep 全体を止める**（2-9 の上限に達したバッチだけ諦めて残りを流す）
+- **1 バッチの失敗で sweep 全体を止める**（2-7 の上限に達したバッチだけ諦めて残りを流す）
+- **CI 待ちの PR が溜まっているせいで実装スロットを空けない**（`--parallel` と `--max-inflight` は別枠）
 - **ラウンド冒頭の base branch 最新化をスキップする**（古い base で次を実装すると競合・無駄作業の原因）
 
 **agent への委譲**
@@ -432,7 +465,9 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 - **メインスレッドで直接サブスキル（`/impl` 等）を Skill ツール起動する**（context 汚染の根本原因。必ず `Agent` 経由）
 - **メインスレッド自身がコードを修正する / コミットする / PR を編集する**（CTO は実装に手を出さない）
 - **wt 版スキル（`/impl-wt`, `/bug-fix-wt`）を呼ぶ**（worktree は 2-3 で sweep 側が作る。wt 版を呼ぶと二重に作られる）
-- **実装 agent に Review フェーズを回させる**（後段の `refine-git` が同じ差分を 4 観点でレビューするので二重コスト。ただし**テストの省略は禁止**）
+- **サブスキルに `--auto` を渡さない**（確認を取って止まる / Review が二重に走る / Plan が Issue の記載を再導出する。自律実行では致命的）
+- **サブスキルに `--no-pr` を渡さない**（バッチの Issue ごとに PR ができてしまう。PR は agent 側の手順3 で 1 本だけ作る）
+- **Issue 本文を複数のステップで読み直す**（フェーズ1-2 の解析 1 パスに集約する。メインスレッドは 1-2 が返した JSON だけで 1-3 のバッチ編成を行う）
 - **agent 内で `/refine-git` をスキップする**（レビューを通さずマージゲートに進むと品質ばらつきが出る）
 - **`refine-git` の代わりに `refine` を起動する**（全体スキャンになり、Issue と無関係な既存指摘でマージゲートが永久に落ちる）
 - **`refine-git` に `--skip-minor` / `--max-iter 2` を渡さない**（sweep のマージゲートは minor を見ないので minor のための反復は丸ごと無駄。反復上限を絞らないと 1 PR の実時間が読めない）
@@ -447,7 +482,7 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 - **`max_rounds` のデフォルトを自己判断で 1 より大きくする**（増やすのはユーザーが明示指定した時だけ）
 - **重要度フィルタで落ちた spinoff（`spinoff_deferred`）をレポートに書かずに捨てる**
 - **「spinoff も追跡しますか？」「次の round に進みますか？」のような確認をユーザーに取る**
-- **ユーザーに並列度（--parallel）を確認する**（デフォルト 5 で常に起動）
+- **ユーザーに並列度（--parallel / --max-inflight）を確認する**（デフォルトで常に起動）
 - ベースブランチを途中で変える
 - フェーズ0 の lock 取得をスキップする
 
@@ -460,24 +495,24 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 各**バッチ**の処理完了時 / 失敗時に **JSON 1行を append** する（バッチ = 1 PR）。後で `jq` で集計可能。
 
 **書き出すタイミング:**
-- 正常マージ完了（2-6 の Issue close 直後）
-- agent failure（2-9 の失敗時挙動）
+- 正常マージ完了（2-4 の Issue close 直後）
+- agent failure（2-7 の失敗時挙動）
 - CI 諦め（respawn 上限到達時）
 
 **スキーマ:**
 
-`issues` がバッチの全 Issue、`issue` はその先頭（既存クエリとの後方互換のため残す）。
+`issues` がバッチの全 Issue。先頭 Issue が要るときは `issues[0]` を使う（以前は後方互換の `issue` フィールドを二重に持っていた）。
 
 ```json
-{"ts":"<ISO8601>","issue":42,"issues":[42],"skill":"impl","duration_sec":423,"agent_attempts":1,"ci_respawns":0,"pr_number":127,"pr_url":"https://...","status":"merged"}
-{"ts":"<ISO8601>","issue":12,"issues":[12,13,14],"skill":"impl","duration_sec":2140,"agent_attempts":1,"ci_respawns":0,"pr_number":129,"pr_url":"https://...","status":"merged"}
-{"ts":"<ISO8601>","issue":51,"issues":[51],"skill":"bug-fix","duration_sec":1820,"agent_attempts":3,"ci_respawns":2,"pr_number":131,"pr_url":"https://...","status":"ci_gave_up","failed_checks":"unit-tests,lint"}
-{"ts":"<ISO8601>","issue":53,"issues":[53],"skill":null,"duration_sec":12,"agent_attempts":1,"ci_respawns":0,"pr_number":null,"pr_url":null,"status":"agent_failed","failure":"<理由>","failed_issue":53}
+{"ts":"<ISO8601>","issues":[42],"skill":"impl","duration_sec":423,"agent_attempts":1,"ci_respawns":0,"pr_number":127,"pr_url":"https://...","status":"merged"}
+{"ts":"<ISO8601>","issues":[12,13,14],"skill":"impl","duration_sec":2140,"agent_attempts":1,"ci_respawns":0,"pr_number":129,"pr_url":"https://...","status":"merged"}
+{"ts":"<ISO8601>","issues":[51],"skill":"bug-fix","duration_sec":1820,"agent_attempts":3,"ci_respawns":2,"pr_number":131,"pr_url":"https://...","status":"ci_gave_up","failed_checks":"unit-tests,lint"}
+{"ts":"<ISO8601>","issues":[53],"skill":null,"duration_sec":12,"agent_attempts":1,"ci_respawns":0,"pr_number":null,"pr_url":null,"status":"agent_failed","failure":"<理由>","failed_issue":53}
 ```
 
 **status 値:** `merged` / `ci_gave_up` / `agent_failed` / `aborted` / `manual_close`
 
-**実装:** 2-3 の起動時に `start_ts=$(date +%s)` を in-flight テーブルに記録し、2-6 / 2-9 の直前で:
+**実装:** 2-2 の起動時に `start_ts=$(date +%s)` を in-flight テーブルに記録し、2-4 / 2-7 の直前で:
 
 ```bash
 issues=$(printf '%s\n' $batch_issues | jq -sc 'map(tonumber)')   # バッチの全 Issue
@@ -491,7 +526,7 @@ jq -nc \
   --argjson pr "$pr_number" \
   --arg url "$pr_url" \
   --arg status "$status" \
-  '{ts:$ts,issue:$issues[0],issues:$issues,skill:$skill,duration_sec:$dur,agent_attempts:$att,ci_respawns:$resp,pr_number:$pr,pr_url:$url,status:$status}' \
+  '{ts:$ts,issues:$issues,skill:$skill,duration_sec:$dur,agent_attempts:$att,ci_respawns:$resp,pr_number:$pr,pr_url:$url,status:$status}' \
   >> "$SWEEP_DIR/metrics.jsonl"
 ```
 
@@ -507,8 +542,7 @@ jq -nc \
 # 今回 sweep が処理した親 Issue 番号一覧（フェーズ1 で展開した子 Issue を含む）
 PROCESSED_IDS=$(jq -r --arg since "$sweep_start_iso" \
   'select(.ts >= $since and ((.source // "") | startswith("refine") | not))
-   | if .issues then .issues[] else .issue end
-   | select(. != null)' \
+   | .issues[]' \
   "$SWEEP_DIR/metrics.jsonl" | sort -u | tr '\n' ',' | sed 's/,$//')
 
 # sweep 開始以降に作成された OPEN Issue を取得
@@ -587,7 +621,7 @@ sweep_start_iso=$(date -u -d @${sweep_start_ts} +%Y-%m-%dT%H:%M:%SZ)
   echo "- Failed: $failed_count"
   echo "- Elapsed: ${total_dur}s"
   echo "- Base branch: $base_branch"
-  echo "- Parallel: $parallel_n"
+  echo "- Parallel: $parallel_n (implement) / $max_inflight (in-flight)"
   echo
   echo "## Per-Issue"
   echo
@@ -595,13 +629,13 @@ sweep_start_iso=$(date -u -d @${sweep_start_ts} +%Y-%m-%dT%H:%M:%SZ)
   echo "|---|---|---|---|---|---|"
   jq -r --arg since "$sweep_start_iso" \
     'select(.ts >= $since and ((.source // "") | startswith("refine") | not)) |
-     "| \((.issues // [.issue]) | map("#\(.)") | join(", ")) | \(.skill // "-") | \(.duration_sec)s | \(.status) | \(.pr_url // "-") | \(.ci_respawns // 0) |"' \
+     "| \(.issues | map("#\(.)") | join(", ")) | \(.skill // "-") | \(.duration_sec)s | \(.status) | \(.pr_url // "-") | \(.ci_respawns // 0) |"' \
     "$SWEEP_DIR/metrics.jsonl"
   echo
   echo "## Failures & Manual Intervention"
   jq -r --arg since "$sweep_start_iso" \
     'select(.ts >= $since and ((.source // "") | startswith("refine") | not) and .status != "merged") |
-     "- **\((.issues // [.issue]) | map("#\(.)") | join(", "))** (\(.status))\(if .failed_issue then " — 転んだのは #\(.failed_issue)" else "" end): \(.failure // .failed_checks // "-") — PR \(.pr_url // "n/a")"' \
+     "- **\(.issues | map("#\(.)") | join(", "))** (\(.status))\(if .failed_issue then " — 転んだのは #\(.failed_issue)" else "" end): \(.failure // .failed_checks // "-") — PR \(.pr_url // "n/a")"' \
     "$SWEEP_DIR/metrics.jsonl"
   if [[ -f "$SWEEP_DIR/refine-metrics.jsonl" ]]; then
     echo
