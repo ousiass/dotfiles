@@ -8,9 +8,13 @@
 total_dur=$(( $(date +%s) - start_ts ))
 ```
 
+status は以下の enum から選ぶ。**これ以外の文字列（`stuck` 等）を作らない** — 呼び出し元の `issue-sweep` が parse する:
+
 - 閾値到達 → `clean`（マージへ進む）
 - `max_iter` 到達 → `iter_limit`（マージしない）
+- 2 反復連続で `critical + major` が減らない → `no_progress`（マージしない）
 - agent failure → `agent_failed`（マージしない）
+- マージ自体の失敗 → `merge_failed` / CI 修正を諦めた → `ci_gave_up`
 
 ## 2. CI 緑を待って直接マージ → Issue close
 
@@ -70,28 +74,30 @@ fi
 
 `state-and-telemetry.md` の追記コードに `status` を足した 1 行を append する。
 
-## 4. 最終 review を再実行して last_counts / evidence を確定
+## 4. 最終カウントの確定
 
-- status=`clean` を主張する場合は **必ずもう一度フェーズ2-1 のレビューを走らせ**、最新カウントが閾値を満たしていることを再確認する（推定で clean にしない）
-- 結果を `.sweep/refine-metrics.jsonl` に append し、state.json の `last_counts` / `evidence` / `updated_at` を更新
+- **`--no-merge` 指定時（`issue-sweep` からの呼び出しは常にこれ）は re-review を行わない。** 最終反復 2-1 のレビュー結果をそのまま最終カウントとして使う。マージしないなら「マージ直前の状態を再確認する」意味がなく、呼び出し元が自前で CI ゲートを持っているので二重になる（PR ごとにレビュー agent 3〜5 本ぶんの周回が丸損だった）
+- **マージまで行う場合のみ**、status=`clean` を主張する前にもう一度フェーズ2-1 のレビューを走らせて閾値を満たしていることを再確認する（推定で clean にしない）
+- どちらの場合も最終カウントを `$SWEEP_DIR/refine-metrics.jsonl` に append し、`OWNS_STATE=true` なら state.json の `last_counts` / `updated_at` を更新する
 
 ## 5. state.json を terminal 化
 
+**`OWNS_STATE=false`（呼び出し元の sweep が state.json を所有）のときはこの手順を丸ごとスキップする。** ここで terminal 化すると sweep の Stop Hook のブロックが解除され、キュー途中で静かに終わる。
+
 ```bash
-reason="thresholds_met"   # または iter_limit / agent_failed / merge_failed / ci_gave_up / aborted
-jq --arg reason "$reason" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-   '.phase = "terminal" | .termination_reason = $reason | .updated_at = $now' \
-   .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
+if [[ "$OWNS_STATE" == "true" ]]; then
+  reason="thresholds_met"   # または iter_limit / no_progress / agent_failed / merge_failed / ci_gave_up / aborted
+  jq --arg reason "$reason" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+     '.phase = "terminal" | .termination_reason = $reason | .updated_at = $now' \
+     "$SWEEP_DIR/state.json" > "$SWEEP_DIR/state.json.tmp" && mv "$SWEEP_DIR/state.json.tmp" "$SWEEP_DIR/state.json"
+fi
 ```
 
 ## 6. Markdown レポート生成
 
-`## Evidence` セクション必須（state.json の `evidence` をそのまま引用）。
-
 ```bash
 ts=$(date -u +%Y%m%dT%H%M%SZ)
-report=".sweep/report-${skill_name}-${ts}.md"
-mkdir -p .sweep
+report="$SWEEP_DIR/report-${skill_name}-${ts}.md"
 cat > "$report" <<EOF
 # ${skill_name} report — $(date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -107,11 +113,7 @@ cat > "$report" <<EOF
 
 | Iter | Critical | Major | Minor |
 |---|---|---|---|
-$(jq -r --arg skill "$skill_name" --argjson pr "$pr_number" 'select(.source == $skill and .pr_number == $pr) | "| \(.iter) | \(.critical) | \(.major) | \(.minor) |"' .sweep/refine-metrics.jsonl)
-
-## Evidence
-
-$(jq -r '.evidence[] | "- \(.)"' .sweep/state.json)
+$(jq -r --arg skill "$skill_name" --argjson pr "$pr_number" 'select(.source == $skill and .pr_number == $pr) | "| \(.iter) | \(.critical) | \(.major) | \(.minor) |"' "$SWEEP_DIR/refine-metrics.jsonl")
 
 ## Remaining issues
 $(if [[ "$status" != "clean" ]]; then echo "$findings" | jq -r '.critical[]?, .major[]?, .minor[]? | "- [\(.file // "?"):\(.line // 0)] \(.msg)"'; else echo "なし（閾値到達）"; fi)
@@ -139,11 +141,11 @@ sweep_notify "$skill_name done" "PR #${pr_number}: ${status}, ${iter} iters" "<e
 最終メッセージとして以下の JSON 1行を出力する。`issue-sweep` の engineer agent などが parse できるよう、Markdown レポートのパス案内に**先行して** JSON 行を出すこと。
 
 ```json
-{"status":"<clean|iter_limit|agent_failed|merge_failed|ci_gave_up>","skill":"<refine|refine-git>","pr_number":<N>,"iter":<K>,"critical_remaining":<N>,"major_remaining":<N>,"minor_remaining":<N>,"merged":<true|false>,"report_path":".sweep/report-<skill>-<ts>.md"}
+{"status":"<clean|iter_limit|no_progress|agent_failed|merge_failed|ci_gave_up>","skill":"<refine|refine-git>","pr_number":<N>,"iter":<K>,"critical_remaining":<N>,"major_remaining":<N>,"minor_remaining":<N>,"merged":<true|false>,"report_path":".sweep/report-<skill>-<ts>.md"}
 ```
 
 - `--no-merge` 指定時は `merged: false` で固定（マージをしていないため）
-- `iter_limit` でも `critical_remaining=0 ∧ major_remaining=0` のときは呼び出し元が「軽微残りで OK」と判定できる
+- `iter_limit` / `no_progress` でも `critical_remaining=0 ∧ major_remaining=0` のときは呼び出し元が「軽微残りで OK」と判定できる（`issue-sweep` のマージゲートはこの 2 つだけを見る）
 - レポートパスはユーザー向けの最終表示と JSON 両方に含める
 
 ## 失敗時の挙動
