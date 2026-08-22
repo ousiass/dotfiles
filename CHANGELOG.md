@@ -1,5 +1,84 @@
 > 注: このファイルは `~/dotfiles` リポジトリ全体（fish / nvim / tmux / install scripts / `.claude/` 配下のスキル類すべて）の変更履歴です。
 
+## [v0.6.0] - 2026-08-22
+
+自律実行フロー（`issue-sweep` → `impl` → `refine-git`）の収束性とスループットの作り直しを中心にしたリリース。あわせて `refine` の差分版分離、`spec-audit-git` / `mock-drift` の追加、herdr の導入、install/update スクリプトのツール単位分割を含む。
+
+### ⚠️ Breaking Changes / 破壊的変更
+
+- Split `refine` into `refine` (whole repo) and `refine-git` (diff only) / `refine` を「リポジトリ全体対象」と「PR 差分対象」に分割。`impl` / `impl-wt` / `issue-sweep` が作った PR の研磨は `refine-git` の担当になり、`refine` を機能 PR に使うとスコープが膨張して閾値に到達しなくなる
+- Rename `impl-type-r` / `impl-type-wr` to `impl-r` / `impl-wt-r` / `impl-type-r` / `impl-type-wr` を `impl-r` / `impl-wt-r` に改名。旧名では起動できない
+- Require explicit `--no-pr` for PR-less sub-skill runs / `impl` / `bug-fix` / `design-fix` の PR 作成スキップを「呼び出し元が明示指示すれば可」という運用から `--no-pr` フラグ必須に変更
+- Unify `refine` status vocabulary / `refine` 系の終了 status を `clean` / `iter_limit` / `no_progress` / `agent_failed` / `merge_failed` / `ci_gave_up` の enum に統一（`stuck` 等の独自文字列を廃止）。status を parse する呼び出し元に影響する
+- Drop `evidence` from `.sweep/state.json` and `issue` from metrics / `.sweep/state.json` の `evidence` 配列と null 固定だった `last_counts`、`metrics.jsonl` の後方互換 `issue` フィールドを廃止（`issues[0]` で代替）
+
+### ✨ New Features / 新機能
+
+- Add `--auto` autonomous mode to `impl` / `bug-fix` / `design-fix` / 自律実行モード `--auto` を追加。assignee 確認・不足情報のヒアリング・不確定仕様の確認・破壊的変更の確認で停止せず、採用した前提を PR 本文に列挙して進む。Review フェーズは後段の `refine-git` に委ねる（テスト・Format & Lint・Commit・回帰テスト・デザイン検証の省略は禁止のまま）
+- Add `--skip-minor` to `refine-git` / minor 指摘を閾値判定と修正対象から外すフラグを追加。`issue-sweep` からの呼び出しは常にこれを渡す
+- Add `--max-inflight` to `issue-sweep` / 同時に抱える未マージ PR 数の上限を `--parallel`（実装同時数）から分離
+- Add batch implementation to `issue-sweep` / 関連 Issue を 1 worktree / 1 ブランチ / 1 PR にまとめて実装するバッチモードを追加
+- Add `spec-audit-git` skill / 差分スコープで仕様乖離・TODO・スキップテストを検知する `spec-audit-git` を追加
+- Add `mock-drift` skill / モックと実装の乖離をコンポーネント単位でチェックする `mock-drift` を追加
+- Add herdr integration / herdr をインストール対象に追加し、tmux 準拠キーバインドと Claude Code 連携フックを導入
+- Add copilot fish completions / GitHub Copilot CLI の fish 補完を追加
+- Add `f` / `fc` fish aliases / fugu 起動・再開用の `f` / `fc` エイリアスを追加
+- Assign self on start in `impl` / `bug-fix` / 着手時に Issue の assignee へ自分を追加する挙動を追加
+- Add `unzip` / `jq` to `install_packages` / インストール対象パッケージに `unzip` と `jq` を追加
+
+### 🐛 Bug Fixes / バグ修正
+
+- Fix non-converging refine loop caused by doc/spec findings / `doc-drift-git` / `spec-audit-git` の指摘は本質的に差分外のドキュメント修正を要求するのに、fix agent が差分内ファイルしか編集できず `out_of_scope_required` で必ず失敗していた問題を修正。`docs/**` / `*.md` / 仕様書は差分外でも編集可にし、修正に差分外の非ドキュメントファイルが必要な指摘は `out_of_scope` に分類する
+- Fix unbounded improvement loop in `impl` / `impl` の改善サイクルが「指摘なしまで繰り返す」で上限なしだった問題を修正（上限 3 周、残指摘は PR 本文の「## 残課題」に列挙）
+- Fix unreachable CI failure handling in `issue-sweep` / bash の `while` ループ内から `Agent` ツールを呼ぶ実行不能な擬似コードになっており、CI 失敗を検知しても何も起きずに待機が続く問題を修正。状態取得（bash）と判定・agent 再起動（LLM）を分離
+- Fix `.sweep/` splitting between worktree and main repo / `.sweep/` を `CLAUDE_PROJECT_DIR` 固定にし、worktree 削除で `refine-metrics.jsonl` と `spinoff-draft.jsonl` が消えていた問題を修正
+- Fix `refine-git` silently terminating the caller's sweep / `refine-git` が `issue-sweep` と同じ `state.json` を上書きして `phase=terminal` にし、Stop Hook のブロックが解除されて sweep がキュー途中で終わる経路を所有権ガードで封じた
+- Fix Atomic Design guard aborting entire sweeps / フロントエンドで Atomic Design 構造が検出できないと `refine-git` が起動直後に `exit 2` し、全 Issue のマージゲートが落ちていた問題を修正（sweep 経由では警告に降格）
+- Fix infinite batch retry across sessions / バッチの試行回数がメモリ上のみで、セッションを張り直すと同じバッチを無限に再試行していた問題を `attempts.json` への永続化で修正（上限 2 回）
+- Fix sweep unable to terminate after giving up / 諦めたバッチ / PR をキューに残していたため Stop Hook が停止をブロックし続ける問題を修正。失敗打ち切り時も terminal 化とレポート生成を行う
+- Fix `agent-skills` install aborting mid-run / `install_agent_skills` の中断を修正し、MCP 登録の失敗理由を表示するようにした
+- Fix Node LTS install ordering / Node LTS のインストールを node 製 CLI より前に移動
+- Fix tmux clipboard handling / tmux のクリップボードを OSC 52 送出に一本化（passthrough 有効化を含む）
+- Fix `set_default_shell` reliability / `chsh` の反映検証と sudo フォールバックを追加
+- Fix Stop hook path resolution / Stop hook のパスを `$HOME` 側に切り替え、未セットアップのプロジェクトでの not found を解消
+- Fix `refine-sweep` engineer prompt / merge + Issue close を明示的に指示するよう修正
+- Fix herdr split keybindings / herdr の split バインドを tmux 既定の `"` / `%` に統一
+- Fix fugu resume alias / fugu 再開エイリアスを修正
+- Fix nvim checkhealth warnings / nvim の checkhealth warning を整理
+- Fix invalid permission rule / 無効な `Write(.sweep/**)` 許可ルールを削除
+- Fix shellcheck warnings / shellcheck の warning 指摘を解消
+
+### 🔧 Improvements / 改善
+
+- Rebuild `issue-sweep` phase 2 as an in-flight pipeline / 「実装 N 件 → 全 PR の CI 待ち → また N 件」というバリアを撤去し、スロットが空いた瞬間に次のバッチを起動する方式に変更。CI 時間が実装 agent 0 本の空白にならない
+- Cut review iterations in `refine-git` / 2 周目以降は前回 critical/major を出した観点のみ再走、`doc-drift-git` / `spec-audit-git` はドキュメントを触った反復のみ、`--no-merge` 時の最終 re-review を廃止。`issue-sweep` からは `--max-iter 2` を渡す。1 PR あたりのレビュー agent 起動数が最悪ケースで約 45〜65 本から約 6〜9 本になる
+- Collapse duplicate Issue body reads in `issue-sweep` / 依存判定・分割判定・スコープ読み取りで Issue 本文を 3 回読んでいたのを「1 Issue = 1 agent = 1 パス」の解析に統合
+- Remove `gh` N+1 calls / 親 Issue 展開を 1 コールに、PR の冪等性チェックと状態判定を 1 回の PR 一覧取得に統合。ラウンドあたりの `gh` 呼び出しが in-flight 本数に比例しなくなった
+- Unify batch scope calculation / 「disjoint なら並列」と「重なるならバッチ」の逆向きの二重判定をやめ、バッチ編成 1 箇所に統合（同じバッチ = 直列、別のバッチ = 並列）
+- Unify `issue-sweep` launch prompt / 1 件用とバッチ用に分裂していた起動プロンプトを 1 本に統合し、worktree は常に sweep 側が作る形にした（worktree の before/after スナップショット差分が不要になった）
+- Lighten `Plan` for scoped Issues / `--auto` 時、Issue 本文にスコープ記載があれば `Plan` エージェントを起動せずその記載を実装計画として使う。仕様書探索も worktree ごと 1 回に
+- Cap `issue-split-auto` fan-out / Issue 数ぶん同時起動していた分割判定を 5 件ずつのウェーブに制限
+- Redesign `refine-sweep` around Issue-driven `impl-wt` / `refine-sweep` を Issue 化 → `impl-wt` で消化するフローに再設計
+- Consolidate spinoff issue creation / スコープ外発見の起票をフェーズ3 の `--batch` 1 回に集約し、`issue-sweep` の spinoff 追跡既定を 1 周に絞った
+- Change `issue-sweep` split judgment to content-based / 文字数や H2 数のような表層メトリクスによる事前フィルタをやめ、本文と関連仕様書を読んで判定する形に変更
+- Remove external taste-skill and trim `issue-sweep` / 外部 taste-skill を除去し `issue-sweep` の冗長な記述を削減
+- Split install/update scripts per tool / install / update スクリプトをツール単位に分割し、common ヘルパーも責務単位に分割
+- Improve dotfiles update flow / dotfiles 更新処理を改善
+- Track copilot CLI options / copilot の fish 補完を最新の CLI オプションに追随
+- Revert verbose MCP registration logging / MCP 登録失敗時の詳細ログを削除
+
+### 📝 Documentation / ドキュメント
+
+- Add MIT LICENSE and CONTRIBUTING.md / MIT LICENSE と CONTRIBUTING.md を追加
+- Add PR / Issue templates / PR / Issue テンプレートを追加
+- Add license and contribution links to README / README にライセンスとコントリビューションの導線を追加
+
+### 🏗️ Infrastructure / インフラ
+
+- Add PR syntax checks / PR 向けに shellcheck / fish / JSON の構文チェックを追加
+- Bump `actions/checkout` to v5 / `actions/checkout` を v5 に更新
+- Ignore runtime artifacts / ランタイム生成物と marketplace 導入 skill を gitignore に追加
+
 ## [v0.5.0] - 2026-07-08
 
 Atomic Design レビューの導入、sweep 系スキルの UX 統一、外部 agent-skills のマニフェスト化、Codex 環境整備を中心にしたリリース。
