@@ -246,7 +246,8 @@ cd slide && bun install
 ### 2-3: レビュー
 
 ```bash
-cd slide && make check
+cd slide && make check                          # はみ出し（全ページ実寸）
+bun <skill>/scripts/check-contrast.mjs          # 配色のコントラスト（初回とトンマナ変更時）
 ```
 
 `make check` はビルドしてから `scripts/check-overflow.mjs` を実行する。
@@ -325,6 +326,7 @@ make png   # public/<slug>/ に1ページ1枚
 | --- | --- |
 | `references/tone.md` | 1-1（質問の選択肢作成）、1-1b（配色導出・ロゴ）、1-2（`:root` 差し替え） |
 | `scripts/derive-palette.mjs` | 1-1b（プライマリカラーから配色トークンを導出） |
+| `scripts/check-contrast.mjs` | 2-3（配色のコントラスト検査） |
 | `references/structure.md` | 1-3（アウトライン設計）、2-2（わかりやすさの規律）、3-2（通し確認） |
 | `references/example-deck.md` | 2-2 の初回（文章とパターンの基準） |
 | `references/components.md` | 2-1（パターン選定）、2-2（執筆）、2-3（崩れ修正） |

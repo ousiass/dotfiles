@@ -9,7 +9,7 @@
 SLUG      := {{PROJECT_SLUG}}
 SKILL_DIR ?= $(HOME)/.claude/skills/slide-gen
 
-.PHONY: help install dev build pdf png site check deploy clean
+.PHONY: help install dev build pdf png site check contrast deploy clean
 
 help:
 	@echo "make install  依存をインストールする"
@@ -19,6 +19,7 @@ help:
 	@echo "make png      1ページ1枚の PNG を出力する (public/$(SLUG)/)"
 	@echo "make site     PDF を作ってから静的サイトをビルドする"
 	@echo "make check    枠からのはみ出しを検査する"
+	@echo "make contrast 配色のコントラストを検査する"
 	@echo "make deploy   Cloudflare Workers へデプロイする"
 
 install:
@@ -48,6 +49,9 @@ site: pdf build
 
 check: build
 	bun $(SKILL_DIR)/scripts/check-overflow.mjs
+
+contrast:
+	bun $(SKILL_DIR)/scripts/check-contrast.mjs visual.css
 
 deploy: build
 	bunx wrangler deploy
