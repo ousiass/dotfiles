@@ -3,9 +3,93 @@
 Step 2 で決め、Step 3 で `visual.css` の `:root` とスタイル方針に反映する。
 **執筆を始めてから変えない。** 途中で変えると全ページの手直しになる。
 
-決める項目は4つ。配色 / 文体 / 情報密度 / ラベル言語。
+決める項目は5つ。**スタイル / 配色** / 文体 / 情報密度 / ラベル言語。
 
-## 1. 配色プリセット
+スタイルと配色は独立して選べる（3 × 4 = 12 通り）。
+**スタイルを変えないと、配色だけ変えても同じ顔の資料になる。** 用途に合わせて必ず選ぶ。
+
+## 1. スタイルプリセット
+
+カードの形・罫線・角丸・見出しの太さ・バナーの見え方を決める。
+`visual.css` の `:root` にある**意匠トークン**を差し替えるだけで切り替わる。
+
+### A. Editorial（既定）
+
+角ゼロ、カード上端に 3px の色帯、白地に細罫、詰まった太字見出し、濃紺ベタのバナー。
+硬めで密度が高い。提案書・技術資料に合う。
+
+`visual.css` の既定値がこれ。**追記不要**。
+
+### B. Soft
+
+角丸と影で面を浮かせ、罫線と色帯をなくす。淡い地で `.accent` を示す。
+やわらかく親しみのある印象。社内向け、report、サービス紹介に合う。
+
+```css
+/* visual.css の末尾に追記する */
+:root {
+  --v-radius: 14px;
+  --v-card-border: none;
+  --v-card-topline: 0;
+  --v-card-shadow: 0 2px 12px rgba(16, 24, 40, 0.07);
+  --v-card-accent-bg: color-mix(in srgb, var(--v-accent) 8%, var(--v-white));
+  --v-card-pad: 1.3rem 1.35rem;
+  --v-h2-weight: 750;
+  --v-h2-tracking: -0.02em;
+  --v-kicker-mark: 0;
+  --v-kicker-tracking: 0.14em;
+  --v-banner-bg: color-mix(in srgb, var(--v-accent) 6%, var(--v-white));
+  --v-banner-color: var(--v-navy);
+  --v-banner-label: var(--v-accent-text);
+  --v-banner-border: 1px solid color-mix(in srgb, var(--v-accent) 25%, var(--v-white));
+}
+```
+
+### C. Minimal
+
+カードの地と枠をなくし、上端 1px の罫線と余白だけで区切る。新聞・論文に近い静かな面。
+情報量が多いデッキ、堅い相手、印刷前提のときに合う。
+
+```css
+/* visual.css の末尾に追記する */
+:root {
+  --v-radius: 0;
+  --v-card-border: none;
+  --v-card-topline: 1px;
+  --v-card-bg: transparent;
+  --v-card-accent-bg: transparent;
+  --v-card-shadow: none;
+  --v-card-pad: 0.9rem 0 0;
+  --v-h2-size: 2.2rem;
+  --v-h2-weight: 700;
+  --v-h2-tracking: -0.01em;
+  --v-kicker-mark: 0;
+  --v-kicker-tracking: 0.2em;
+  --v-banner-bg: transparent;
+  --v-banner-color: var(--v-navy);
+  --v-banner-label: var(--v-accent-text);
+  --v-banner-border: 1px solid var(--v-line);
+}
+```
+
+### 意匠トークン一覧
+
+個別に詰めたい場合はこのトークンだけを触る。**セレクタに直接値を書かない。**
+
+| トークン | 効果 |
+| --- | --- |
+| `--v-radius` | 角丸。カード・バナー・表に効く |
+| `--v-card-bg` / `--v-card-border` / `--v-card-shadow` | カードの地・枠・影 |
+| `--v-card-topline` | カード上端の色帯の太さ。`0` で消える |
+| `--v-card-accent-bg` | `.accent` カードの地。色帯を消すプリセットで差別化に使う |
+| `--v-card-pad` | カード内の余白 |
+| `--v-h2-size` / `--v-h2-weight` / `--v-h2-tracking` | 見出しの大きさ・太さ・字間 |
+| `--v-kicker-mark` | kicker 前の横線の長さ。`0` で消える |
+| `--v-kicker-tracking` / `--v-kicker-case` | kicker の字間・大文字化 |
+| `--v-banner-bg` / `--v-banner-color` / `--v-banner-label` / `--v-banner-border` | 結論バナーの地・文字・ラベル・枠 |
+| `--v-sans` | 本文フォント |
+
+## 2. 配色プリセット
 
 `visual.css` の `:root` ブロックを丸ごと差し替える。**他の箇所に色を直書きしない。**
 記載のコントラスト比は実測値（WCAG 相対輝度比）。
@@ -116,7 +200,7 @@ print('accent_on_dark/dark', cr('#6ea8fe','#14171c'))
 
 基準: 本文色 4.5:1 以上、罫線・図形の構造色 3:1 以上、見出し 7:1 以上を目安。
 
-## 2. 文体
+## 3. 文体
 
 | 方針 | 使う場面 | 例 |
 | --- | --- | --- |
@@ -132,7 +216,7 @@ print('accent_on_dark/dark', cr('#6ea8fe','#14171c'))
 - 同じ概念を別語で言い換えない。用語は資料内で1つに固定する
 - 社内用語・略語は初出で1度だけ定義し、以降は略語を使う
 
-## 3. 情報密度
+## 4. 情報密度
 
 | プリセット | 1ページの目安 | 使う場面 |
 | --- | --- | --- |
@@ -143,7 +227,7 @@ print('accent_on_dark/dark', cr('#6ea8fe','#14171c'))
 「対面で話す」なら薄め、「送って読んでもらう」なら厚め。兼用なら標準。
 Appendix は本編より1段階厚くしてよい。
 
-## 4. ラベル言語
+## 5. ラベル言語
 
 `v-kicker` に置く小見出しラベルの言語。
 
@@ -154,6 +238,7 @@ Appendix は本編より1段階厚くしてよい。
 
 ## 反映手順
 
-1. `visual.css` の `:root` をプリセットで差し替える
-2. 文体・密度・ラベル言語を作業メモに書き、全ページで守る
-3. `slide/README.md` の「デザインルール」に選んだプリセット名と理由を1行残す
+1. スタイルプリセット（A 以外）を `visual.css` の末尾に追記する
+2. 配色プリセットで `visual.css` の `:root` を差し替える
+3. 文体・密度・ラベル言語を作業メモに書き、全ページで守る
+4. `slide/README.md` の「デザインルール」に選んだスタイルと配色、理由を1行残す

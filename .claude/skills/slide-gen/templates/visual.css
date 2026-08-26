@@ -29,6 +29,28 @@
   --v-line: #dcdfeb;
   --v-line-dark: rgba(255, 255, 255, 0.16);
   --v-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --v-sans: 'Inter', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', system-ui, sans-serif;
+
+  /* 意匠トークン。スタイルプリセットはここだけを差し替える
+   * （references/tone.md「スタイルプリセット」を参照）*/
+  --v-radius: 0;                            /* 角丸 */
+  --v-card-bg: var(--v-white);              /* カードの地 */
+  --v-card-border: var(--v-card-border);
+  border-radius: var(--v-radius); /* カードの枠線。none で消す */
+  --v-card-topline: 3px;                    /* カード上端の色帯。0 で消す */
+  --v-card-accent-bg: var(--v-card-bg);     /* .accent カードの地。topline を消すプリセットで効かせる */
+  --v-card-shadow: none;
+  --v-card-pad: 1.1rem 1.15rem;
+  --v-h2-size: 2.4rem;
+  --v-h2-weight: 800;
+  --v-h2-tracking: -0.04em;
+  --v-kicker-mark: 1.5rem;                  /* kicker 前の横線の長さ。0 で消す */
+  --v-kicker-tracking: 0.25em;
+  --v-kicker-case: uppercase;               /* none で原文のまま */
+  --v-banner-bg: var(--v-navy);
+  --v-banner-color: var(--v-white);
+  --v-banner-label: var(--v-accent-on-dark);
+  --v-banner-border: none;
 }
 
 /* ---------------------------------------------------------------- base */
@@ -42,7 +64,7 @@
   padding: 2.7rem 3.4rem 3rem;
   background: var(--v-bg-light);
   color: var(--v-ink);
-  font-family: 'Inter', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', system-ui, sans-serif;
+  font-family: var(--v-sans);
 }
 
 /* layout: center を使うページは中央寄せに戻す */
@@ -109,9 +131,9 @@
 .visual-deck h2 {
   max-width: 900px;
   color: var(--v-navy);
-  font-size: 2.4rem;
-  font-weight: 800;
-  letter-spacing: -0.04em;
+  font-size: var(--v-h2-size);
+  font-weight: var(--v-h2-weight);
+  letter-spacing: var(--v-h2-tracking);
   line-height: 1.1;
 }
 
@@ -150,12 +172,12 @@
   color: var(--v-blue);
   font-size: 0.62rem;
   font-weight: 800;
-  letter-spacing: 0.25em;
-  text-transform: uppercase;
+  letter-spacing: var(--v-kicker-tracking);
+  text-transform: var(--v-kicker-case);
 }
 
 .v-kicker::before {
-  width: 1.5rem;
+  width: var(--v-kicker-mark);
   height: 2px;
   background: var(--v-accent);
   content: "";
@@ -187,7 +209,7 @@
   margin-top: 1.3rem;
   padding: 0.85rem 1.1rem;
   border-left: 3px solid var(--v-accent);
-  background: var(--v-white);
+  background: var(--v-card-bg);
 }
 
 .v-internal-note strong {
@@ -209,13 +231,15 @@
   gap: 1.2rem;
   margin-top: 1.3rem;
   padding: 0.8rem 1.2rem;
-  background: var(--v-navy);
-  color: var(--v-white);
+  border: var(--v-banner-border);
+  border-radius: var(--v-radius);
+  background: var(--v-banner-bg);
+  color: var(--v-banner-color);
 }
 
 .v-formula-banner span {
   flex-shrink: 0;
-  color: var(--v-accent-on-dark);
+  color: var(--v-banner-label);
   font-size: 0.62rem;
   font-weight: 800;
   letter-spacing: 0.2em;
@@ -223,7 +247,7 @@
 }
 
 .v-formula-banner strong {
-  color: var(--v-white);
+  color: var(--v-banner-color);
   font-size: 0.95rem;
   font-weight: 750;
   line-height: 1.45;
@@ -238,8 +262,9 @@
 
 .v-chips span {
   padding: 0.3rem 0.6rem;
-  border: 1px solid var(--v-line);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  background: var(--v-card-bg);
   color: var(--v-blue);
   font-size: 0.66rem;
   font-weight: 700;
@@ -465,13 +490,15 @@
   min-width: 0;
   min-height: 150px;
   padding: 1rem 0.85rem;
-  border: 1px solid var(--v-line);
-  border-top: 3px solid var(--v-blue);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  border-top: var(--v-card-topline) solid var(--v-blue);
+  background: var(--v-card-bg);
 }
 
 .v-pipeline .node.accent {
   border-top-color: var(--v-magenta);
+  background: var(--v-card-accent-bg);
 }
 
 .v-pipeline .node:not(:last-child)::after {
@@ -526,8 +553,9 @@
   position: relative;
   min-height: 180px;
   padding: 1.3rem;
-  border: 1px solid var(--v-line);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  background: var(--v-card-bg);
 }
 
 .v-process article:not(:last-child)::after {
@@ -632,10 +660,12 @@
 .v-detail-columns article,
 .v-flow-detail article {
   min-width: 0;
-  padding: 1.1rem 1.15rem;
-  border: 1px solid var(--v-line);
-  border-top: 3px solid var(--v-blue);
-  background: var(--v-white);
+  padding: var(--v-card-pad);
+  border: var(--v-card-border);
+  border-top: var(--v-card-topline) solid var(--v-blue);
+  border-radius: var(--v-radius);
+  box-shadow: var(--v-card-shadow);
+  background: var(--v-card-bg);
 }
 
 .v-audience article.accent,
@@ -645,6 +675,7 @@
 .v-detail-columns article.accent,
 .v-flow-detail article.accent {
   border-top-color: var(--v-magenta);
+  background: var(--v-card-accent-bg);
 }
 
 .v-audience .ordinal {
@@ -785,8 +816,9 @@
   gap: 0.6rem;
   min-width: 0;
   padding: 0.75rem 0.85rem;
-  border: 1px solid var(--v-line);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  background: var(--v-card-bg);
 }
 
 .v-feature-inventory article > span {
@@ -819,9 +851,10 @@
 
 .v-duo article {
   padding: 1.5rem 1.6rem;
-  border: 1px solid var(--v-line);
-  border-top: 3px solid var(--v-blue);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  border-top: var(--v-card-topline) solid var(--v-blue);
+  background: var(--v-card-bg);
 }
 
 .v-duo article.accent {
@@ -909,7 +942,7 @@
 
 .v-metrics article {
   padding-top: 0.7rem;
-  border-top: 3px solid var(--v-navy);
+  border-top: var(--v-card-topline) solid var(--v-navy);
 }
 
 .v-metrics .num {
@@ -946,9 +979,10 @@
 .v-timeline article {
   position: relative;
   padding: 0.9rem 1rem 1rem;
-  border: 1px solid var(--v-line);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
   border-left: 3px solid var(--v-accent);
-  background: var(--v-white);
+  background: var(--v-card-bg);
 }
 
 .v-timeline h3 {
@@ -982,7 +1016,7 @@
 .v-event-strip > div {
   padding: 0.7rem 0.9rem;
   border-left: 2px solid var(--v-accent);
-  background: var(--v-white);
+  background: var(--v-card-bg);
 }
 
 .v-event-strip strong {
@@ -1003,8 +1037,9 @@
 .v-data-table {
   display: grid;
   margin-top: 1.8rem;
-  border: 1px solid var(--v-line);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  background: var(--v-card-bg);
   font-size: 0.74rem;
 }
 
@@ -1080,8 +1115,9 @@
   display: grid;
   grid-template-columns: 160px repeat(4, 1fr);
   margin-top: 2rem;
-  border: 1px solid var(--v-line);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  background: var(--v-card-bg);
 }
 
 .v-matrix > div {
@@ -1127,14 +1163,15 @@
 
 .v-plan {
   padding: 1.2rem 1.25rem 1.35rem;
-  border: 1px solid var(--v-line);
-  border-top: 3px solid var(--v-blue);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  border-top: var(--v-card-topline) solid var(--v-blue);
+  background: var(--v-card-bg);
 }
 
 .v-plan.featured {
   border-color: var(--v-navy);
-  border-top: 3px solid var(--v-magenta);
+  border-top: var(--v-card-topline) solid var(--v-magenta);
   box-shadow: 0 12px 30px rgba(10, 16, 48, 0.1);
 }
 
@@ -1226,9 +1263,10 @@
 
 .v-two-stack article {
   padding: 0.8rem 1rem;
-  border: 1px solid var(--v-line);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
   border-left: 3px solid var(--v-accent);
-  background: var(--v-white);
+  background: var(--v-card-bg);
 }
 
 .v-two-stack h3 {
@@ -1267,7 +1305,7 @@
   overflow: hidden;
   border: 2px solid var(--v-navy);
   border-radius: 14px;
-  background: var(--v-white);
+  background: var(--v-card-bg);
 }
 
 .v-phone .screen img {
@@ -1314,9 +1352,10 @@
 
 .v-split .source {
   padding: 1.2rem 1rem;
-  border: 1px solid var(--v-line);
-  border-top: 3px solid var(--v-magenta);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  border-top: var(--v-card-topline) solid var(--v-magenta);
+  background: var(--v-card-bg);
   text-align: center;
 }
 
@@ -1354,8 +1393,9 @@
   align-items: center;
   gap: 0.8rem;
   padding: 0.7rem 1rem;
-  border: 1px solid var(--v-line);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  background: var(--v-card-bg);
 }
 
 .v-split .targets strong {
@@ -1392,9 +1432,10 @@
   gap: 0.6rem;
   min-width: 0;
   padding: 0.7rem 0.85rem;
-  border: 1px solid var(--v-line);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
   border-left: 3px solid var(--v-accent);
-  background: var(--v-white);
+  background: var(--v-card-bg);
 }
 
 .v-stream-grid article > span {
@@ -1431,9 +1472,10 @@
   position: relative;
   min-width: 0;
   padding: 1rem 1rem 1.1rem;
-  border: 1px solid var(--v-line);
-  border-top: 3px solid var(--v-blue);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  border-top: var(--v-card-topline) solid var(--v-blue);
+  background: var(--v-card-bg);
 }
 
 .v-phase-grid article:nth-child(4) {
@@ -1507,8 +1549,9 @@
   align-items: center;
   gap: 1rem;
   padding: 0.5rem 0.85rem;
-  border: 1px solid var(--v-line);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  background: var(--v-card-bg);
 }
 
 .v-arch .layer.core {
@@ -1541,8 +1584,9 @@
 
 .v-arch .layer .items span {
   padding: 0.2rem 0.45rem;
-  border: 1px solid var(--v-line);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  background: var(--v-card-bg);
   color: var(--v-blue);
   font-size: 0.6rem;
   font-weight: 700;
@@ -1666,9 +1710,10 @@
 
 .v-company-list article {
   padding: 1.2rem 1.3rem;
-  border: 1px solid var(--v-line);
-  border-top: 3px solid var(--v-blue);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  border-top: var(--v-card-topline) solid var(--v-blue);
+  background: var(--v-card-bg);
 }
 
 .v-company-list h3 {
@@ -1758,9 +1803,10 @@
   gap: 0.8rem;
   margin-top: 0.8rem;
   padding: 0.35rem 0.9rem;
-  border: 1px solid var(--v-line);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
   border-left: 3px solid var(--v-magenta);
-  background: var(--v-white);
+  background: var(--v-card-bg);
 }
 
 .v-hub-fan strong {
@@ -1797,8 +1843,9 @@
 .v-hub-side > div {
   position: relative;
   padding: 0.45rem 0.6rem;
-  border: 1px solid var(--v-line);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  background: var(--v-card-bg);
   color: var(--v-navy);
   font-size: 0.72rem;
   font-weight: 750;
@@ -1826,7 +1873,7 @@
 
 .v-hub-core {
   padding: 0.7rem 1.2rem 0.8rem;
-  border-top: 3px solid var(--v-magenta);
+  border-top: var(--v-card-topline) solid var(--v-magenta);
   background: var(--v-navy);
 }
 
@@ -1885,9 +1932,10 @@
 
 .v-fragment-fan {
   padding: 1.1rem 1.2rem;
-  border: 1px solid var(--v-line);
-  border-top: 3px solid var(--v-magenta);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  border-top: var(--v-card-topline) solid var(--v-magenta);
+  background: var(--v-card-bg);
 }
 
 .v-fragment-fan .label {
@@ -1941,7 +1989,7 @@
   justify-content: center;
   padding: 0.55rem 0.6rem;
   border: 1px dashed var(--v-line);
-  background: var(--v-white);
+  background: var(--v-card-bg);
   color: var(--v-navy);
   font-size: 0.74rem;
   font-weight: 750;
@@ -1984,8 +2032,9 @@
 
 .v-bridge-col > div:not(.v-bridge-head) {
   padding: 0.45rem 0.75rem;
-  border: 1px solid var(--v-line);
-  background: var(--v-white);
+  border: var(--v-card-border);
+  border-radius: var(--v-radius);
+  background: var(--v-card-bg);
   color: var(--v-navy);
   font-size: 0.75rem;
   font-weight: 750;
