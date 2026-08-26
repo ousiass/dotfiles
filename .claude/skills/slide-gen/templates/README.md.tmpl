@@ -1,0 +1,75 @@
+# {{DECK_TITLE}}
+
+{{DECK_SUMMARY}} [Slidev](https://sli.dev/) で管理する。パッケージマネージャは [Bun](https://bun.sh/)。
+
+本編{{MAIN_PAGES}}ページ ＋ Appendix{{APPENDIX_PAGES}}ページ。
+
+## セットアップ
+
+```bash
+bun install
+bunx playwright install chromium   # PDF / PNG エクスポートに必要（初回のみ）
+```
+
+## 開発
+
+```bash
+bun run dev        # http://localhost:3030
+```
+
+## ビルド / エクスポート
+
+```bash
+bun run build       # PDF を生成し、静的サイトと一緒に dist/ へ出力
+bun run build:site  # 静的サイトのみ（PDFなし・Cloudflare のデプロイで使う）
+bun run export      # PDF のみ public/{{PROJECT_SLUG}}.pdf に出力
+bun run export:png  # 各ページを PNG で public/{{PROJECT_SLUG}}/ に出力
+```
+
+`export` の出力先 `public/` は `slidev build` でそのまま `dist/` へコピーされる。
+PDF は成果物のため `.gitignore` 対象。
+
+## デプロイ（Cloudflare Workers）
+
+`wrangler.toml` にビルドコマンドと配信ディレクトリを定義済み。
+
+```bash
+bunx wrangler deploy --dry-run   # 設定とアセットの検証
+bunx wrangler deploy             # 手動デプロイ
+```
+
+CI では Chromium を用意しないため PDF は生成しない（`[build] command = "bun run build:site"`）。
+
+## ファイル構成
+
+| パス | 役割 |
+| --- | --- |
+| `slides.md` | 本編 |
+| `pages/appendix.md` | Appendix。`slides.md` 末尾の `src:` で読み込む |
+| `visual.css` | デッキのデザインシステム（`v-*` クラス群） |
+| `style.css` | ベーストークンと基本タイポグラフィ |
+| `global-bottom.vue` | 全ページ共通フッター |
+| `public/img/visual/` | キービジュアル画像 |
+
+## デザインルール
+
+背景は用途で使い分ける。
+
+- **light**（既定）— 説明・比較・表・詳細
+- **dark**（`class: visual-deck v-dark`）— 章の転換、結論、1つの数値を見せるページ
+- **image**（`.v-cover` / `.v-image-slide` / `.v-end`）— 表紙・体験・クロージングのみ
+
+配色プリセット: **{{PALETTE}}**（{{PALETTE_REASON}}）。
+配色は `visual.css` の `:root` に集約し、他の箇所に色を直書きしない。
+文体は{{TONE_STYLE}}、`v-kicker` のラベルは{{LABEL_LANG}}で統一する。
+図解は画像化せず CSS で組む。
+
+## 資料の構成
+
+| # | セクション | 内容 |
+| --- | --- | --- |
+| 1 | 表紙 | |
+
+## 未確定事項
+
+- （裏が取れていない数値・条件をここに列挙する）

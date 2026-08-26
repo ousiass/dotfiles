@@ -1,0 +1,106 @@
+---
+theme: default
+title: {{DECK_TITLE}}
+info: |
+  ## {{DECK_TITLE}}
+  {{DECK_SUMMARY}}
+author: {{ORG_NAME}}
+class: visual-deck text-left v-dark
+transition: fade
+mdc: true
+fonts:
+  sans: 'Inter, Noto Sans JP'
+  mono: 'JetBrains Mono'
+colorSchema: light
+css: unocss
+---
+
+<!-- キービジュアルを public/img/visual/cover.png に置いたら、
+     このスライドの class から v-dark を外し、下の v-cover を有効化する。
+     画像ファイルが存在しないパスを参照するとビルドが失敗する。
+<div class="v-cover">
+  <img src="/img/visual/cover.png" alt="{{COVER_ALT}}" />
+</div>
+-->
+
+<div class="v-cover-copy">
+  <div class="v-kicker">{{KICKER}}</div>
+  <div class="v-cover-title">{{PRODUCT_NAME}}</div>
+  <div class="v-cover-sub">{{COVER_SUB}}</div>
+  <div class="v-cover-info">
+    <div><span class="label">Date</span><span class="value">{{TODAY_DOT}}</span></div>
+    <div><span class="label">Company</span><span class="value">{{ORG_NAME}}</span></div>
+  </div>
+</div>
+
+<!--
+このページで固定したい1点をここに書く。
+-->
+
+---
+class: visual-deck v-dark
+---
+
+<div class="v-statement">
+  <div class="eyebrow">The problem</div>
+  <div class="line">短い主張を、<br/><em>強調したい節だけ em で。</em></div>
+  <div class="sub">2〜3行の補足。<br/>句点で改行を切る。</div>
+</div>
+
+---
+class: visual-deck
+---
+
+<div class="v-kicker">What we do</div>
+
+## ページの主張を1文で書く見出し
+
+<div class="v-audience">
+  <article>
+    <div class="ordinal">01</div>
+    <h3>誰に</h3>
+    <p>説明を2〜3文。</p>
+    <p class="use">顧客</p>
+  </article>
+  <article>
+    <div class="ordinal">02</div>
+    <h3>何を</h3>
+    <p>説明を2〜3文。</p>
+    <p class="use">プロダクト</p>
+  </article>
+  <article class="accent">
+    <div class="ordinal">03</div>
+    <h3>何が新しいか</h3>
+    <p>説明を2〜3文。</p>
+    <p class="use">差別化</p>
+  </article>
+</div>
+
+<div class="v-formula-banner">
+  <span>Key point</span>
+  <strong>そのページの結論を1文で言い切る</strong>
+</div>
+
+<p class="v-note">補足があればここに。</p>
+
+---
+layout: center
+class: visual-deck text-center v-center v-dark
+---
+
+<!-- 締めの画像を public/img/visual/ に置いたら、
+     このスライドの class から v-dark を外し、下の v-end を有効化する。
+<div class="v-end">
+  <img src="/img/visual/closing.png" alt="{{END_ALT}}" />
+</div>
+-->
+
+<div class="v-end-copy">
+  <div class="v-kicker">{{PRODUCT_NAME}}</div>
+  <h2>最後に残したい一文。<br/>2行まで。</h2>
+  <p>補足1文。</p>
+</div>
+
+---
+src: ./pages/appendix.md
+---

@@ -1,0 +1,2006 @@
+/* visual deck — design system
+ *
+ * 背景の使い分け
+ *   light : 説明・比較・表・詳細（既定。クラスを足さない）
+ *   dark  : 章の転換・結論・1つの数字を見せるページ（class: visual-deck v-dark）
+ *   image : 表紙・体験・クロージングのみ（.v-cover / .v-image-slide / .v-end）
+ *
+ * 配色はこの :root だけで切り替える。
+ *   --v-navy   基調色。見出しと dark 背景
+ *   --v-accent 通常のアクセント（構造色）
+ *   --v-magenta 資料全体で1〜2箇所だけ使う最強調色
+ * 各色は「light 背景上の文字色」「dark 背景上の文字色」を別に持つ。
+ * コントラスト比は白/紺で 15:1 以上を保つこと。
+ */
+
+:root {
+  --v-bg-light: #f7f8fb;
+  --v-bg-dark: #0a1030;
+  --v-navy: #0a1030;
+  --v-blue: #2b3a86;
+  --v-accent: #4f46e5;
+  --v-accent-text: #4338ca;
+  --v-accent-on-dark: #8b93ff;
+  --v-magenta: #d6339b;
+  --v-magenta-text: #b21f80;
+  --v-white: #ffffff;
+  --v-ink: #101828;
+  --v-muted: #667085;
+  --v-line: #dcdfeb;
+  --v-line-dark: rgba(255, 255, 255, 0.16);
+  --v-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* ---------------------------------------------------------------- base */
+
+.slidev-layout.visual-deck,
+.slidev-layout.visual-deck.v-light {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 2.7rem 3.4rem 3rem;
+  background: var(--v-bg-light);
+  color: var(--v-ink);
+  font-family: 'Inter', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', system-ui, sans-serif;
+}
+
+/* layout: center を使うページは中央寄せに戻す */
+.slidev-layout.visual-deck.v-center {
+  justify-content: center;
+}
+
+/* 図として見せるブロックは残りの高さを埋める */
+.visual-deck .v-phones,
+.visual-deck .v-hub,
+.visual-deck .v-fragment {
+  flex: 1 1 auto;
+}
+
+/* カード列は伸ばさず、残りの余白を上下へ均等に配る */
+.visual-deck .v-audience,
+.visual-deck .v-usecase-grid,
+.visual-deck .v-detail-grid,
+.visual-deck .v-impact-grid,
+.visual-deck .v-detail-columns,
+.visual-deck .v-flow-detail,
+.visual-deck .v-duo,
+.visual-deck .v-plans,
+.visual-deck .v-phase-grid,
+.visual-deck .v-stream-grid,
+.visual-deck .v-feature-inventory,
+.visual-deck .v-timeline,
+.visual-deck .v-metrics,
+.visual-deck .v-split,
+.visual-deck .v-pipeline,
+.visual-deck .v-process,
+.visual-deck .v-data-table,
+.visual-deck .v-bridge {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+/* 3行以上のカード列で使う密度の高いバリアント */
+.visual-deck .v-grid-compact {
+  gap: 0.85rem;
+}
+
+.visual-deck .v-grid-compact article {
+  padding: 0.75rem 0.9rem;
+}
+
+.visual-deck .v-grid-compact h3 {
+  margin-top: 0.35rem;
+  font-size: 0.88rem;
+}
+
+.visual-deck .v-grid-compact p {
+  margin-top: 0.3rem;
+  font-size: 0.68rem;
+}
+
+.visual-deck h1,
+.visual-deck h2,
+.visual-deck h3,
+.visual-deck p {
+  margin: 0;
+}
+
+.visual-deck h2 {
+  max-width: 900px;
+  color: var(--v-navy);
+  font-size: 2.4rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+
+/* スライド見出しは直下ブロックとの最小間隔を確保する */
+.slidev-layout.visual-deck > h2 {
+  margin-bottom: 1.3rem;
+}
+
+.visual-deck strong {
+  color: var(--v-navy);
+  font-weight: 800;
+}
+
+.slidev-layout.visual-deck.v-dark {
+  background: var(--v-bg-dark);
+  color: #e6e9f5;
+}
+
+.slidev-layout.visual-deck.v-dark h2,
+.slidev-layout.visual-deck.v-dark h3,
+.slidev-layout.visual-deck.v-dark strong {
+  color: var(--v-white);
+}
+
+.slidev-layout.visual-deck.v-dark .v-kicker {
+  color: var(--v-accent-on-dark);
+}
+
+/* ------------------------------------------------------------ elements */
+
+.v-kicker {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.7rem;
+  color: var(--v-blue);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+}
+
+.v-kicker::before {
+  width: 1.5rem;
+  height: 2px;
+  background: var(--v-accent);
+  content: "";
+}
+
+.v-lead {
+  max-width: 720px;
+  margin-top: 1rem !important;
+  color: var(--v-muted);
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+
+.v-note {
+  margin-top: 1.1rem !important;
+  color: var(--v-muted);
+  font-size: 0.62rem;
+  line-height: 1.6;
+}
+
+.v-note-dark {
+  color: #9aa4c4 !important;
+}
+
+.v-internal-note {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 1rem;
+  margin-top: 1.3rem;
+  padding: 0.85rem 1.1rem;
+  border-left: 3px solid var(--v-accent);
+  background: var(--v-white);
+}
+
+.v-internal-note strong {
+  color: var(--v-accent-text);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.v-internal-note span {
+  color: var(--v-muted);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.v-formula-banner {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  margin-top: 1.3rem;
+  padding: 0.8rem 1.2rem;
+  background: var(--v-navy);
+  color: var(--v-white);
+}
+
+.v-formula-banner span {
+  flex-shrink: 0;
+  color: var(--v-accent-on-dark);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.v-formula-banner strong {
+  color: var(--v-white);
+  font-size: 0.95rem;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.v-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 1rem;
+}
+
+.v-chips span {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--v-line);
+  background: var(--v-white);
+  color: var(--v-blue);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.v-chips.v-chips-accent span {
+  border-color: rgba(79, 70, 229, 0.35);
+  background: rgba(79, 70, 229, 0.07);
+  color: var(--v-accent-text);
+}
+
+/* --------------------------------------------------------------- cover */
+
+.v-cover {
+  position: absolute;
+  inset: 0;
+}
+
+.v-cover img,
+.v-full-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.v-cover::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(10, 16, 48, 0.97) 0%, rgba(10, 16, 48, 0.9) 38%, rgba(10, 16, 48, 0.35) 68%, rgba(10, 16, 48, 0.05) 88%);
+  content: "";
+}
+
+.v-cover-copy {
+  position: relative;
+  z-index: 2;
+  width: 58%;
+  padding-top: 2.4rem;
+}
+
+.v-cover-copy .v-kicker {
+  color: var(--v-accent-on-dark);
+}
+
+.v-cover-title {
+  color: var(--v-white);
+  font-size: 5rem;
+  font-weight: 850;
+  letter-spacing: -0.06em;
+  line-height: 0.9;
+}
+
+.v-cover-sub {
+  max-width: 520px;
+  margin-top: 1.3rem;
+  color: #cfd5ea;
+  font-size: 1.12rem;
+  font-weight: 650;
+  line-height: 1.55;
+}
+
+.v-cover-info {
+  display: flex;
+  gap: 2.2rem;
+  margin-top: 2.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--v-line-dark);
+}
+
+.v-cover-info div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.v-cover-info dt,
+.v-cover-info .label {
+  color: var(--v-accent-on-dark);
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.v-cover-info .value {
+  color: #e6e9f5;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+/* ----------------------------------------------------------- statement */
+
+.v-statement {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  justify-content: center;
+  padding-bottom: 1.5rem;
+}
+
+.v-statement .eyebrow {
+  margin-bottom: 1rem;
+  color: var(--v-accent-on-dark);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+.v-statement .line {
+  max-width: 930px;
+  color: var(--v-white);
+  font-size: 3.5rem;
+  font-weight: 850;
+  letter-spacing: -0.05em;
+  line-height: 1.12;
+}
+
+.v-statement .line em {
+  color: var(--v-accent-on-dark);
+  font-style: normal;
+}
+
+.v-statement .sub {
+  max-width: 760px;
+  margin-top: 1.5rem;
+  color: #b8c0d4;
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+/* --------------------------------------------------------- image slide */
+
+.v-image-slide {
+  position: absolute;
+  inset: 0;
+}
+
+.v-image-slide img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.v-image-slide::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(10, 16, 48, 0.96) 0%, rgba(10, 16, 48, 0.9) 42%, rgba(10, 16, 48, 0.5) 66%, rgba(10, 16, 48, 0.08) 84%);
+  content: "";
+}
+
+.v-image-copy {
+  position: relative;
+  z-index: 2;
+  width: 50%;
+  padding-top: 3.4rem;
+  color: var(--v-white);
+  text-shadow: 0 2px 10px rgba(10, 16, 48, 0.85);
+}
+
+.slidev-layout.visual-deck .v-image-copy h2 {
+  color: var(--v-white) !important;
+  font-size: 2.9rem;
+}
+
+/* 手動改行の前で自動折り返しが起きる見出しに付ける */
+.slidev-layout.visual-deck .v-image-copy h2.nowrap {
+  white-space: nowrap;
+}
+
+.slidev-layout.visual-deck .v-image-copy p {
+  max-width: 470px;
+  margin-top: 1.2rem;
+  color: #d7dbe5 !important;
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+
+.slidev-layout.visual-deck .v-image-copy .v-kicker {
+  color: var(--v-accent-on-dark) !important;
+}
+
+.v-image-points {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-top: 1.5rem;
+}
+
+.v-image-points div {
+  padding-left: 0.85rem;
+  border-left: 2px solid var(--v-accent-on-dark);
+}
+
+.v-image-points strong {
+  display: block;
+  color: var(--v-white);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.v-image-points span {
+  display: block;
+  color: #c7cde0;
+  font-size: 0.72rem;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+/* -------------------------------------------------------- step / flows */
+
+.v-pipeline {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1.15rem;
+  align-items: stretch;
+  margin-top: 2.4rem;
+}
+
+.v-pipeline .node {
+  position: relative;
+  min-width: 0;
+  min-height: 150px;
+  padding: 1rem 0.85rem;
+  border: 1px solid var(--v-line);
+  border-top: 3px solid var(--v-blue);
+  background: var(--v-white);
+}
+
+.v-pipeline .node.accent {
+  border-top-color: var(--v-magenta);
+}
+
+.v-pipeline .node:not(:last-child)::after {
+  position: absolute;
+  top: 50%;
+  right: -1.15rem;
+  z-index: 3;
+  display: flex;
+  width: 1.15rem;
+  height: 1.15rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--v-accent);
+  color: var(--v-white);
+  content: "→";
+  font-size: 0.66rem;
+  font-weight: 800;
+  transform: translate(50%, -50%);
+}
+
+.v-pipeline .num {
+  color: var(--v-accent-text);
+  font-family: var(--v-mono);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.v-pipeline h3 {
+  margin-top: 0.6rem;
+  color: var(--v-navy);
+  font-size: 0.88rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.v-pipeline p {
+  margin-top: 0.35rem;
+  color: var(--v-muted);
+  font-size: 0.64rem;
+  line-height: 1.55;
+}
+
+.v-process {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-top: 2.4rem;
+}
+
+.v-process article {
+  position: relative;
+  min-height: 180px;
+  padding: 1.3rem;
+  border: 1px solid var(--v-line);
+  background: var(--v-white);
+}
+
+.v-process article:not(:last-child)::after {
+  position: absolute;
+  top: 45%;
+  right: -0.95rem;
+  z-index: 2;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  background: var(--v-accent);
+  color: var(--v-white);
+  content: "›";
+  font-size: 1.4rem;
+  font-weight: 850;
+  line-height: 1.7rem;
+  text-align: center;
+}
+
+.v-process .icon {
+  color: var(--v-accent-text);
+  font-family: var(--v-mono);
+  font-size: 1.7rem;
+  font-weight: 850;
+}
+
+.v-process h3 {
+  margin-top: 1rem;
+  color: var(--v-navy);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.v-process p {
+  margin-top: 0.45rem;
+  color: var(--v-muted);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.v-flow-detail {
+  display: grid;
+  grid-template-columns: 1fr 24px 1fr 24px 1fr;
+  align-items: stretch;
+  margin-top: 2rem;
+}
+
+.v-flow-detail-four {
+  grid-template-columns: 1fr 24px 1fr 24px 1fr 24px 1fr;
+}
+
+.v-flow-detail-five {
+  grid-template-columns: 1fr 22px 1fr 22px 1fr 22px 1fr 22px 1fr;
+}
+
+.v-flow-detail .arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--v-accent);
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+/* ------------------------------------------------------- card families */
+
+.v-audience,
+.v-usecase-grid,
+.v-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.2rem;
+  margin-top: 2rem;
+}
+
+.v-impact-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.v-detail-grid-four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.v-detail-grid-five {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.v-detail-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.4rem;
+  margin-top: 2rem;
+}
+
+.v-audience article,
+.v-usecase-grid article,
+.v-detail-grid article,
+.v-impact-grid article,
+.v-detail-columns article,
+.v-flow-detail article {
+  min-width: 0;
+  padding: 1.1rem 1.15rem;
+  border: 1px solid var(--v-line);
+  border-top: 3px solid var(--v-blue);
+  background: var(--v-white);
+}
+
+.v-audience article.accent,
+.v-usecase-grid article.accent,
+.v-detail-grid article.accent,
+.v-impact-grid article.accent,
+.v-detail-columns article.accent,
+.v-flow-detail article.accent {
+  border-top-color: var(--v-magenta);
+}
+
+.v-audience .ordinal {
+  color: var(--v-accent-text);
+  font-family: var(--v-mono);
+  font-size: 2.4rem;
+  font-weight: 850;
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+
+.v-audience h3 {
+  margin-top: 0.8rem;
+  color: var(--v-navy);
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.v-audience p {
+  margin-top: 0.6rem;
+  color: var(--v-muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.v-audience .use {
+  margin-top: 0.9rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--v-line);
+  color: var(--v-blue);
+  font-size: 0.65rem;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.v-usecase-grid .index,
+.v-detail-grid .index,
+.v-impact-grid .index,
+.v-detail-columns .index,
+.v-flow-detail .index {
+  color: var(--v-accent-text);
+  font-family: var(--v-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.v-usecase-grid h3,
+.v-detail-grid h3,
+.v-impact-grid h3,
+.v-detail-columns h3,
+.v-flow-detail h3 {
+  margin-top: 0.5rem;
+  color: var(--v-navy);
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.v-usecase-grid p,
+.v-detail-grid p,
+.v-impact-grid p,
+.v-flow-detail p {
+  margin-top: 0.45rem;
+  color: var(--v-muted);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.v-detail-grid-five h3 {
+  font-size: 0.85rem;
+}
+
+.v-detail-grid-five p,
+.v-impact-grid p {
+  font-size: 0.68rem;
+}
+
+.v-detail-columns ul {
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.v-detail-columns li {
+  position: relative;
+  margin: 0.28rem 0;
+  padding-left: 0.85rem;
+  color: var(--v-ink);
+  font-size: 0.76rem;
+  line-height: 1.6;
+}
+
+.v-detail-columns li::before {
+  position: absolute;
+  top: 0.62em;
+  left: 0;
+  width: 0.38rem;
+  height: 1px;
+  background: var(--v-accent);
+  content: "";
+}
+
+.v-detail-columns-compact article {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.v-detail-columns-compact h3 {
+  margin-top: 0;
+  font-size: 0.85rem;
+}
+
+.v-detail-columns-compact p {
+  margin-top: 0.3rem;
+  color: var(--v-muted);
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+
+.v-detail-grid-six {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.v-feature-inventory {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1.8rem;
+}
+
+.v-feature-inventory article {
+  display: grid;
+  grid-template-columns: 1.5rem 1fr;
+  gap: 0.6rem;
+  min-width: 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--v-line);
+  background: var(--v-white);
+}
+
+.v-feature-inventory article > span {
+  color: var(--v-accent-text);
+  font-family: var(--v-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+}
+
+.v-feature-inventory h3 {
+  color: var(--v-navy);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.v-feature-inventory p {
+  margin-top: 0.2rem;
+  color: var(--v-muted);
+  font-size: 0.62rem;
+  line-height: 1.45;
+}
+
+.v-duo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.6rem;
+  margin-top: 2.2rem;
+}
+
+.v-duo article {
+  padding: 1.5rem 1.6rem;
+  border: 1px solid var(--v-line);
+  border-top: 3px solid var(--v-blue);
+  background: var(--v-white);
+}
+
+.v-duo article.accent {
+  border-color: var(--v-navy);
+  border-top-color: var(--v-magenta);
+  background: var(--v-navy);
+}
+
+.v-duo .giant {
+  color: var(--v-accent-text);
+  font-size: 2.1rem;
+  font-weight: 850;
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+
+.v-duo .accent .giant {
+  color: var(--v-accent-on-dark);
+}
+
+.v-duo h3 {
+  margin-top: 0.9rem;
+  color: var(--v-navy);
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.v-duo .accent h3 {
+  color: var(--v-white);
+}
+
+.v-duo p {
+  margin-top: 0.6rem;
+  color: var(--v-muted);
+  font-size: 0.8rem;
+  line-height: 1.65;
+}
+
+.v-duo .accent p {
+  color: #b8c0d4;
+}
+
+.v-duo ul {
+  margin: 0.7rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.v-duo li {
+  position: relative;
+  margin: 0.25rem 0;
+  padding-left: 0.85rem;
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
+.v-duo li::before {
+  position: absolute;
+  top: 0.6em;
+  left: 0;
+  width: 0.38rem;
+  height: 1px;
+  background: var(--v-accent);
+  content: "";
+}
+
+.v-duo .accent li {
+  color: #d7dbe5;
+}
+
+.v-duo .accent li::before {
+  background: var(--v-accent-on-dark);
+}
+/* ダーク反転側の強調は白。既定色のままでは背景に沈んで読めない */
+.v-duo .accent li strong {
+  color: var(--v-white);
+}
+
+.v-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.4rem;
+  margin-top: 2.2rem;
+}
+
+.v-metrics article {
+  padding-top: 0.7rem;
+  border-top: 3px solid var(--v-navy);
+}
+
+.v-metrics .num {
+  color: var(--v-navy);
+  font-size: 2.6rem;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+
+.v-metrics .unit {
+  /* 親の .num の詰め（letter-spacing）を継承すると日本語の単位が重なるため戻す */
+  margin-left: 0.2rem;
+  font-size: 0.9rem;
+  font-weight: 750;
+  letter-spacing: normal;
+}
+
+.v-metrics p {
+  margin-top: 0.6rem;
+  color: var(--v-muted);
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
+.v-timeline {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.1rem;
+  margin-top: 2.2rem;
+}
+
+.v-timeline article {
+  position: relative;
+  padding: 0.9rem 1rem 1rem;
+  border: 1px solid var(--v-line);
+  border-left: 3px solid var(--v-accent);
+  background: var(--v-white);
+}
+
+.v-timeline h3 {
+  color: var(--v-navy);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.v-timeline p {
+  margin-top: 0.35rem;
+  color: var(--v-muted);
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+
+.v-event-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.8rem;
+  margin-top: 1.3rem;
+}
+
+.v-event-strip-three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.v-event-strip-two {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.v-event-strip > div {
+  padding: 0.7rem 0.9rem;
+  border-left: 2px solid var(--v-accent);
+  background: var(--v-white);
+}
+
+.v-event-strip strong {
+  display: block;
+  color: var(--v-navy);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.v-event-strip span {
+  color: var(--v-muted);
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
+
+/* --------------------------------------------------------------- table */
+
+.v-data-table {
+  display: grid;
+  margin-top: 1.8rem;
+  border: 1px solid var(--v-line);
+  background: var(--v-white);
+  font-size: 0.74rem;
+}
+
+.v-data-table-two {
+  grid-template-columns: 1fr 1fr;
+}
+
+.v-data-table-three {
+  grid-template-columns: 1.15fr 1fr 1fr;
+}
+
+.v-data-table-four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.v-data-table-five {
+  grid-template-columns: 1.1fr repeat(4, minmax(0, 1fr));
+}
+
+.v-data-table > div {
+  min-width: 0;
+  padding: 0.5rem 0.8rem;
+  border-bottom: 1px solid var(--v-line);
+  color: var(--v-ink);
+  line-height: 1.5;
+}
+
+/* 行数の多い表で使う密度の高いバリアント */
+.v-data-table-dense {
+  font-size: 0.68rem;
+}
+
+.v-data-table-dense > div {
+  padding: 0.35rem 0.7rem;
+}
+
+.v-data-table .head {
+  background: var(--v-navy);
+  color: var(--v-white);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ヘッダーに固有名詞（製品名 / SaaS など）を置く表では大文字化しない */
+.v-data-table-mixedhead .head {
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.v-data-table .right {
+  text-align: right;
+}
+
+.v-data-table .strong {
+  color: var(--v-navy);
+  font-weight: 800;
+}
+
+.v-data-table .muted {
+  color: var(--v-muted);
+  font-size: 0.7rem;
+}
+
+.v-data-table .total {
+  background: rgba(79, 70, 229, 0.07);
+  color: var(--v-accent-text);
+  font-weight: 800;
+}
+
+.v-matrix {
+  display: grid;
+  grid-template-columns: 160px repeat(4, 1fr);
+  margin-top: 2rem;
+  border: 1px solid var(--v-line);
+  background: var(--v-white);
+}
+
+.v-matrix > div {
+  padding: 0.6rem 0.8rem;
+  border-bottom: 1px solid var(--v-line);
+  color: var(--v-muted);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.v-matrix .head {
+  background: var(--v-navy);
+  color: var(--v-white);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.v-matrix .row {
+  color: var(--v-navy);
+  font-weight: 700;
+  text-align: left;
+}
+
+.v-matrix .yes {
+  color: var(--v-accent);
+  font-weight: 800;
+}
+
+.v-matrix .best {
+  background: rgba(79, 70, 229, 0.09);
+  color: var(--v-accent-text);
+}
+
+/* ---------------------------------------------------------- tier plans */
+
+.v-plans {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.2rem;
+  margin-top: 2rem;
+}
+
+.v-plan {
+  padding: 1.2rem 1.25rem 1.35rem;
+  border: 1px solid var(--v-line);
+  border-top: 3px solid var(--v-blue);
+  background: var(--v-white);
+}
+
+.v-plan.featured {
+  border-color: var(--v-navy);
+  border-top: 3px solid var(--v-magenta);
+  box-shadow: 0 12px 30px rgba(10, 16, 48, 0.1);
+}
+
+.v-plan .name {
+  color: var(--v-accent-text);
+  font-family: var(--v-mono);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.v-plan h3 {
+  margin-top: 0.5rem;
+  color: var(--v-navy);
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.v-plan .price {
+  margin-top: 0.35rem;
+  color: var(--v-muted);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.v-plan-rows {
+  margin-top: 0.9rem;
+  border-top: 1px solid var(--v-line);
+}
+
+.v-plan-rows > div {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--v-line);
+}
+
+.v-plan-rows span {
+  color: var(--v-muted);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.v-plan-rows strong {
+  color: var(--v-navy);
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+/* ------------------------------------------------------------- diagram */
+
+.v-diagram {
+  display: flex;
+  justify-content: center;
+  margin-top: 1.4rem;
+}
+
+.v-diagram svg {
+  width: 100%;
+  max-height: 340px;
+}
+
+.v-two {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  gap: 2rem;
+  align-items: center;
+  margin-top: 1.6rem;
+}
+
+.v-two-wide {
+  grid-template-columns: 1.35fr 1fr;
+}
+
+.v-two .v-diagram {
+  margin-top: 0;
+}
+
+.v-two-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.v-two-stack article {
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--v-line);
+  border-left: 3px solid var(--v-accent);
+  background: var(--v-white);
+}
+
+.v-two-stack h3 {
+  color: var(--v-navy);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.v-two-stack p {
+  margin-top: 0.3rem;
+  color: var(--v-muted);
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+
+/* --------------------------------------------------------- fan journey */
+
+.v-phones {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 2rem;
+}
+
+.v-phone {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.v-phone .screen {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 150px;
+  max-height: 250px;
+  overflow: hidden;
+  border: 2px solid var(--v-navy);
+  border-radius: 14px;
+  background: var(--v-white);
+}
+
+.v-phone .screen img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+}
+
+.v-phone .caption {
+  margin-top: 0.55rem;
+  color: var(--v-navy);
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.v-phone .sub {
+  margin-top: 0.2rem;
+  color: var(--v-muted);
+  font-size: 0.6rem;
+  line-height: 1.45;
+}
+
+.v-phone-step {
+  display: inline-block;
+  margin-bottom: 0.35rem;
+  color: var(--v-accent-text);
+  font-family: var(--v-mono);
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+
+/* ------------------------------------------------------ revenue split */
+
+.v-split {
+  display: grid;
+  grid-template-columns: 150px 40px 1fr;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.v-split .source {
+  padding: 1.2rem 1rem;
+  border: 1px solid var(--v-line);
+  border-top: 3px solid var(--v-magenta);
+  background: var(--v-white);
+  text-align: center;
+}
+
+.v-split .source .amount {
+  color: var(--v-navy);
+  font-size: 2rem;
+  font-weight: 850;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.v-split .source .label {
+  margin-top: 0.4rem;
+  color: var(--v-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+.v-split .fork {
+  color: var(--v-accent);
+  font-size: 1.4rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.v-split .targets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.v-split .targets > div {
+  display: grid;
+  grid-template-columns: 1fr 5.5rem;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--v-line);
+  background: var(--v-white);
+}
+
+.v-split .targets strong {
+  display: block;
+  color: var(--v-navy);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.v-split .targets span {
+  color: var(--v-muted);
+  font-size: 0.68rem;
+}
+
+.v-split .targets .value {
+  color: var(--v-accent-text);
+  font-size: 0.95rem;
+  font-weight: 850;
+  text-align: right;
+}
+
+/* ---------------------------------------------------- revenue streams */
+
+.v-stream-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin-top: 1.6rem;
+}
+
+.v-stream-grid article {
+  display: grid;
+  grid-template-columns: 1.6rem 1fr;
+  gap: 0.6rem;
+  min-width: 0;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--v-line);
+  border-left: 3px solid var(--v-accent);
+  background: var(--v-white);
+}
+
+.v-stream-grid article > span {
+  color: var(--v-accent-text);
+  font-family: var(--v-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.v-stream-grid h3 {
+  color: var(--v-navy);
+  font-size: 0.8rem;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.v-stream-grid p {
+  margin-top: 0.2rem;
+  color: var(--v-muted);
+  font-size: 0.63rem;
+  line-height: 1.45;
+}
+
+/* ---------------------------------------------------------- phase grid */
+
+.v-phase-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.9rem;
+  margin-top: 2rem;
+}
+
+.v-phase-grid article {
+  position: relative;
+  min-width: 0;
+  padding: 1rem 1rem 1.1rem;
+  border: 1px solid var(--v-line);
+  border-top: 3px solid var(--v-blue);
+  background: var(--v-white);
+}
+
+.v-phase-grid article:nth-child(4) {
+  border-top-color: var(--v-magenta);
+}
+
+.v-phase-grid .index {
+  color: var(--v-accent-text);
+  font-family: var(--v-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.v-phase-grid .period {
+  margin-top: 0.2rem;
+  color: var(--v-magenta-text);
+  font-family: var(--v-mono);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.v-phase-grid h3 {
+  margin-top: 0.4rem;
+  color: var(--v-navy);
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.v-phase-grid ul {
+  margin: 0.7rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.v-phase-grid li {
+  position: relative;
+  margin: 0.22rem 0;
+  padding-left: 0.8rem;
+  color: var(--v-muted);
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+.v-phase-grid li::before {
+  position: absolute;
+  top: 0.6em;
+  left: 0;
+  width: 0.35rem;
+  height: 1px;
+  background: var(--v-accent);
+  content: "";
+}
+
+/* ------------------------------------------------------- architecture */
+
+.v-arch {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 1.1rem;
+}
+
+.v-arch .layer {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: 150px 1fr;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--v-line);
+  background: var(--v-white);
+}
+
+.v-arch .layer.core {
+  border-color: rgba(79, 70, 229, 0.4);
+  background: rgba(79, 70, 229, 0.06);
+}
+
+.v-arch .layer .name {
+  color: var(--v-navy);
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.v-arch .layer .name em {
+  display: block;
+  color: var(--v-muted);
+  font-size: 0.6rem;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.v-arch .layer .items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.v-arch .layer .items span {
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--v-line);
+  background: var(--v-white);
+  color: var(--v-blue);
+  font-size: 0.6rem;
+  font-weight: 700;
+}
+
+.v-arch .layer.core .items span {
+  border-color: rgba(79, 70, 229, 0.3);
+  color: var(--v-accent-text);
+}
+
+.v-arch .down {
+  flex: 0 0 auto;
+  color: var(--v-accent);
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+}
+
+/* 自社の提供範囲を囲う枠。複数レイヤーをまとめて1つの範囲として示す */
+.v-arch-scope {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1.35rem 0.55rem 0.55rem;
+  border: 1.5px solid rgba(79, 70, 229, 0.45);
+  background: rgba(79, 70, 229, 0.05);
+}
+
+.v-arch-scope-label {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.7rem;
+  color: var(--v-accent-text);
+  font-family: var(--v-mono);
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+/* ------------------------------------------------------ closing pages */
+
+.v-appendix-cover {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.v-appendix-cover h2 {
+  color: var(--v-white);
+  font-size: 4.8rem;
+  font-weight: 850;
+  letter-spacing: -0.05em;
+  line-height: 1.05;
+}
+
+.v-end {
+  position: absolute;
+  inset: 0;
+}
+
+.v-end img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.v-end::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(10, 16, 48, 0.82) 0%, rgba(10, 16, 48, 0.92) 100%);
+  content: "";
+}
+
+.v-end-copy {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+}
+
+.slidev-layout.visual-deck .v-end-copy h2 {
+  max-width: 860px;
+  margin: 0 auto;
+  color: var(--v-white) !important;
+  font-size: 2.6rem;
+  line-height: 1.25;
+}
+
+.slidev-layout.visual-deck .v-end-copy p {
+  margin-top: 1.1rem;
+  color: #c7cde0 !important;
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.v-end-copy .v-kicker {
+  justify-content: center;
+  color: var(--v-accent-on-dark) !important;
+}
+
+.v-end-copy .v-kicker::after {
+  width: 1.5rem;
+  height: 2px;
+  background: var(--v-accent-on-dark);
+  content: "";
+}
+
+.v-company-page {
+  width: 100%;
+}
+
+.v-company-list {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.6rem;
+  margin-top: 1.6rem;
+}
+
+.v-company-list article {
+  padding: 1.2rem 1.3rem;
+  border: 1px solid var(--v-line);
+  border-top: 3px solid var(--v-blue);
+  background: var(--v-white);
+}
+
+.v-company-list h3 {
+  color: var(--v-navy);
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.v-company-role {
+  margin-top: 0.3rem;
+  color: var(--v-accent-text);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.v-company-list dl {
+  margin: 0.9rem 0 0;
+}
+
+.v-company-list dl > div {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  gap: 0.6rem;
+  padding: 0.35rem 0;
+  border-top: 1px solid var(--v-line);
+}
+
+.v-company-list dt {
+  color: var(--v-muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.v-company-list dd {
+  margin: 0;
+  color: var(--v-ink);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+/* ----------------------------------------------------- lists in grids */
+
+.v-usecase-grid ul,
+.v-impact-grid ul,
+.v-detail-grid ul {
+  margin: 0.55rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.v-usecase-grid li,
+.v-impact-grid li,
+.v-detail-grid li {
+  position: relative;
+  margin: 0.22rem 0;
+  padding-left: 0.8rem;
+  color: var(--v-muted);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.v-impact-grid li {
+  font-size: 0.68rem;
+}
+
+.v-usecase-grid li::before,
+.v-impact-grid li::before,
+.v-detail-grid li::before {
+  position: absolute;
+  top: 0.6em;
+  left: 0;
+  width: 0.35rem;
+  height: 1px;
+  background: var(--v-accent);
+  content: "";
+}
+
+/* ------------------------------------------------------------- hub map */
+
+/* エンドユーザーは他のステークホルダーと同列に置かず、基盤の外側に別枠で示す */
+.v-hub-fan {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+  padding: 0.35rem 0.9rem;
+  border: 1px solid var(--v-line);
+  border-left: 3px solid var(--v-magenta);
+  background: var(--v-white);
+}
+
+.v-hub-fan strong {
+  color: var(--v-navy);
+  font-size: 0.84rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.v-hub-fan span {
+  color: var(--v-muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.v-hub-fan + .v-hub {
+  margin-top: 0.4rem;
+}
+
+.v-hub {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr 1fr;
+  align-items: center;
+  gap: 1.9rem;
+  margin-top: 1.1rem;
+}
+
+.v-hub-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.v-hub-side > div {
+  position: relative;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--v-line);
+  background: var(--v-white);
+  color: var(--v-navy);
+  font-size: 0.72rem;
+  font-weight: 750;
+  text-align: center;
+}
+
+.v-hub-side:first-child > div::after,
+.v-hub-side:last-child > div::before {
+  position: absolute;
+  top: 50%;
+  width: 2.2rem;
+  height: 1px;
+  background: var(--v-accent);
+  content: "";
+  opacity: 0.5;
+}
+
+.v-hub-side:first-child > div::after {
+  right: -2.2rem;
+}
+
+.v-hub-side:last-child > div::before {
+  left: -2.2rem;
+}
+
+.v-hub-core {
+  padding: 0.7rem 1.2rem 0.8rem;
+  border-top: 3px solid var(--v-magenta);
+  background: var(--v-navy);
+}
+
+.v-hub-core .title {
+  color: var(--v-white);
+  font-size: 1.4rem;
+  font-weight: 850;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.v-hub-core .sub {
+  margin-top: 0.35rem;
+  color: var(--v-accent-on-dark);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.v-hub-core .areas {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.55rem;
+}
+
+.v-hub-core .areas > div {
+  padding: 0.28rem 0.6rem;
+  border-left: 2px solid var(--v-accent-on-dark);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.v-hub-core .areas strong {
+  display: block;
+  color: var(--v-white);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.v-hub-core .areas span {
+  color: #b8c0d4;
+  font-size: 0.64rem;
+  line-height: 1.45;
+}
+
+/* --------------------------------------------------- fragmentation map */
+
+.v-fragment {
+  display: grid;
+  grid-template-columns: 210px 90px 1fr;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1.6rem;
+}
+
+.v-fragment-fan {
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--v-line);
+  border-top: 3px solid var(--v-magenta);
+  background: var(--v-white);
+}
+
+.v-fragment-fan .label {
+  color: var(--v-navy);
+  font-size: 1.6rem;
+  font-weight: 850;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.v-fragment-fan p {
+  margin-top: 0.5rem;
+  color: var(--v-muted);
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+
+.v-fragment-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.v-fragment-lines span {
+  display: block;
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--v-accent) 0 4px, transparent 4px 8px);
+  opacity: 0.55;
+}
+
+.v-fragment-lines span:nth-child(odd) {
+  transform: rotate(-2deg);
+}
+
+.v-fragment-lines span:nth-child(even) {
+  transform: rotate(2deg);
+}
+
+.v-fragment-services {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+  gap: 0.6rem;
+}
+
+/* 箱の高さを揃え、ラベルは上下左右とも中央に置く */
+.v-fragment-services > div {
+  display: flex;
+  min-height: 2.9rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.55rem 0.6rem;
+  border: 1px dashed var(--v-line);
+  background: var(--v-white);
+  color: var(--v-navy);
+  font-size: 0.74rem;
+  font-weight: 750;
+  text-align: center;
+}
+
+.v-fragment-services > div:nth-child(2),
+.v-fragment-services > div:nth-child(6) {
+  margin-top: 0.7rem;
+}
+
+.v-fragment-services > div:nth-child(3),
+.v-fragment-services > div:nth-child(7) {
+  margin-top: -0.5rem;
+}
+
+/* --------------------------------------------------------- bridge map */
+
+.v-bridge {
+  display: grid;
+  grid-template-columns: 1fr 70px 1.15fr;
+  align-items: start;
+  gap: 0.6rem;
+  margin-top: 1.6rem;
+}
+
+.v-bridge-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.v-bridge-head {
+  color: var(--v-accent-text);
+  font-family: var(--v-mono);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.v-bridge-col > div:not(.v-bridge-head) {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--v-line);
+  background: var(--v-white);
+  color: var(--v-navy);
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.v-bridge-modules > div:not(.v-bridge-head) {
+  border-left: 3px solid var(--v-accent);
+}
+
+.v-bridge-arrows {
+  display: flex;
+  align-self: stretch;
+  align-items: center;
+  justify-content: center;
+  color: var(--v-accent);
+  font-size: 1.6rem;
+  font-weight: 800;
+}
