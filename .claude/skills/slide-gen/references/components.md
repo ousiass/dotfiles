@@ -43,18 +43,26 @@
 ## 共通の小要素
 
 ```html
-<div class="v-kicker">What we do</div>          <!-- h2 の上に置く英語の小見出しラベル -->
-<h2>ページの主張を1文で書く見出し</h2>
-<p class="v-lead">見出しを補うリード文。1〜2行。</p>
+<div class="v-kicker">Comparison</div>           <!-- 英語のセクションラベル（分類） -->
+<h2>4つの手段の比較</h2>                          <!-- タイトル。10〜20字。主張を入れない -->
 <p class="v-note">脚注・補足。ページ下端に置く。</p>
 <div class="v-chips"><span>機能名</span><span>連携先</span></div>
+
+<!-- リード文は「本当に必要なときだけ」。既定では置かない。
+     図より先に前提を伝えないと図が読めない場合に限る。
+<p class="v-lead">図を読むのに要る前提を1行で。</p>
+-->
 ```
+
+**h2 はタイトル、主張はカード・図・結論バナーが担う**（→ `references/structure.md`「主張はどこに書くか」）。
 
 ダーク背景では `v-lead v-note-dark` / `v-note v-note-dark` を併用する。
 
 ### 結論バナー / 補足ボックス
 
 ```html
+<!-- ページ最下部に置く。図を見たあとに読む位置なので「図から導かれる結論」を書く。
+     カードや図が主張を語れているページには置かない。v-note と併置しない。 -->
 <div class="v-formula-banner">
   <span>Key point</span>
   <strong>そのページの結論を1文で言い切る</strong>

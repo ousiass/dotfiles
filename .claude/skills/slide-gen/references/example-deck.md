@@ -5,13 +5,14 @@
 
 見るべき点:
 
-- h2 がすべて**主張文**になっている（「Before / After」ではなく「申請を出したあと、社員は待つ以外にできることがない」）
-- h2 だけを縦に読むと話が通る
-- カード内の本文は**結論を先に書き、2〜3文で止めている**
+- **h2 はタイトル**。「申請経路の現状と導入後」のように、そのページが何のページかを示す（10〜20字）
+- **主張は h2 に書かない**。カードの見出し、`v-duo` の giant、`v-two-stack` の h3 が語る。
+  それらで足りないページだけ `v-formula-banner` を最下部に置く（8ページ中3ページ）
+- **リード文（`v-lead`）は使っていない**。必要なときだけ入れる要素であり、既定では置かない
+- `v-formula-banner` と `v-note` を同じページに両方置かない
 - `.accent` は各ページ1箇所だけ
 - 数値には出典と年が入っている
-- `v-formula-banner` は図の要約ではなく、そこから導かれる結論
-- `v-dark` は課題ページと締めの2枚だけ（8ページ中）
+- `v-dark` は課題ページと締めの2枚だけ
 
 そのままコピーせず、**文章の詰め方と長さの基準として使う**。
 
@@ -53,7 +54,7 @@ class: visual-deck
 
 <div class="v-kicker">What we propose</div>
 
-## 申請の種類ごとにばらばらな手続きを、1つの基盤にまとめる
+## 申請手続きを1つの基盤に
 
 <div class="v-audience">
   <article>
@@ -100,7 +101,7 @@ class: visual-deck
 
 <div class="v-kicker">Before / After</div>
 
-## 申請を出したあと、社員は待つ以外にできることがない
+## 申請経路の現状と導入後
 
 <div class="v-duo">
   <article>
@@ -127,13 +128,18 @@ class: visual-deck
   </article>
 </div>
 
+<div class="v-formula-banner">
+  <span>Key point</span>
+  <strong>申請を出したあと、社員が待つ以外にできることがない状態をなくす</strong>
+</div>
+
 ---
 class: visual-deck
 ---
 
 <div class="v-kicker">How it works</div>
 
-## 申請から記録まで、4つの段階を同じ基盤で扱う
+## 申請から記録までの4段階
 
 <div class="v-flow-detail v-flow-detail-four">
   <article>
@@ -169,7 +175,7 @@ class: visual-deck
 
 <div class="v-kicker">Comparison</div>
 
-## 個別に作るのではなく、共通の土台に載せる
+## 4つの手段の比較
 
 <div class="v-matrix">
   <div class="head"></div><div class="head">導入の速さ</div><div class="head">種類の追加</div><div class="head">状態の可視化</div><div class="head">証跡の保管</div>
@@ -179,7 +185,10 @@ class: visual-deck
   <div class="row best">共通の申請基盤</div><div class="yes best">●</div><div class="yes best">●</div><div class="yes best">●</div><div class="yes best">●</div>
 </div>
 
-<p class="v-note">個別開発でも可視化と証跡は実現できるが、種類が増えるたびに開発と保守が積み上がる。</p>
+<div class="v-formula-banner">
+  <span>Key point</span>
+  <strong>個別に作るのではなく、共通の土台に載せることで、種類の追加を設定だけで済ませる</strong>
+</div>
 
 ---
 class: visual-deck
@@ -187,7 +196,7 @@ class: visual-deck
 
 <div class="v-kicker">Impact</div>
 
-## 承認までの日数と、差し戻しの手戻りが減る
+## 現状を示す3つの指標
 
 <div class="v-metrics">
   <article>
@@ -224,5 +233,4 @@ class: visual-deck text-center v-center v-dark
   <div class="v-kicker">Reflow</div>
   <h2>申請の流れが見えれば、<br/>止まっている場所から直せる。</h2>
   <p>まず利用の多い5種類から始め、運用しながら残りを移す。</p>
-</div>
-```
+</div>```
