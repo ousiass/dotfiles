@@ -3,9 +3,9 @@
     <!-- ロゴ画像を使う場合は下の <div class="name"> を消し、これを有効化する。
          dark 背景のページでも読めるよう、白抜き版を用意して切り替えるか、
          どちらの背景でも成立する単色ロゴを使う。
-    <img class="logo" src="/img/logo.svg" alt="{{ORG_NAME}}" />
+    <img class="logo" src="/img/logo.svg" alt="___ORG_NAME___" />
     -->
-    <div class="name">{{ORG_NAME}}</div>
+    <div class="name">___ORG_NAME___</div>
     <div v-if="$slidev.nav.currentPage > 1" class="page">
       {{ $slidev.nav.currentPage }} / {{ $slidev.nav.total }}
     </div>
@@ -23,7 +23,7 @@
   align-items: center;
   justify-content: center;
   padding: 0 2rem 0.9rem;
-  color: #98a2b3;
+  color: var(--v-muted);
   font-family: var(--v-sans);
   font-size: 0.6rem;
   font-weight: 500;
@@ -46,6 +46,6 @@
 }
 
 :global(.slidev-layout.visual-deck.v-dark) .deck-footer {
-  color: #8b93b8;
+  color: var(--v-on-dark-muted);
 }
 </style>

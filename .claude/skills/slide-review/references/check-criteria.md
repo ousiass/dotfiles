@@ -83,8 +83,20 @@ bun <skill>/scripts/check-contrast.mjs --json
 
 ## 5. 規約
 
+装飾まわりは機械で測れる。
+
+```bash
+bun <skill>/scripts/check-style.mjs        # グラデーション・絵文字・色の直書きなど
+bun <skill>/scripts/check-style.mjs --json
+```
+
 | 観点 | 重大度 | 判定 |
 | --- | --- | --- |
+| グラデーション塗り | 🟠 | 背景・カード・文字にグラデーションが使われている。面は単色で塗る（画像の上に文字を載せる減光は例外） |
+| 光彩・すりガラス・文字の影 | 🟠 | `filter: blur` / `drop-shadow` / `backdrop-filter` / `text-shadow` がある。光らせず、色と余白で階層を作る |
+| 絵文字アイコン | 🟠 | 🚀 ✨ 💡 のような絵文字が本文やカードに置かれている。番号か語で示す |
+| ページ内アニメーション | 🟡 | `animation` / `@keyframes` がある。切り替えは Slidev の `transition` に任せる |
+| インラインスタイル | 🟠 | `slides.md` に `style="..."` がある。`visual.css` のクラスで表現する |
 | 色が直書きされている | 🟠 | `slides.md` や `visual.css` の個別セレクタに `#xxxxxx` がある。`:root` のトークンに寄せる |
 | 意匠がセレクタに直書き | 🟠 | 角丸・枠線・影・カードの地・見出しの太さが個別セレクタに書かれている。`:root` の意匠トークン（`--v-radius` `--v-card-*` `--v-h2-*` 等）へ寄せる |
 | 図解が画像になっている | 🟠 | 構成図・フロー・比較・数値が PNG で貼られている。CSS のパターンで組み直す（差分レビューと文言修正のため） |
@@ -95,7 +107,8 @@ bun <skill>/scripts/check-contrast.mjs --json
 
 ## 判定の順序
 
-1. **はみ出しと配色**を機械検査で潰す（`check-overflow.mjs` と `check-contrast.mjs`）。
+1. **はみ出し・配色・装飾**を機械検査で潰す
+   （`check-overflow.mjs` / `check-contrast.mjs` / `check-style.mjs`）。
    他の指摘を直すとレイアウトが動くため、はみ出しは最後にもう一度回す
 2. **デザイン**と**わかりやすさ**を PNG で見る
 3. **構成**を本文で見る

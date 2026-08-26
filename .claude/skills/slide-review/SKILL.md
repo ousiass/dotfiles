@@ -29,7 +29,7 @@ user-invocable: true
 | **デザイン** | 配色のコントラスト / 密度・強調・余白・ロゴ・視覚的階層 | 機械 + PNG 目視 |
 | **わかりやすさ** | h2 の主張性、1ページ1主張、図と本文の重複、用語、数値の出典 | 本文 + PNG |
 | **構成** | h2 の連なり、ゴール到達、dark の連続、パターンの連続、Appendix の使い分け | 本文 |
-| **規約** | 色の直書き、画像による図解、ページ番号、独自クラスの乱造 | 本文 + CSS |
+| **規約** | 装飾（グラデーション・絵文字等）、色の直書き、画像による図解、ページ番号 | 機械 + 本文 + CSS |
 | **すべて** | 上記5モードを はみ出し → デザイン → わかりやすさ → 構成 → 規約 の順で実行 | |
 
 観点の詳細は `references/check-criteria.md` を参照する。
@@ -113,7 +113,13 @@ bun <skill>/scripts/check-contrast.mjs --json
 
 ### 構成 / 規約
 
-本文（`slides.md` と Appendix）と `visual.css` を読んで判定する。
+装飾は機械で測る。
+
+```bash
+bun <skill>/scripts/check-style.mjs        # グラデーション・光彩・絵文字・色の直書き
+```
+
+そのうえで、本文（`slides.md` と Appendix）と `visual.css` を読んで判定する。
 
 ## フェーズ3: 指摘の確認と修正
 
@@ -150,6 +156,7 @@ bun <skill>/scripts/check-contrast.mjs --json
 | `references/check-criteria.md` | 5モードの観点と直し方（フェーズ2で読む） |
 | `scripts/check-overflow.mjs` | 枠からのはみ出しを全ページ実寸で検査する |
 | `scripts/check-contrast.mjs` | `visual.css` の `:root` からコントラスト比を実測する |
+| `scripts/check-style.mjs` | グラデーション・光彩・絵文字・色の直書きを検出する |
 | `scripts/derive-palette.mjs` | 配色をやり直す場合に、プライマリ1色からトークンを導出する |
 | `templates/report.md` | レポートの形式 |
 

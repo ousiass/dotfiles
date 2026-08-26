@@ -54,7 +54,7 @@ user-invocable: true
 | 2-4 で指摘の扱いを確認 | 🔴 🟠 相当は自分で修正し、🟡 🟢 は `OUTLINE.md` の残課題に積む |
 | 3-3 で完成物を案内 | 案内に加え、推定した用途・トンマナ・残課題を呼び出し元へ返す |
 
-**省略禁止**: 2-3 のレビュー（はみ出し検査）と 2-6 の Commit は `--auto` でも必ず実行する。
+**省略禁止**: 2-3 のレビュー（はみ出し・装飾・配色の3検査）と 2-6 の Commit は `--auto` でも必ず実行する。
 人の目が入らないぶん、機械検査が唯一の品質担保になる。
 
 ## 禁止行動（最重要）
@@ -70,6 +70,7 @@ user-invocable: true
 - 裏の取れない数値を推測で書く（README の「未確定事項」へ逃がす）
 - `visual.css` に無い見た目を、既存パターンを検討せずに新しいクラスで作る
 - 図解を画像で作る / 画像内に文字を入れる
+- **グラデーション・光彩・すりガラス・絵文字アイコンで装飾する**（→ `references/structure.md`「使わない表現」）
 - ページが収まらないときに文字サイズを縮める（削るかページを分ける）
 - トンマナ（1-1）を執筆開始後に変更する
 
@@ -180,7 +181,8 @@ cd slide && bun install
 | --- | --- |
 | `{{PROJECT_SLUG}}` | 英小文字ケバブケース（Workers 名・PDF 名に使う） |
 | `{{PRODUCT_NAME}}` / `{{DECK_TITLE}}` / `{{DECK_SUMMARY}}` | 1-1 と入力ドキュメントから |
-| `{{ORG_NAME}}` | 会社名（フッターと表紙） |
+| `{{ORG_NAME}}` | 会社名（表紙） |
+| `___ORG_NAME___` | 会社名（`global-bottom.vue` のみ。Vue の `{{ }}` と衝突するため別形式）。**置換し忘れると Vue が式として評価してフッターが空になる** |
 | `{{KICKER}}` / `{{COVER_SUB}}` / `{{COVER_ALT}}` / `{{END_ALT}}` | 表紙・締めのコピー |
 | `{{TODAY}}` / `{{TODAY_DOT}}` | `2026-08-26` / `2026.08.26` |
 | `{{STYLE}}` / `{{PALETTE}}` / `{{PALETTE_REASON}}` | 選んだスタイル名・配色プリセット名・理由1文 |
@@ -247,7 +249,8 @@ cd slide && bun install
 
 ```bash
 cd slide && make check                          # はみ出し（全ページ実寸）
-bun <skill>/scripts/check-contrast.mjs          # 配色のコントラスト（初回とトンマナ変更時）
+make style SKILL_DIR=<skill>                    # 装飾に逃げた表現
+make contrast SKILL_DIR=<skill>                 # 配色のコントラスト（初回とトンマナ変更時）
 ```
 
 `make check` はビルドしてから `scripts/check-overflow.mjs` を実行する。
@@ -327,6 +330,7 @@ make png   # public/<slug>/ に1ページ1枚
 | `references/tone.md` | 1-1（質問の選択肢作成）、1-1b（配色導出・ロゴ）、1-2（`:root` 差し替え） |
 | `scripts/derive-palette.mjs` | 1-1b（プライマリカラーから配色トークンを導出） |
 | `scripts/check-contrast.mjs` | 2-3（配色のコントラスト検査） |
+| `scripts/check-style.mjs` | 2-3（グラデーション・絵文字など装飾の検査） |
 | `references/structure.md` | 1-3（アウトライン設計）、2-2（わかりやすさの規律）、3-2（通し確認） |
 | `references/example-deck.md` | 2-2 の初回（文章とパターンの基準） |
 | `references/components.md` | 2-1（パターン選定）、2-2（執筆）、2-3（崩れ修正） |
@@ -339,6 +343,8 @@ make png   # public/<slug>/ に1ページ1枚
 - **画像内に文字を入れない。** ラベルは必ず HTML 側
 - **背景は情報の役割で決める。** ページ順で交互にしない
 - **1ページ1主張。** 入りきらない情報はページを増やすのではなく、書かないことを決める
+- **装飾で情報を足そうとしない。** グラデーション塗り・光彩・すりガラス・文字の影・
+  絵文字アイコン・ページ内アニメーションは使わない
 - **意味のない強調をしない。** `.accent` は既定で使わない。付ける理由を presenter note に
   書けないなら外す。カードの色は区切りの構造であって、情報ではない
 - **強調するときは1ページ1箇所。** 色だけで情報を区別しない
