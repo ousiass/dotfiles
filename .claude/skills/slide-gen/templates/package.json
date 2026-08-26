@@ -1,0 +1,17 @@
+{
+  "name": "{{PROJECT_SLUG}}-slide",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "slidev --open",
+    "build": "bun run export && bun run build:site",
+    "build:site": "slidev build --base / && rm -f dist/_redirects",
+    "export": "slidev export --output public/{{PROJECT_SLUG}}.pdf --timeout 180000",
+    "export:png": "slidev export --format png --output public/{{PROJECT_SLUG}} --timeout 180000"
+  },
+  "dependencies": {
+    "@slidev/cli": "^52.0.0",
+    "@slidev/theme-default": "^0.25.0",
+    "playwright-chromium": "^1.55.0"
+  }
+}
