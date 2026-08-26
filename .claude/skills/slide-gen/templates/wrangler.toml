@@ -1,9 +1,10 @@
 name = "{{PROJECT_SLUG}}"
 compatibility_date = "{{TODAY}}"
 
-# wrangler deploy の前にこのコマンドが実行され、dist/ が生成される
+# wrangler deploy の前にこのコマンドが実行され、dist/ が生成される。
+# PDF は含めない（CI に Chromium が無いため）。
 [build]
-command = "bun run build:site"
+command = "bun run build"
 
 [assets]
 directory = "./dist"

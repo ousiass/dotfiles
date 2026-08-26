@@ -7,26 +7,29 @@
 ## セットアップ
 
 ```bash
-bun install
-bunx playwright install chromium   # PDF / PNG エクスポートに必要（初回のみ）
+make install
 ```
 
-## 開発
+## よく使うコマンド
 
 ```bash
-bun run dev        # http://localhost:3030
+make dev      # 開発サーバ → http://localhost:3030
+make build    # 静的サイトをビルド（dist/）。PDF は含まない
+make pdf      # 配布用 PDF → public/{{PROJECT_SLUG}}.pdf
+make png      # 1ページ1枚の PNG → public/{{PROJECT_SLUG}}/
+make site     # PDF を作ってから静的サイトをビルド（PDF も配信に含める）
+make check    # 枠からのはみ出しを検査
+make deploy   # Cloudflare Workers へデプロイ
 ```
 
-## ビルド / エクスポート
+`make help` で一覧が出る。
 
-```bash
-bun run build       # PDF を生成し、静的サイトと一緒に dist/ へ出力
-bun run build:site  # 静的サイトのみ（PDFなし・Cloudflare のデプロイで使う）
-bun run export      # PDF のみ public/{{PROJECT_SLUG}}.pdf に出力
-bun run export:png  # 各ページを PNG で public/{{PROJECT_SLUG}}/ に出力
-```
+## ビルドと PDF の関係
 
-`export` の出力先 `public/` は `slidev build` でそのまま `dist/` へコピーされる。
+- **`make build`（既定）** — Cloudflare Workers で配信する静的サイトだけを作る。Chromium が要らないため CI で動く
+- **`make pdf`** — 配布用 PDF を `public/` に出す。初回のみ Chromium を自動で入れる
+- `public/` の中身は `make build` で `dist/` へコピーされるため、`make site` すると PDF も Web から参照できる
+
 PDF は成果物のため `.gitignore` 対象。
 
 ## デプロイ（Cloudflare Workers）
@@ -34,11 +37,12 @@ PDF は成果物のため `.gitignore` 対象。
 `wrangler.toml` にビルドコマンドと配信ディレクトリを定義済み。
 
 ```bash
+make deploy                      # ビルドしてデプロイ
 bunx wrangler deploy --dry-run   # 設定とアセットの検証
-bunx wrangler deploy             # 手動デプロイ
 ```
 
-CI では Chromium を用意しないため PDF は生成しない（`[build] command = "bun run build:site"`）。
+Git 連携（Workers Builds）では `[build] command = "bun run build"` が自動実行される。
+PDF を含めないので Chromium は不要。
 
 ## ファイル構成
 
@@ -48,7 +52,8 @@ CI では Chromium を用意しないため PDF は生成しない（`[build] co
 | `pages/appendix.md` | Appendix。`slides.md` 末尾の `src:` で読み込む |
 | `visual.css` | デッキのデザインシステム（`v-*` クラス群） |
 | `style.css` | ベーストークンと基本タイポグラフィ |
-| `global-bottom.vue` | 全ページ共通フッター |
+| `global-bottom.vue` | 全ページ共通フッター（ページ番号） |
+| `Makefile` | ビルド・PDF・検査・デプロイのエントリポイント |
 | `public/img/visual/` | キービジュアル画像 |
 
 ## デザインルール
@@ -62,6 +67,8 @@ CI では Chromium を用意しないため PDF は生成しない（`[build] co
 配色プリセット: **{{PALETTE}}**（{{PALETTE_REASON}}）。
 配色は `visual.css` の `:root` に集約し、他の箇所に色を直書きしない。
 文体は{{TONE_STYLE}}、`v-kicker` のラベルは{{LABEL_LANG}}で統一する。
+
+h2 はそのページのタイトル（10〜20字）。主張はカード・図・結論バナーが担う。
 図解は画像化せず CSS で組む。
 
 ## 資料の構成

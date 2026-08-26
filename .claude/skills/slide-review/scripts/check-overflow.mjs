@@ -3,7 +3,7 @@
  * スライドが枠からはみ出していないかを機械的に検査する。
  *
  * 使い方:
- *   cd slide && bun run build:site && bun <skill>/scripts/check-overflow.mjs
+ *   cd slide && make check      （または make build && bun <skill>/scripts/check-overflow.mjs）
  *   オプション: --dist dist  --width 1280  --json
  *
  * 仕組み:
@@ -26,7 +26,7 @@ const TOLERANCE = 2 // px。丸め誤差を無視する
 const MAX_PAGES = 500
 
 if (!(await Bun.file(`${DIST}/index.html`).exists())) {
-  console.error(`✗ ${DIST}/index.html がない。先に \`bun run build:site\` を実行する。`)
+  console.error(`✗ ${DIST}/index.html がない。先に \`make build\` を実行する。`)
   process.exit(2)
 }
 

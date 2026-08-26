@@ -61,13 +61,18 @@ user-invocable: true
 ### 1-3: ビルドと PNG 出力
 
 ```bash
-cd <deck> && bun install
-bun run build:site
-bunx playwright install chromium   # 初回のみ
-bun run export:png                 # public/<slug>/ に1ページ1枚
+cd <deck> && make install
+make build   # 静的サイト（PDF は含まない）
+make png     # public/<slug>/ に1ページ1枚。初回は Chromium を自動で入れる
 ```
 
-`export:png` が package.json に無ければ `bunx slidev export --format png --output public/review --timeout 180000` を直接使う。
+`Makefile` が無いデッキでは直接叩く。
+
+```bash
+bun install && bun run build
+bunx playwright install chromium
+bunx slidev export --format png --output public/review --timeout 180000
+```
 
 ### 1-4: モード選択
 
@@ -83,7 +88,8 @@ bun run export:png                 # public/<slug>/ に1ページ1枚
 ### はみ出し（機械）
 
 ```bash
-bun <skill>/scripts/check-overflow.mjs        # 人が読む形式
+make check                                     # Makefile があるデッキ
+bun <skill>/scripts/check-overflow.mjs        # 直接叩く場合
 bun <skill>/scripts/check-overflow.mjs --json # 機械処理する場合
 ```
 

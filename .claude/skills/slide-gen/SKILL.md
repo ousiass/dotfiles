@@ -119,7 +119,7 @@ user-invocable: true
 
 ```bash
 mkdir -p slide/pages slide/public/img/visual
-cp <skill>/templates/{visual.css,style.css,global-bottom.vue,package.json,wrangler.toml} slide/
+cp <skill>/templates/{visual.css,style.css,global-bottom.vue,package.json,wrangler.toml,Makefile} slide/
 cp <skill>/templates/gitignore slide/.gitignore
 cp <skill>/templates/slides.md.tmpl slide/slides.md
 cp <skill>/templates/appendix.md.tmpl slide/pages/appendix.md
@@ -199,15 +199,17 @@ cd slide && bun install
 ### 2-3: レビュー
 
 ```bash
-cd slide && bun run build:site
-bun <skill>/scripts/check-overflow.mjs
+cd slide && make check
 ```
+
+`make check` はビルドしてから `scripts/check-overflow.mjs` を実行する。
+スキルを既定と違う場所に置いている場合は `make check SKILL_DIR=<skill>`。
 
 はみ出しがあれば、ページ番号・はみ出し量・要素名つきで報告される（終了コード 1）。
 続けて該当ページを PNG で目視する。
 
 ```bash
-bun run export:png   # public/<slug>/ に1ページ1枚
+make png   # public/<slug>/ に1ページ1枚
 ```
 
 - 密度がトンマナの設定どおりか
@@ -224,7 +226,7 @@ bun run export:png   # public/<slug>/ に1ページ1枚
 
 ### 2-5: ビルド確認
 
-`bun run build:site` が通ること。`OUTLINE.md` の状態列を更新する。
+`make build` が通ること。`OUTLINE.md` の状態列を更新する。
 
 ### 2-6: Commit（必須）
 
@@ -238,7 +240,7 @@ bun run export:png   # public/<slug>/ に1ページ1枚
 
 `references/images.md` に従い、表紙・体験・クロージング用に 4〜7 点だけ生成する。
 配置したら表紙・締めの `class` から `v-dark` を外し、`v-cover` / `v-end` を有効化する。
-**存在しない画像パスを参照するとビルドが失敗する。**
+**存在しない画像パスを参照すると `make build` が失敗する。**
 
 ### 3-2: 通し読みレビュー
 
@@ -255,13 +257,14 @@ bun run export:png   # public/<slug>/ に1ページ1枚
 ### 3-3: 完成物の確認と案内
 
 - `slide/README.md` の「資料の構成」表を実際のページ構成で埋め、未確定事項を列挙する
-- `bun run build` が通ることを確認する
+- `make build`（Web 配信用）と `make pdf`（配布用 PDF）が両方通ることを確認する
 - `OUTLINE.md` の残課題をユーザーに報告する
 
 ```
-■ 確認        cd slide && bun run dev  → http://localhost:3030
-■ PDF         bun run export           → public/<slug>.pdf
-■ デプロイ    bunx wrangler deploy     （Cloudflare Workers Static Assets）
+■ 確認        cd slide && make dev   → http://localhost:3030
+■ ビルド      make build             → dist/（Web 配信用。PDF は含まない）
+■ PDF         make pdf               → public/<slug>.pdf
+■ デプロイ    make deploy            （Cloudflare Workers Static Assets）
 ■ ページ追加  slides.md に --- 区切りで追記。パターンは visual.css から選ぶ
 ■ 再レビュー  /slide-review  → はみ出し・デザイン・わかりやすさ・構成・規約の5観点
 ```
