@@ -30,6 +30,7 @@
   --v-line-dark: rgba(255, 255, 255, 0.16);
   --v-mono: 'JetBrains Mono', ui-monospace, monospace;
   --v-sans: 'Inter', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', system-ui, sans-serif;
+  --v-on-accent: var(--v-white);            /* accent をベタ塗りした上に載る文字色 */
 
   /* 意匠トークン。スタイルプリセットはここだけを差し替える
    * （references/tone.md「スタイルプリセット」を参照）*/
@@ -305,6 +306,19 @@
   padding-top: 2.4rem;
 }
 
+/* 表紙のロゴ。kicker の上に置く。dark な表紙では白抜き版を使う */
+.v-cover-logo {
+  height: 2rem;
+  margin-bottom: 1.5rem;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.v-end-copy .v-cover-logo {
+  margin: 0 auto 1.2rem;
+  object-position: center;
+}
+
 .v-cover-copy .v-kicker {
   color: var(--v-accent-on-dark);
 }
@@ -513,7 +527,7 @@
   justify-content: center;
   border-radius: 50%;
   background: var(--v-accent);
-  color: var(--v-white);
+  color: var(--v-on-accent);
   content: "→";
   font-size: 0.66rem;
   font-weight: 800;

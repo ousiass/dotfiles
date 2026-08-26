@@ -1,5 +1,10 @@
 <template>
   <footer class="deck-footer">
+    <!-- ロゴ画像を使う場合は下の <div class="name"> を消し、これを有効化する。
+         dark 背景のページでも読めるよう、白抜き版を用意して切り替えるか、
+         どちらの背景でも成立する単色ロゴを使う。
+    <img class="logo" src="/img/logo.svg" alt="{{ORG_NAME}}" />
+    -->
     <div class="name">{{ORG_NAME}}</div>
     <div v-if="$slidev.nav.currentPage > 1" class="page">
       {{ $slidev.nav.currentPage }} / {{ $slidev.nav.total }}
@@ -19,11 +24,18 @@
   justify-content: center;
   padding: 0 2rem 0.9rem;
   color: #98a2b3;
-  font-family: 'Inter', 'Noto Sans JP', system-ui, sans-serif;
+  font-family: var(--v-sans);
   font-size: 0.6rem;
   font-weight: 500;
   letter-spacing: 0.2em;
   pointer-events: none;
+}
+
+/* フッターのロゴは主張させない。高さだけ揃える */
+.deck-footer .logo {
+  height: 0.85rem;
+  opacity: 0.7;
+  object-fit: contain;
 }
 
 /* ページ番号は中央のクレジットに影響させず右端へ置く */
