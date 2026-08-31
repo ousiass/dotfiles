@@ -21,13 +21,16 @@ user-invocable: true
 - `/issue-sweep --no-follow-spinoffs` — sweep 中に spinoff された Issue を再 sweep するのを抑止（追跡ゼロ。検出結果はレポート列挙のみ）
 - `/issue-sweep --max-rounds <N>` — spinoff 追跡の上限周回数（**デフォルト 1、最大 20**）。デフォルトでは「今回の sweep が直接生んだ spinoff」までを 1 周だけ処理し、**その spinoff がさらに生んだ孫 spinoff は追わない**（レポート列挙に落とす）。孫以降まで自律的に枯らしたい場合のみ明示的に大きい値を渡す
 - `/issue-sweep --follow-all-spinoffs` — 追跡対象の重要度フィルタ（3-0 参照）を外し、検出した spinoff を重要度によらず全件再 sweep する
+- `/issue-sweep --single-pr` — **1 統合ブランチ集約モード**。バッチごとに PR を作らず統合ブランチ 1 本に積み、最後にベースブランチへ PR を 1 本だけ出す（後述の「single-pr モード」）
+- `/issue-sweep --base <branch>` — single-pr モードのベースブランチ（PR のマージ先）。未指定なら開始時に必ず聞く
+- `/issue-sweep --branch <name>` — single-pr モードの統合ブランチ名。デフォルト `sweep/issue-sweep-<YYYYmmdd-HHMMSS>`
 
 ## 前提条件
 
 - `gh` CLI が認証済み
 - `.claude/hooks/check-issue-queue.sh` と `.claude/hooks/check-sweep-state.sh` が実行可能
 - `settings.json` の Stop / SessionStart Hook が有効
-- ベースブランチ（例: `develop`）にチェックアウト済み。各サブスキルはそのブランチをベースに PR を作る
+- ベースブランチ（例: `develop`）にチェックアウト済み。各サブスキルはそのブランチをベースに PR を作る（`--single-pr` 時はここでのチェックアウトは不要。S-0 でベースを聞いて統合ブランチを切る）
 
 **`.sweep/` の場所（最初に必ず設定する）:** worktree 内で走るサブスキルと同じファイルを見るため、**常にメインリポジトリ側**を指す:
 
@@ -73,6 +76,26 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 ## --abort 処理
 
 引数が `--abort` の場合は `references/abort-and-recovery.md` の手順を実行して終了する（他フェーズに進まない）。
+
+## single-pr モード（`--single-pr`）
+
+**バッチごとに PR を作らず、最初に切った統合ブランチ 1 本へ全部積み、最後にベースブランチへ PR を 1 本だけ出す。** 有効時は **`references/single-branch-mode.md` を読んでから**フェーズ0 に入る。フェーズ順は:
+
+`フェーズ0（lock）→ S-0（ベース確定＋統合ブランチ作成）→ フェーズ1（キュー構築）→ フェーズ2（S-1 の差分を適用）→ 3-0（spinoff 判定）→ S-2（最終 PR・CI・マージ）→ S-3（Issue close・レポート）`
+
+通常モードからの差分は以下の箇所だけ。他はすべてそのまま:
+
+| 箇所 | single-pr での差し替え |
+|---|---|
+| フェーズ0 の直後 | S-0 を実行。ベースブランチを `--base` か `AskUserQuestion` で確定し、統合ブランチを切って push する |
+| 1-5 の提示 | 「ベースブランチ」の代わりに `base → 統合ブランチ → 最終 1 PR` を提示する |
+| 1-6 の state.json | `mode` / `base_branch` / `int_branch` / `pr_number` / `integrated_count` を追加（S-0-3） |
+| 2-0 の PR 一覧取得 | 不要（in-flight に PR が居ない）。heartbeat と base 最新化のみ行う |
+| 2-1 の冪等性チェック | PR ではなく **ローカルブランチ `<work_branch>` の有無**で判定する。統合済み（`git merge-base --is-ancestor` が真）ならキュー行を削除して次へ |
+| 2-2 の agent プロンプト | worktree の分岐元を `$int_branch` に、`gh pr create` を禁止、`refine-git` に `--base-ref "origin/$int_branch"` を追加、返答 JSON は `pr_number` の代わりに `work_branch`（S-1） |
+| 2-3 の判定表 | PR 状態の観測ではなく **agent 返答 → 統合 merge**。競合時は rebase agent 1 回 → 諦め（S-1） |
+| 2-4 の Issue close | ここでは close しない（最終 PR マージ後の S-3 でまとめて close） |
+| 3-1 の完了報告 | S-2 → S-3 を実行してからレポートを書く。Summary にモード・ベース・統合ブランチ・PR URL を必ず入れる |
 
 ## フェーズ0: 多重起動チェック（lock 取得）
 
@@ -485,6 +508,11 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 - **ユーザーに並列度（--parallel / --max-inflight）を確認する**（デフォルトで常に起動）
 - ベースブランチを途中で変える
 - フェーズ0 の lock 取得をスキップする
+
+**single-pr モード**
+
+- `--single-pr` 指定時に `references/single-branch-mode.md` を読まずに進める（差分表だけで手順を推測しない）
+- **ベースブランチを聞かずに推測で決める / バッチごとに PR を作る / 統合 merge を並列に走らせる / 統合のたびに CI を待つ**（詳細は `references/single-branch-mode.md` の禁止行動）
 
 ## 通知（`.sweep/notify.url`）
 

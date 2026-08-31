@@ -24,6 +24,7 @@ user-invocable: true
 - `/refine-git --skip-minor` — minor 指摘を閾値判定と修正対象から外す（検出とレポートは行う）。`issue-sweep` からの呼び出しは常にこれを付ける
 - `/refine-git --max-iter <N>` — レビューループ反復上限（デフォルト 10）
 - `/refine-git --no-merge` — 研磨のみでマージしない（デフォルトは CI 緑を待って直接マージまで実行）
+- `/refine-git --base-ref <ref>` — 差分の比較先を明示指定する（例: `origin/sweep/issue-sweep-20260831-120000`）。PR の baseRefName より優先する。**sweep の single-pr モードからの呼び出しは常にこれを付ける** — 統合ブランチではなく `origin/develop` と比較すると、既に統合済みの他バッチの差分までレビュー対象に入ってスコープが際限なく膨らむ
 
 ## 前提
 
@@ -42,11 +43,18 @@ user-invocable: true
 worktree 確保の直後に、比較先と変更ファイル一覧を必ず確定する:
 
 ```bash
-# 比較先は PR の baseRefName（PR がない場合は origin/develop、無ければ origin/main）
-base_ref="origin/${base_branch:-develop}"
-git rev-parse --verify "$base_ref" >/dev/null 2>&1 || base_ref="origin/main"
-
+# 比較先の優先順: --base-ref > PR の baseRefName > origin/develop > origin/main
 git fetch origin
+if [[ -n "${base_ref_opt:-}" ]]; then
+  # 明示指定は fallback しない（存在しないまま origin/main に落ちると差分が膨らむ）
+  base_ref="$base_ref_opt"
+  git rev-parse --verify "$base_ref" >/dev/null 2>&1 \
+    || { echo "ERROR: --base-ref $base_ref が存在しません"; exit 2; }
+else
+  base_ref="origin/${base_branch:-develop}"
+  git rev-parse --verify "$base_ref" >/dev/null 2>&1 || base_ref="origin/main"
+fi
+
 merge_base=$(git merge-base "$base_ref" HEAD)
 changed_files=$(git diff --name-only "$merge_base"...HEAD)
 

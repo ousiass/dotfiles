@@ -22,6 +22,28 @@ user-invocable: true
 - `gh` CLI
 - 既存の仕様書ディレクトリ（探索ロジックは `spec-gen` SKILL.md フェーズ1-0 参照）
 
+## 引数
+
+- `/spec-sweep` — 通常モード（項目ごとに Issue + `feat/#N` ブランチ）
+- `/spec-sweep --single-pr` — **1 統合ブランチ集約モード**。項目ごとにブランチを切らず統合ブランチ 1 本に全仕様書を積み、最後にベースブランチへ PR を 1 本だけ出す
+- `/spec-sweep --base <branch>` — single-pr モードのベースブランチ。未指定なら開始時に必ず聞く
+- `/spec-sweep --branch <name>` — 統合ブランチ名。デフォルト `sweep/spec-sweep-<YYYYmmdd-HHMMSS>`
+
+## single-pr モード（`--single-pr`）
+
+有効時は **`~/.claude/skills/issue-sweep/references/single-branch-mode.md` を読んでから**フェーズ1 に入る（`skill_name="spec-sweep"`）。差分は以下だけ:
+
+| 箇所 | single-pr での差し替え |
+|---|---|
+| 1-1 のヒアリング | 「Issue モード」の選択肢から**ブランチの持ち方を外す**（統合ブランチ 1 本で固定）。Issue を作るかどうかだけ聞く |
+| フェーズ1 の前 | S-0 を実行。ベースブランチを `--base` か `AskUserQuestion` で確定し、統合ブランチを切って push する |
+| 1-3 の計画提示 | 各項目の「ブランチ: feat/#N」を消し、先頭に `base → 統合ブランチ → 最終 1 PR` を提示する |
+| フェーズ2 手順1 / 8 | 「ベースブランチに戻る」を**統合ブランチに居続ける**に読み替える（checkout しない） |
+| フェーズ2 手順4 | `feat/#<Issue番号>` ブランチ作成を**行わない** |
+| フェーズ2 手順6 | push 先は統合ブランチ（項目ごとに `git push origin "$int_branch"`） |
+| フェーズ3 の前 | S-2 を実行して最終 PR を作り、CI 緑を待ってマージする。**Issue は close しない**（S-1' / S-3 参照。後で `/impl #N` に渡す設計） |
+| フェーズ3 の報告 | ブランチ名一覧の代わりにベース / 統合ブランチ / PR URL を提示する |
+
 ## フェーズ1: 計画
 
 ### 1-0: 既存仕様書の探索
@@ -103,7 +125,8 @@ user-invocable: true
 - **フェーズ 1 で全情報を一括収集**。フェーズ 2 以降は原則追加ヒアリングしない（「項目ごとにレビュー」モード時の spec-gen 内部対話が唯一の例外）
 - 質問は必ず `AskUserQuestion` を使い、1 回 4 問以内
 - 既存仕様書ディレクトリを最優先（新規ディレクトリを勝手に作らない）
-- 各 Issue は open のまま残す（後で `/impl #N` がそのまま使える）
+- 各 Issue は open のまま残す（後で `/impl #N` がそのまま使える）。single-pr モードでも最終 PR で close しない
+- `--single-pr` 指定時は `~/.claude/skills/issue-sweep/references/single-branch-mode.md` を読んでから進める（差分表だけで手順を推測しない）。ベースブランチを聞かずに推測で決めない
 - `spec-gen` 本体のロジックは複製せず参照する（`~/.claude/skills/spec-gen/SKILL.md`）
 - 計画フェーズで集めた `項目名 / 概要 / 影響仕様書 / CTO 確認事項` を渡し、spec-gen 内の追加ヒアリングは最小化
 - コミットメッセージは `<type>: <説明>` 形式（CLAUDE.md 準拠）
