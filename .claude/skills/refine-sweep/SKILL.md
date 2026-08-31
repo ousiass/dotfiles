@@ -18,13 +18,16 @@ user-invocable: true
 - `/refine-sweep --max-minor N` — minor 残許容 Issue 数（デフォルト 5、0 なら完全に消化）
 - `/refine-sweep --abort` — 実行中の sweep を中止し lock を削除
 - `/refine-sweep --single-pr` — **1 統合ブランチ集約モード**。Issue ごとに PR を作らず統合ブランチ 1 本に積み、最後にベースブランチへ PR を 1 本だけ出す（後述の「single-pr モード」）
-- `/refine-sweep --base <branch>` — single-pr モードのベースブランチ（PR のマージ先）。未指定なら開始時に必ず聞く
+- `/refine-sweep --multi-pr` — Issue ごとに PR を作る従来モード
+- `/refine-sweep --base <branch>` — ベースブランチ（PR のマージ先）
 - `/refine-sweep --branch <name>` — single-pr モードの統合ブランチ名。デフォルト `sweep/refine-sweep-<YYYYmmdd-HHMMSS>`
+
+**`--single-pr` / `--multi-pr` と `--base` は、指定がなければフェーズ P-0 で `AskUserQuestion` で必ず聞く。推測で決めない。**
 
 ## 前提
 
 - `git`, `gh` CLI 認証済み
-- 現在のブランチが base（develop / main 等）。`git branch --show-current` で取得
+- ベースブランチは**フェーズ P-0 でユーザーに確認して確定する**（`~/.claude/skills/issue-sweep/references/branch-preflight.md`）。`git branch --show-current` の結果を推測でベースに採用しない
 - `.sweep/` 書き込み権限
 - ラベル `refine-sweep` と `refine-sweep-iter-<N>` を必要に応じて自動作成
 
@@ -60,14 +63,14 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 
 **Issue ごとに PR を作らず、最初に切った統合ブランチ 1 本へ全反復ぶんを積み、最後にベースブランチへ PR を 1 本だけ出す。** 有効時は **`~/.claude/skills/issue-sweep/references/single-branch-mode.md` を読んでから**フェーズ0 に入る（`skill_name="refine-sweep"`）。フェーズ順は:
 
-`フェーズ0（lock）→ S-0（ベース確定＋統合ブランチ作成）→ フェーズ1 → フェーズ2 の反復（S-1 の差分を適用）→ 3-1（double-confirm）→ S-2（最終 PR・CI・マージ）→ S-3（Issue close・レポート）`
+`フェーズ0（lock）→ P-0（モード・ベース確定）→ S-0（統合ブランチ作成）→ フェーズ1 → フェーズ2 の反復（S-1 の差分を適用）→ 3-1（double-confirm）→ S-2（最終 PR・CI・マージ）→ S-3（Issue close・レポート）`
 
 通常モードからの差分は以下の箇所だけ:
 
 | 箇所 | single-pr での差し替え |
 |---|---|
-| フェーズ0 の直後 | S-0 を実行。ベースブランチを `--base` か `AskUserQuestion` で確定し、統合ブランチを切って push する |
-| フェーズ1 手順1 | `base_branch` は S-0 で確定済み。メイン作業ツリーは統合ブランチに居続ける（`git branch --show-current` から取り直さない） |
+| P-0 の直後 | S-0 を実行。P-0 で確定したベースから統合ブランチを切って push する |
+| フェーズ1 手順1 | `base_branch` は P-0 で確定済み。メイン作業ツリーは統合ブランチに居続ける（`git branch --show-current` から取り直さない） |
 | フェーズ0 手順3 の state.json | `mode` / `base_branch` / `int_branch` / `pr_number` / `integrated_count` を追加（S-0-3） |
 | 2-1 の base 最新化 | `git pull --ff-only origin "$base_branch"` の代わりに **統合ブランチを進めない**。ベースの更新取り込みが必要なら `git merge --no-ff origin/$base_branch` を明示的に行う |
 | 2-2 の review | 変更なし。メイン作業ツリーが統合ブランチなので、反復ごとの review は自動的に「統合済みの状態」を見る |
@@ -94,9 +97,22 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
    ```
 4. フェーズ3 / 中断 / `--abort` 時に `rm -f .sweep/lock`。**`.sweep/state.json` は残す**（履歴・監査用）が、必ず `phase=terminal` にしてから抜けること
 
+## フェーズ P-0: モードとベースブランチの確定（必須）
+
+**`~/.claude/skills/issue-sweep/references/branch-preflight.md` を読んでその手順どおりに実行する。スキップ不可。**
+`--single-pr` / `--multi-pr` と `--base` の両方が引数で確定している場合のみ、ヒアリング（P-0-2）を省略できる。
+
+ここで確定するもの:
+
+- `mode`（`single-pr` = 統合ブランチ 1 本＋最終 1 PR / `multi-pr` = Issue ごとに PR）
+- `base_branch`（PR のマージ先。**`git branch --show-current` の結果を推測で採用しない**）
+- `main_worktree` と事前ガード関数 `assert_not_base`
+
+`mode=single-pr` なら続けて S-0 へ、`multi-pr` ならフェーズ1 へ進む。
+
 ## フェーズ1: 環境準備
 
-1. `base_branch=$(git branch --show-current)` を記録
+1. `base_branch` は P-0 で確定済み（state.json の `base_branch`）。ここで取り直さない
 2. **HALT 検知**:
    - `*.templ` ファイル存在 or 仕様書に「HALT / HTMX+Atomic+Lit+Templ」記述 → `HAS_HALT=true`
 3. **Atomic Design 検知**（HAS_HALT=false のみ）:
@@ -274,7 +290,12 @@ Agent({
 Issue #<issue_num> を実装 → PR 作成 → CI 緑待ち → merge → Issue close まで完了させてください。
 
 手順:
-1. `Skill(impl-wt, args: "#<issue_num>")` で impl-wt を起動し、worktree での実装と PR 作成まで完了させる（impl-wt 自体は PR 作成で止まる設計）
+1. `Skill(impl-wt, args: "#<issue_num>")` で impl-wt を起動し、worktree での実装と PR 作成まで完了させる（impl-wt 自体は PR 作成で止まる設計）。
+   impl-wt が worktree を作った直後に、そこで**必ず**確認する:
+   cur=$(git -C <worktree_path> rev-parse --abbrev-ref HEAD)
+   [[ "$cur" != "<base_branch>" && "$cur" != "main" && "$cur" != "develop" ]] || exit 2
+   worktree が作られなかった / ベースブランチのままだった場合は、**メインリポジトリで代わりに実装してはならない**。
+   failure JSON を返して即座に終了する
 2. impl-wt が返した PR 番号を保持
 3. `gh pr view <PR> --json state,statusCheckRollup` を 60 秒間隔でポーリング:
    - 全 check 完了 ∧ FAILURE なし ∧ state=OPEN → `gh pr merge <PR> --merge --delete-branch` を実行
@@ -414,6 +435,15 @@ mkdir -p .sweep
 
 ## 禁止行動
 
+**ブランチ**
+
+- **フェーズ P-0 を飛ばす / モードとベースブランチを聞かずに始める**（`~/.claude/skills/issue-sweep/references/branch-preflight.md`）
+- **`git branch --show-current` の結果を推測でベースブランチに採用する**
+- **worktree を作らずメインリポジトリで実装する**（ベースブランチ直コミットの主因。worktree が無いなら failure を返して諦める）
+- **事前ガードに引っかかった状態を `git reset` / `git checkout -f` で自動的に直して続行する**（人に返す）
+
+**その他**
+
 - **メインスレッド自身がコードを修正する / コミットする / PR を編集する**（CTO は実装に触らない）
 - **メインスレッドで PR マージ完了のポーリングや CI fix ループを直接回す**（impl-wt agent 内に閉じ込める）
 - **review agent に Issue 作成を止めさせる**（旧設計。現在は Issue 化が意図的設計）
@@ -433,7 +463,7 @@ mkdir -p .sweep
 **single-pr モード**
 
 - `--single-pr` 指定時に `~/.claude/skills/issue-sweep/references/single-branch-mode.md` を読まずに進める（差分表だけで手順を推測しない）
-- **ベースブランチを聞かずに推測で決める / Issue ごとに PR を作る / 統合 merge を並列に走らせる / 統合のたびに CI を待つ**（詳細は same reference の禁止行動）
+- **Issue ごとに PR を作る / 統合 merge を並列に走らせる / 統合のたびに CI を待つ**（詳細は same reference の禁止行動）
 - **single-pr で engineer agent に `/impl-wt` を呼ばせる**（worktree は sweep が統合ブランチから作る。呼ぶと二重に作られ、しかも `--no-pr` を持たないので PR が生える）
 
 ## 失敗時の挙動

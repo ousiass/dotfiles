@@ -26,8 +26,11 @@ user-invocable: true
 
 - `/spec-sweep` — 通常モード（項目ごとに Issue + `feat/#N` ブランチ）
 - `/spec-sweep --single-pr` — **1 統合ブランチ集約モード**。項目ごとにブランチを切らず統合ブランチ 1 本に全仕様書を積み、最後にベースブランチへ PR を 1 本だけ出す
-- `/spec-sweep --base <branch>` — single-pr モードのベースブランチ。未指定なら開始時に必ず聞く
+- `/spec-sweep --multi-pr` — 項目ごとに `feat/#N` ブランチを切る従来モード
+- `/spec-sweep --base <branch>` — ベースブランチ（PR のマージ先）
 - `/spec-sweep --branch <name>` — 統合ブランチ名。デフォルト `sweep/spec-sweep-<YYYYmmdd-HHMMSS>`
+
+**`--single-pr` / `--multi-pr` と `--base` は、指定がなければフェーズ P-0 で `AskUserQuestion` で必ず聞く。推測で決めない。**
 
 ## single-pr モード（`--single-pr`）
 
@@ -36,13 +39,26 @@ user-invocable: true
 | 箇所 | single-pr での差し替え |
 |---|---|
 | 1-1 のヒアリング | 「Issue モード」の選択肢から**ブランチの持ち方を外す**（統合ブランチ 1 本で固定）。Issue を作るかどうかだけ聞く |
-| フェーズ1 の前 | S-0 を実行。ベースブランチを `--base` か `AskUserQuestion` で確定し、統合ブランチを切って push する |
+| P-0 の直後 | S-0 を実行。P-0 で確定したベースから統合ブランチを切って push する |
 | 1-3 の計画提示 | 各項目の「ブランチ: feat/#N」を消し、先頭に `base → 統合ブランチ → 最終 1 PR` を提示する |
 | フェーズ2 手順1 / 8 | 「ベースブランチに戻る」を**統合ブランチに居続ける**に読み替える（checkout しない） |
 | フェーズ2 手順4 | `feat/#<Issue番号>` ブランチ作成を**行わない** |
 | フェーズ2 手順6 | push 先は統合ブランチ（項目ごとに `git push origin "$int_branch"`） |
 | フェーズ3 の前 | S-2 を実行して最終 PR を作り、CI 緑を待ってマージする。**Issue は close しない**（S-1' / S-3 参照。後で `/impl #N` に渡す設計） |
 | フェーズ3 の報告 | ブランチ名一覧の代わりにベース / 統合ブランチ / PR URL を提示する |
+
+## フェーズ P-0: モードとベースブランチの確定（必須）
+
+フェーズ1 の**前**に実行する。**`~/.claude/skills/issue-sweep/references/branch-preflight.md` を読んでその手順どおりに実行する。スキップ不可。**
+`--single-pr` / `--multi-pr` と `--base` の両方が引数で確定している場合のみ、ヒアリング（P-0-2）を省略できる。
+
+ここで確定するもの:
+
+- `mode`（`single-pr` = 統合ブランチ 1 本＋最終 1 PR / `multi-pr` = 項目ごとに `feat/#N`）
+- `base_branch`（**現在の HEAD を推測で採用しない**）
+- `main_worktree` と事前ガード関数 `assert_not_base`
+
+`mode=single-pr` なら続けて S-0 へ、`multi-pr` ならフェーズ1 へ進む。以降「ベースブランチ」と書かれた箇所はすべて P-0 で確定した `$base_branch` を指す。
 
 ## フェーズ1: 計画
 
@@ -92,12 +108,12 @@ user-invocable: true
 
 依存関係順に、各項目について以下を実行:
 
-1. **ベースブランチに戻る**（フェーズ 1 開始時に記録したブランチ）
+1. **ベースブランチに戻る**（P-0 で確定した `$base_branch`）
 2. **`TaskUpdate` で当該タスクを in_progress に**
 3. **プレースホルダー Issue 作成**（Issue モードの場合）
    - タイトル: `feat: <項目名>`
    - 本文: `仕様策定中（spec-sweep 実行中）。完了後に実装内容を追記する。`
-4. **`feat/#<Issue番号>` ブランチ作成**
+4. **`feat/#<Issue番号>` ブランチ作成** → 直後に `assert_not_base "$main_worktree"` で確認する（`branch-preflight.md`）。ブランチ作成に失敗したまま次に進むと仕様書がベースブランチに直接コミットされる
 5. **`spec-gen` の既存仕様書追記モードを実行**
    - 計画段階で集めた `項目名 / 概要 / 影響仕様書` をコンテキストに含め、フェーズ 2-1 の追加ヒアリングは最小限にする
    - **「中断なく書く」モードの場合**: フェーズ 2-3 のレビュー対話はスキップ（フィードバックなしで次に進む扱い）
@@ -126,7 +142,9 @@ user-invocable: true
 - 質問は必ず `AskUserQuestion` を使い、1 回 4 問以内
 - 既存仕様書ディレクトリを最優先（新規ディレクトリを勝手に作らない）
 - 各 Issue は open のまま残す（後で `/impl #N` がそのまま使える）。single-pr モードでも最終 PR で close しない
-- `--single-pr` 指定時は `~/.claude/skills/issue-sweep/references/single-branch-mode.md` を読んでから進める（差分表だけで手順を推測しない）。ベースブランチを聞かずに推測で決めない
+- **フェーズ P-0 を飛ばさない**。モードとベースブランチを聞かずに始めない / 現在の HEAD を推測でベースに採用しない（`~/.claude/skills/issue-sweep/references/branch-preflight.md`）
+- **作業ブランチを作らずベースブランチ上で仕様書をコミットしない**。ブランチ作成に失敗したらその項目を諦めて人に返す（`git reset` / `git checkout -f` で自動的に直して続行しない）
+- `--single-pr` 指定時は `~/.claude/skills/issue-sweep/references/single-branch-mode.md` を読んでから進める（差分表だけで手順を推測しない）
 - `spec-gen` 本体のロジックは複製せず参照する（`~/.claude/skills/spec-gen/SKILL.md`）
 - 計画フェーズで集めた `項目名 / 概要 / 影響仕様書 / CTO 確認事項` を渡し、spec-gen 内の追加ヒアリングは最小化
 - コミットメッセージは `<type>: <説明>` 形式（CLAUDE.md 準拠）
