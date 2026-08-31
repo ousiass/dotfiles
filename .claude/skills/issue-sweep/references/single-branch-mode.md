@@ -1,0 +1,176 @@
+# single-pr モード（1 統合ブランチ → 1 PR）
+
+`issue-sweep` / `refine-sweep` / `spec-sweep` / `report-sweep` が共有する集約モードの仕様。
+呼び出し元 SKILL.md は事前に `skill_name` を設定しておく。
+
+**通常モードとの違いは 1 点だけ**: 作業単位（バッチ / Issue / 仕様項目）ごとに PR を作らず、**最初に切った統合ブランチ 1 本に全部積み、最後にベースブランチへ PR を 1 本だけ出す**。キュー管理・lock・state.json・metrics・spinoff 追跡は通常モードのまま。
+
+## 共通引数
+
+- `--single-pr` — このモードを有効化
+- `--base <branch>` — ベースブランチ（PR のマージ先）。**未指定なら S-0 で必ず聞く**
+- `--branch <name>` — 統合ブランチ名。デフォルト `sweep/<skill_name>-<YYYYmmdd-HHMMSS>`
+
+## フェーズ S-0: ベースブランチ確定と統合ブランチ作成
+
+lock 取得（フェーズ0）の直後、キュー構築（フェーズ1）の**前**に実行する。
+
+### S-0-1. ベースブランチを聞く
+
+`--base` が指定されていればそれを使う。**指定がなければ `AskUserQuestion` で必ず選ばせる。現在のブランチや `develop` を推測で採用しない**（このモードの起点はユーザーが決める）。
+
+```bash
+git fetch origin --prune
+git branch -r --format='%(refname:short)' | sed 's|^origin/||' | grep -v '^HEAD$'
+```
+
+選択肢は上記の結果から `develop` / `main` / 現在のブランチ を優先して 3 つ提示し、それ以外は「Other」の自由入力で受ける。
+
+```bash
+git rev-parse --verify "origin/$base_branch" >/dev/null 2>&1 \
+  || { echo "ERROR: origin/$base_branch が存在しません"; exit 2; }
+```
+
+### S-0-2. 統合ブランチを切って push する
+
+```bash
+int_branch="${branch_opt:-sweep/${skill_name}-$(date +%Y%m%d-%H%M%S)}"
+git checkout -B "$int_branch" "origin/$base_branch"
+git push -u origin "$int_branch"
+```
+
+- **メイン作業ツリーは以降ずっと `$int_branch` に居る。** ベースブランチには戻らない
+- 空の統合ブランチをこの時点で push しておく（作業単位の worktree がここから分岐し、途中クラッシュしても成果が remote に残る）
+
+### S-0-3. state.json にモード情報を足す
+
+通常モードのスキーマに以下を追加して初期化する:
+
+```json
+{ "mode": "single-pr", "base_branch": "<base>", "int_branch": "<int>", "pr_number": null, "integrated_count": 0 }
+```
+
+## フェーズ S-1: 実装系 sweep の統合（issue-sweep / refine-sweep）
+
+通常モードのフェーズ2（in-flight パイプライン）をそのまま回す。差分は以下だけ。
+
+### 起動時（agent プロンプトの差分）
+
+- worktree の分岐元は **ベースブランチではなく `$int_branch`**:
+  `git worktree add <path> -b <work_branch> "$int_branch"`
+- **PR を作らせない。** `gh pr create` を禁止し、`--no-pr` を付けたサブスキル（`/impl #<n> --auto --no-pr` 等）で commit + push までにする
+- 研磨は `/refine-git --no-merge --skip-minor --max-iter 2 --base-ref "origin/$int_branch"` を起動する。
+  **`--base-ref` は必須** — 付けないと `origin/develop` 比較になり、既に統合済みの他バッチの差分まで
+  レビュー対象に巻き込んでスコープが際限なく膨らむ
+- 返答 JSON は `pr_number` / `pr_url` の代わりに `"work_branch": "<ブランチ名>"` を返させる。
+  マージゲート判定（`critical_remaining == 0 ∧ major_remaining == 0`）は通常モードと同じ
+
+### 統合（メインスレッド、**必ず 1 件ずつ直列**）
+
+agent が success JSON を返したら、メイン作業ツリー（`$int_branch`）で取り込む:
+
+```bash
+git fetch origin "$work_branch"
+git merge --no-ff --no-edit "$work_branch"
+```
+
+| 結果 | 実行すること |
+|---|---|
+| 成功 | `git push origin "$int_branch"` → worktree 掃除 → `git branch -D "$work_branch"` と `git push origin --delete "$work_branch"` → metrics に `status:"integrated"` → Issue close はせずキュー行だけ削除（close は S-3） |
+| 競合 | `git merge --abort` → 下記 rebase agent を **1 回だけ** 起動 → 再 merge |
+| 再 merge も競合 | `git merge --abort` → そのバッチを諦める。Issue にコメント、metrics に `status:"merge_conflict"`、**キュー行を削除**（残すと Stop Hook が永久に停止をブロックする）。他バッチの処理は続行する |
+
+**rebase agent プロンプト:**
+
+```
+worktree <worktree_path> のブランチ <work_branch> が統合ブランチ <int_branch> と競合しました。
+
+1. `cd <worktree_path> && git fetch origin && git rebase origin/<int_branch>`
+2. 競合を解消する。**どちらか一方を機械的に採用しない** — 双方の意図を残す形で解消する
+3. テストと lint を通す
+4. `git push --force-with-lease`
+
+返答は JSON 1 行のみ:
+{"work_branch": "<name>", "rebased": true}
+{"work_branch": "<name>", "failure": "<1行で原因>"}
+```
+
+### CI
+
+**各統合では CI 緑を待たない。** CI は最終 PR で 1 回だけ回す。`git push origin "$int_branch"` の結果を観測する必要はない。
+
+## フェーズ S-1': ドキュメント系 sweep の統合（spec-sweep / report-sweep）
+
+- 項目ごとの `feat/#<Issue番号>` ブランチは**作らない**。全項目を `$int_branch` 上で順に処理する
+- 項目間の「ベースブランチに戻る」手順は**統合ブランチに居続ける**に読み替える（checkout しない）
+- 各項目のコミット後に `git push origin "$int_branch"`
+- Issue は open のまま残す（後で `/impl #N` に渡す設計）。最終 PR は Issue をリンクするだけで close しない
+
+## フェーズ S-2: 最終 PR の作成・CI・マージ
+
+キューが空 ∧ in-flight 0 ∧ **spinoff 追跡の round も打ち止め**（後述）になってから 1 回だけ実行する。
+
+### S-2-1. PR 作成
+
+```bash
+git push origin "$int_branch"
+gh pr create --base "$base_branch" --head "$int_branch" --title "<title>" --body-file <body>
+```
+
+- タイトル: `<type>: <sweep の目的>（#<a>, #<b>, …）`。対象が 6 件以上なら `#<a>, #<b> ほか N 件`
+- 本文: 統合した作業単位を 1 行ずつ列挙（Issue 番号 + やったこと）、統合できなかったものは「未統合」として理由付きで列挙、`refine-git` の結果サマリ（critical/major/minor 残数）
+- `gh pr edit <PR> --add-issue <各 Issue URL>` で全件リンクする。**`Closes #N` は使わない**（close は S-3 で明示的に行う）
+- PR 番号を state.json の `pr_number` に記録する
+
+### S-2-2. CI 待ちとマージ（**メインスレッドが行う。agent に投げない**）
+
+```bash
+gh pr view "$pr" --json state,statusCheckRollup
+```
+
+を 60 秒間隔で観測し:
+
+- 全 check 完了 ∧ FAILURE なし ∧ `state == "OPEN"` → `gh pr merge "$pr" --merge --delete-branch`
+- FAILURE あり ∧ pending 0 → **失敗 check 名を渡して** CI fix agent を起動（`$int_branch` の worktree で修正 push）。**最大 2 回**
+- 上限到達 → `gh pr comment` で状況を残し、`sweep_notify "Manual intervention needed"`、`termination_reason: "manual_intervention"` で S-3 へ（PR は open のまま人に返す）
+
+CI fix agent のプロンプトは通常モードのものをそのまま使う（branch を `$int_branch` に差し替えるだけ）。
+
+## フェーズ S-3: Issue close とレポート
+
+- PR がマージされた場合のみ、**統合済みの全 Issue を** close する:
+  `gh issue close <n> --comment "Closed by PR #<PR>（single-pr sweep / integration branch: <int_branch>）"`
+  （spec-sweep / report-sweep は close しない。S-1' 参照）
+- `split-from:` の兄弟が全 close なら親も close する（通常モードと同じ）
+- `git worktree prune`
+- レポート冒頭の Summary に必ず入れる:
+  ```
+  - Mode: single-pr
+  - Base branch: <base_branch>
+  - Integration branch: <int_branch>
+  - PR: <pr_url>（<merged|open（要手動対応）>）
+  - Integrated: <N> / Not integrated: <M>
+  ```
+- 「未統合」セクションに `merge_conflict` / `agent_failed` の作業単位を理由付きで列挙する
+- `phase=terminal` にするのは **PR のマージ確認（または手動対応行きの確定）の後**。PR を出しただけで terminal 化しない
+
+## spinoff 追跡との関係
+
+通常モードでは round ごとに PR が増えるが、single-pr モードでは **spinoff の round も同じ統合ブランチに積む**。
+
+- spinoff 検出（フェーズ3-0）を **S-2 の前**に実行する
+- 追跡する round がある → 新キューを書き出してフェーズ2（= S-1）に戻る。統合ブランチはそのまま使い回す
+- round が打ち止めになってから S-2 に進む
+
+## 禁止行動（single-pr モード共通）
+
+- **ベースブランチを聞かずに `develop` / `main` / 現在のブランチを推測で採用する**（起点はユーザーが決める）
+- **作業単位ごとに PR を作る**（`gh pr create` はメインスレッドが S-2 で 1 回だけ叩く）
+- **統合ブランチを push せずローカルだけで進める**（クラッシュで全成果が消える。S-0-2 と各統合後に push する）
+- **統合 merge を並列に走らせる**（メイン作業ツリー 1 本を共有している。取り込みは必ず直列）
+- **統合のたびに CI 緑を待つ**（このモードの利点を丸ごと消す。CI は最終 PR で 1 回）
+- **`/refine-git` に `--base-ref "origin/$int_branch"` を渡さない**（統合済みの他バッチまでレビュー対象に入り、スコープが sweep の進行とともに膨らむ）
+- **競合したバッチをキューに残したまま次へ進む**（Stop Hook が永久に停止をブロックする。諦めたら必ず消して metrics に残す）
+- **最終 PR のマージ前に `phase=terminal` にする**
+- **Issue を PR 本文の `Closes #N` で閉じる**（S-3 の明示 close に統一する）
+- ベースブランチ / 統合ブランチを途中で変える

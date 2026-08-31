@@ -28,6 +28,25 @@ user-invocable: true
 
 - **テキスト**（例: `/report-sweep ログインまわりのバグと通知機能追加`）: 初期メモとして扱う
 - **引数なし**: 最初からヒアリング開始
+- `--single-pr`: **1 統合ブランチ集約モード**。機能要望ごとに `feat/#N` ブランチを切らず、統合ブランチ 1 本に全仕様書を積み、最後にベースブランチへ PR を 1 本だけ出す
+- `--base <branch>`: single-pr モードのベースブランチ。未指定なら開始時に必ず聞く
+- `--branch <name>`: 統合ブランチ名。デフォルト `sweep/report-sweep-<YYYYmmdd-HHMMSS>`
+
+## single-pr モード（`--single-pr`）
+
+有効時は **`~/.claude/skills/issue-sweep/references/single-branch-mode.md` を読んでから**フェーズ0 に入る（`skill_name="report-sweep"`）。バグ側は Issue 起票だけなので影響を受けない。**差分は機能要望（spec-gen 実行）の流し方だけ**:
+
+| 箇所 | single-pr での差し替え |
+|---|---|
+| フェーズ0 の「現在ブランチ名を記録」 | S-0 に差し替える。ベースブランチを `--base` か `AskUserQuestion` で確定し、統合ブランチを切って push する |
+| フェーズ2 の計画提示 | 機能要望に `→ 統合ブランチ <int_branch> 上で spec-gen` と表示し、末尾に `最終的に <base_branch> へ PR 1 本` を添える |
+| 3-5 手順1 | `feat/#<Issue番号>` ブランチ作成を**行わない**（統合ブランチ上で作業する） |
+| 3-5 手順3 | push 先は統合ブランチ（項目ごとに `git push origin "$int_branch"`） |
+| 3-5 手順4 | 「ベースブランチに戻る」を**統合ブランチに居続ける**に読み替える |
+| フェーズ4 の前 | 機能要望が 1 件以上あれば S-2 を実行して最終 PR を作り、CI 緑を待ってマージする。**Issue は close しない**（後で `/impl #N` `/bug-fix #N` に渡す設計） |
+| フェーズ4 の報告 | ブランチ名の代わりにベース / 統合ブランチ / PR URL を提示する。バグ Issue の一覧は変更なし |
+
+機能要望が 0 件（バグのみ）だった場合は統合ブランチに何も積まれないので、**PR を作らず統合ブランチを削除して終わる**（`git checkout "$base_branch" && git branch -D "$int_branch" && git push origin --delete "$int_branch"`）。
 
 ## フェーズ0: 前提スキャン
 
@@ -211,6 +230,7 @@ gh issue create \
 - バグ側はコード調査しない（原因推定は書かない）。機能要望側は `spec-gen` が既存仕様書を読むためコード/仕様書スキャンは走る
 - `spec-gen` 本体のロジックは複製せず `~/.claude/skills/spec-gen/SKILL.md` を参照
 - 未存在ラベルはユーザー承認なしに作成しない（フェーズ 2 の一括承認に含める）
-- 各 Issue は open のまま残す（後で `/impl #N` `/bug-fix #N` にそのまま渡せる）
+- 各 Issue は open のまま残す（後で `/impl #N` `/bug-fix #N` にそのまま渡せる）。single-pr モードでも最終 PR で close しない
+- `--single-pr` 指定時は `~/.claude/skills/issue-sweep/references/single-branch-mode.md` を読んでから進める（差分表だけで手順を推測しない）。ベースブランチを聞かずに推測で決めない
 - コミットメッセージは `<type>: <説明>` 形式（CLAUDE.md 準拠）
 - `git commit` / `git push` で `--no-verify` を使わない
