@@ -29,6 +29,12 @@ backups/
 teams/
 llm/active
 usage-data/
+daemon/
+daemon.log
+daemon.lock
+daemon.status.json
+jobs/
+gh-pr-status-cache.json
 
 # プラグインローカル設定
 plugins/blocklist.json
