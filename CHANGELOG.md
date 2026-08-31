@@ -1,5 +1,25 @@
 > 注: このファイルは `~/dotfiles` リポジトリ全体（fish / nvim / tmux / install scripts / `.claude/` 配下のスキル類すべて）の変更履歴です。
 
+## [v0.8.0] - 2026-09-01
+
+sweep 系スキル（`issue-sweep` / `refine-sweep` / `spec-sweep` / `report-sweep`）が作業ブランチを作らないままベースブランチへ直接コミットする事故と、ベースブランチをユーザーに確認せず現在の HEAD を推測で採用する事故を塞いだリリース。
+
+### 🐛 Bug Fixes / バグ修正
+
+- Fix sweep skills committing directly onto the base branch / worktree や作業ブランチの作成に失敗したとき、メインリポジトリでそのまま実装を続けて `develop` / `main` に直接コミットしてしまう経路を塞いだ。作成に失敗した作業単位は諦めて failure を返す
+- Fix base branch inferred from the current HEAD / `git branch --show-current` の結果や `develop` を推測でベースブランチに採用していたのをやめ、フェーズ P-0 の選択式ヒアリングで必ず確定させるようにした
+- Fix `mode` / `base_branch` wiped by state.json init / `issue-sweep` のフェーズ1-6 が state.json を丸ごと上書きし、P-0 で確定したモードとベースブランチを消していた問題を修正
+
+### ✨ New Features / 新機能
+
+- Add branch preflight phase to sweep skills / 共有 reference `issue-sweep/references/branch-preflight.md` を追加。lock 取得の直後・キュー構築の前に走る**スキップ不可**のフェーズ P-0 で、PR モード（1 PR に集約 / 作業単位ごとに PR）とベースブランチを `AskUserQuestion` で 1 回にまとめて聞く。決定は state.json の `mode` に持たせ、以降のフェーズ分岐の唯一の根拠にする
+- Add `assert_not_base` pre-guard / 保護ブランチ（`main` / `master` / `develop` / `staging` / `production`）と `$int_branch` を検査する事前ガードを追加。統合ブランチ作成の直後、統合 merge の直前、`feat/#N` 作成の直後、実装 agent の worktree 作成の直後と初回コミット前に呼ぶ。**事後検知や `git reset` による自動退避はしない**（引っかかったら人に返す）
+- Add `--multi-pr` to sweep skills / 作業単位ごとに PR を作る従来モードを明示するフラグを 4 スキルに追加。`--single-pr` と `--base` を含め、指定がなければ P-0 で必ず聞く
+
+### 🔧 Improvements / 改善
+
+- Consolidate base branch selection into P-0 / `single-branch-mode.md` の S-0-1（ベースブランチ確定）を P-0 へ移譲し、同じヒアリング手順が 2 箇所にあった重複を解消。S-0 は統合ブランチの作成だけを担う
+
 ## [v0.7.0] - 2026-08-31
 
 Slidev 資料の生成・レビュー用スキル（`slide-gen` / `slide-review`）の追加と、sweep 系スキルの「1 統合ブランチ → 1 PR」集約モードを中心にしたリリース。意匠まわりは配色・スタイルを CSS トークンへ切り出し、コントラストと装飾方針を機械検査できるようにした。
