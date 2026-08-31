@@ -22,15 +22,18 @@ user-invocable: true
 - `/issue-sweep --max-rounds <N>` — spinoff 追跡の上限周回数（**デフォルト 1、最大 20**）。デフォルトでは「今回の sweep が直接生んだ spinoff」までを 1 周だけ処理し、**その spinoff がさらに生んだ孫 spinoff は追わない**（レポート列挙に落とす）。孫以降まで自律的に枯らしたい場合のみ明示的に大きい値を渡す
 - `/issue-sweep --follow-all-spinoffs` — 追跡対象の重要度フィルタ（3-0 参照）を外し、検出した spinoff を重要度によらず全件再 sweep する
 - `/issue-sweep --single-pr` — **1 統合ブランチ集約モード**。バッチごとに PR を作らず統合ブランチ 1 本に積み、最後にベースブランチへ PR を 1 本だけ出す（後述の「single-pr モード」）
-- `/issue-sweep --base <branch>` — single-pr モードのベースブランチ（PR のマージ先）。未指定なら開始時に必ず聞く
+- `/issue-sweep --multi-pr` — バッチごとに PR を作る従来モード
+- `/issue-sweep --base <branch>` — ベースブランチ（PR のマージ先）
 - `/issue-sweep --branch <name>` — single-pr モードの統合ブランチ名。デフォルト `sweep/issue-sweep-<YYYYmmdd-HHMMSS>`
+
+**`--single-pr` / `--multi-pr` と `--base` は、指定がなければフェーズ P-0 で `AskUserQuestion` で必ず聞く。推測で決めない。**
 
 ## 前提条件
 
 - `gh` CLI が認証済み
 - `.claude/hooks/check-issue-queue.sh` と `.claude/hooks/check-sweep-state.sh` が実行可能
 - `settings.json` の Stop / SessionStart Hook が有効
-- ベースブランチ（例: `develop`）にチェックアウト済み。各サブスキルはそのブランチをベースに PR を作る（`--single-pr` 時はここでのチェックアウトは不要。S-0 でベースを聞いて統合ブランチを切る）
+- ベースブランチは**フェーズ P-0 でユーザーに確認して確定する**（`references/branch-preflight.md`）。起動時の HEAD がどこであっても、それを推測でベースに採用しない
 
 **`.sweep/` の場所（最初に必ず設定する）:** worktree 内で走るサブスキルと同じファイルを見るため、**常にメインリポジトリ側**を指す:
 
@@ -81,13 +84,13 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 
 **バッチごとに PR を作らず、最初に切った統合ブランチ 1 本へ全部積み、最後にベースブランチへ PR を 1 本だけ出す。** 有効時は **`references/single-branch-mode.md` を読んでから**フェーズ0 に入る。フェーズ順は:
 
-`フェーズ0（lock）→ S-0（ベース確定＋統合ブランチ作成）→ フェーズ1（キュー構築）→ フェーズ2（S-1 の差分を適用）→ 3-0（spinoff 判定）→ S-2（最終 PR・CI・マージ）→ S-3（Issue close・レポート）`
+`フェーズ0（lock）→ P-0（モード・ベース確定）→ S-0（統合ブランチ作成）→ フェーズ1（キュー構築）→ フェーズ2（S-1 の差分を適用）→ 3-0（spinoff 判定）→ S-2（最終 PR・CI・マージ）→ S-3（Issue close・レポート）`
 
 通常モードからの差分は以下の箇所だけ。他はすべてそのまま:
 
 | 箇所 | single-pr での差し替え |
 |---|---|
-| フェーズ0 の直後 | S-0 を実行。ベースブランチを `--base` か `AskUserQuestion` で確定し、統合ブランチを切って push する |
+| P-0 の直後 | S-0 を実行。P-0 で確定したベースから統合ブランチを切って push する |
 | 1-5 の提示 | 「ベースブランチ」の代わりに `base → 統合ブランチ → 最終 1 PR` を提示する |
 | 1-6 の state.json | `mode` / `base_branch` / `int_branch` / `pr_number` / `integrated_count` を追加（S-0-3） |
 | 2-0 の PR 一覧取得 | 不要（in-flight に PR が居ない）。heartbeat と base 最新化のみ行う |
@@ -108,6 +111,19 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 3. ロック書き込み: `echo "$PPID:$(date +%s)" > "$SWEEP_DIR/lock"`
 4. フェーズ2の各ラウンド冒頭で **heartbeat 更新**（2-0）
 5. フェーズ3完了時 / 中断時 / `--abort` 時に必ず `rm -f "$SWEEP_DIR/lock"` する
+
+## フェーズ P-0: モードとベースブランチの確定（必須）
+
+**`references/branch-preflight.md` を読んでその手順どおりに実行する。スキップ不可。**
+`--single-pr` / `--multi-pr` と `--base` の両方が引数で確定している場合のみ、ヒアリング（P-0-2）を省略できる。
+
+ここで確定するもの:
+
+- `mode`（`single-pr` = 統合ブランチ 1 本＋最終 1 PR / `multi-pr` = バッチごとに PR）
+- `base_branch`（PR のマージ先。**現在の HEAD を推測で採用しない**）
+- `main_worktree` と事前ガード関数 `assert_not_base`
+
+`mode=single-pr` なら続けて S-0 へ、`multi-pr` ならフェーズ1 へ進む。
 
 ## フェーズ1: Issue キューの構築
 
@@ -196,7 +212,7 @@ Issue #<n> を解析して JSON 1行だけを返してください。実装は�
 ### 1-5. ユーザーへの提示
 
 1. キュー件数（バッチ数と Issue 総数）とラベル別内訳を表示する
-2. 現在のブランチ（`git branch --show-current`）を「ベースブランチ」として表示する。違うブランチで進めたい場合はここでチェックアウトし直してから続行する
+2. P-0 で確定した `mode` と `base_branch`（single-pr なら統合ブランチ名も）を表示する。ここで `git branch --show-current` から取り直さない
 3. 「中止したい時は `/issue-sweep --abort`」を1行案内する
 
 ### 1-6. state.json の初期化
@@ -205,16 +221,20 @@ Issue #<n> を解析して JSON 1行だけを返してください。実装は�
 queue_total=$(wc -l < "$SWEEP_DIR/queue.txt" | tr -d ' ')
 max_rounds=${max_rounds:-1}   # --max-rounds 未指定時のデフォルト
 jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --arg mode "$mode" --arg base "$base_branch" --arg int "${int_branch:-}" \
       --argjson qt "$queue_total" --argjson mr "$max_rounds" '{
   skill: "issue-sweep",
   started_at: $now, updated_at: $now,
   phase: "iterating",
+  mode: $mode, base_branch: $base, int_branch: (if $int == "" then null else $int end),
   queue_total: $qt, queue_remaining: $qt,
   processed_count: 0, merged_count: 0, failed_count: 0,
   round: 0, max_rounds: $mr,
   termination_reason: null
 }' > "$SWEEP_DIR/state.json"
 ```
+
+**P-0 / S-0 で確定した `mode` / `base_branch` / `int_branch` をここで必ず引き継ぐ**（この初期化は state.json を上書きするので、書き落とすと P-0 の決定が消える）。
 
 ## フェーズ2: in-flight パイプライン（キューが空になるまで）
 
@@ -308,6 +328,15 @@ Issue #<a>[, #<b>, #<c>] を **1 つの worktree にまとめて** 処理して�
 手順:
 1. worktree を 1 つ作る（以降のすべての作業をこのディレクトリ内で行う）:
    git worktree add <repo>-sweep-<a> -b sweep/issues-<a>[-<b>-<c>] <base_branch>
+
+   作成に成功したら、作業を始める前に**必ず**確認する:
+   cd <repo>-sweep-<a>
+   cur=$(git rev-parse --abbrev-ref HEAD)
+   [[ "$cur" != "<base_branch>" && "$cur" != "main" && "$cur" != "develop" ]] || exit 2
+
+   worktree の作成に失敗した場合、**メインリポジトリで代わりに作業してはならない**。
+   {"issues": [...], "failure": "worktree 作成に失敗: <理由>"} を返して即座に終了する。
+   最初の `git commit` の前にも同じ確認をもう一度行う。
 2. 各 Issue を **依存順に** 1 件ずつ処理する。Issue ごとに `gh issue view <n> --json labels` でラベルを見てスキルを選ぶ。
    **`--auto --no-pr` を必ず付ける**:
    - bug → `/bug-fix #<n> --auto --no-pr`
@@ -461,6 +490,13 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 
 ## 禁止行動
 
+**ブランチ**
+
+- **フェーズ P-0 を飛ばす / モードとベースブランチを聞かずに始める**（`references/branch-preflight.md`）
+- **現在の HEAD や `develop` を推測でベースブランチに採用する**
+- **worktree を作らずメインリポジトリで実装する**（ベースブランチ直コミットの主因。worktree 作成に失敗したらそのバッチを諦めて failure を返す）
+- **事前ガードに引っかかった状態を `git reset` / `git checkout -f` で自動的に直して続行する**（人に返す）
+
 **キュー / マージ**
 
 - **PR マージ完了前にキューから該当行を削除する**（最重要 — マージ忘れの根本原因）
@@ -512,7 +548,7 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 **single-pr モード**
 
 - `--single-pr` 指定時に `references/single-branch-mode.md` を読まずに進める（差分表だけで手順を推測しない）
-- **ベースブランチを聞かずに推測で決める / バッチごとに PR を作る / 統合 merge を並列に走らせる / 統合のたびに CI を待つ**（詳細は `references/single-branch-mode.md` の禁止行動）
+- **バッチごとに PR を作る / 統合 merge を並列に走らせる / 統合のたびに CI を待つ**（詳細は `references/single-branch-mode.md` の禁止行動）
 
 ## 通知（`.sweep/notify.url`）
 

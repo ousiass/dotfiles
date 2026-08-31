@@ -7,35 +7,24 @@
 
 ## 共通引数
 
-- `--single-pr` — このモードを有効化
-- `--base <branch>` — ベースブランチ（PR のマージ先）。**未指定なら S-0 で必ず聞く**
+- `--single-pr` — このモードを有効化（**未指定なら P-0 でユーザーに必ず聞く**。`branch-preflight.md` 参照）
+- `--base <branch>` — ベースブランチ（PR のマージ先）。**未指定なら P-0 で必ず聞く**
 - `--branch <name>` — 統合ブランチ名。デフォルト `sweep/<skill_name>-<YYYYmmdd-HHMMSS>`
 
-## フェーズ S-0: ベースブランチ確定と統合ブランチ作成
+## フェーズ S-0: 統合ブランチ作成
 
-lock 取得（フェーズ0）の直後、キュー構築（フェーズ1）の**前**に実行する。
+`branch-preflight.md` のフェーズ P-0（モードとベースブランチの確定）の直後、キュー構築（フェーズ1）の**前**に実行する。
 
-### S-0-1. ベースブランチを聞く
+### S-0-1. ベースブランチ
 
-`--base` が指定されていればそれを使う。**指定がなければ `AskUserQuestion` で必ず選ばせる。現在のブランチや `develop` を推測で採用しない**（このモードの起点はユーザーが決める）。
-
-```bash
-git fetch origin --prune
-git branch -r --format='%(refname:short)' | sed 's|^origin/||' | grep -v '^HEAD$'
-```
-
-選択肢は上記の結果から `develop` / `main` / 現在のブランチ を優先して 3 つ提示し、それ以外は「Other」の自由入力で受ける。
-
-```bash
-git rev-parse --verify "origin/$base_branch" >/dev/null 2>&1 \
-  || { echo "ERROR: origin/$base_branch が存在しません"; exit 2; }
-```
+**P-0 で確定済み**（`$base_branch` と state.json の `base_branch`）。ここで聞き直さない。
 
 ### S-0-2. 統合ブランチを切って push する
 
 ```bash
 int_branch="${branch_opt:-sweep/${skill_name}-$(date +%Y%m%d-%H%M%S)}"
 git checkout -B "$int_branch" "origin/$base_branch"
+assert_not_base "$main_worktree"   # branch-preflight.md の事前ガード
 git push -u origin "$int_branch"
 ```
 
@@ -70,6 +59,7 @@ git push -u origin "$int_branch"
 agent が success JSON を返したら、メイン作業ツリー（`$int_branch`）で取り込む:
 
 ```bash
+assert_not_base "$main_worktree"   # 取り込み先が統合ブランチであることを毎回確認する
 git fetch origin "$work_branch"
 git merge --no-ff --no-edit "$work_branch"
 ```
@@ -164,7 +154,7 @@ CI fix agent のプロンプトは通常モードのものをそのまま使う�
 
 ## 禁止行動（single-pr モード共通）
 
-- **ベースブランチを聞かずに `develop` / `main` / 現在のブランチを推測で採用する**（起点はユーザーが決める）
+- **P-0 を飛ばして S-0 に入る**（ベース未確定のまま統合ブランチを切ることになる。`branch-preflight.md` 参照）
 - **作業単位ごとに PR を作る**（`gh pr create` はメインスレッドが S-2 で 1 回だけ叩く）
 - **統合ブランチを push せずローカルだけで進める**（クラッシュで全成果が消える。S-0-2 と各統合後に push する）
 - **統合 merge を並列に走らせる**（メイン作業ツリー 1 本を共有している。取り込みは必ず直列）
