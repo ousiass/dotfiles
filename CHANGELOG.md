@@ -1,5 +1,41 @@
 > 注: このファイルは `~/dotfiles` リポジトリ全体（fish / nvim / tmux / install scripts / `.claude/` 配下のスキル類すべて）の変更履歴です。
 
+## [v0.7.0] - 2026-08-31
+
+Slidev 資料の生成・レビュー用スキル（`slide-gen` / `slide-review`）の追加と、sweep 系スキルの「1 統合ブランチ → 1 PR」集約モードを中心にしたリリース。意匠まわりは配色・スタイルを CSS トークンへ切り出し、コントラストと装飾方針を機械検査できるようにした。
+
+### ✨ New Features / 新機能
+
+- Add `slide-gen` skill / 仕様書などのドキュメントから `slide/` に Slidev のビジュアル資料を生成する `slide-gen` を追加。テンプレート（`slides.md` / `visual.css` / Makefile / wrangler.toml）と検査スクリプト一式を同梱する
+- Add `slide-review` skill / Slidev のスライドをレビューし、指摘を 1 件ずつ確認しながら修正する `slide-review` を追加。デザインモードは「機械 + 目視」で、目視の前にコントラストを実測する
+- Add `--single-pr` aggregation mode to sweep skills / `issue-sweep` / `refine-sweep` / `spec-sweep` / `report-sweep` に 1 統合ブランチ集約モードを追加。作業単位ごとに PR を作らず、最初に切った統合ブランチ 1 本へ全部積み、最後にベースブランチへ PR を 1 本だけ出す。ベースブランチは `--base <branch>` か開始時の選択式ヒアリングで必ず確定させる（推測で `develop` / `main` を採らない）。手順は共有 reference `issue-sweep/references/single-branch-mode.md` に集約し、各 SKILL.md には差分表を 1 ブロックだけ置いた
+- Add `--base-ref <ref>` to `refine-git` / 差分の比較先を明示指定するフラグを追加。集約モードで統合ブランチ基準の差分をレビューさせるための必須プラミングで、明示指定時は `origin/main` へ fallback せずエラーにする
+- Add style presets to `slide-gen` / 角丸・カードの地/枠/影・見出しの太さと字間・kicker の横線などを `:root` の意匠トークンへ切り出し、Editorial（既定）/ Soft / Minimal の 3 プリセットを追加。スタイルと配色を独立して選べるようにした
+- Add `derive-palette.mjs` / プライマリカラー 1 色から配色トークンを導出するスクリプトを追加。light / dark 双方で本文 4.5:1・構造色 3:1 を満たすまで明度を自動調整し、実測値を出力する
+- Add `check-contrast.mjs` / `visual.css` の `:root` から文字色と背景色の組み合わせを実測する検査を追加。`var()` 参照を解決し複数の `:root` を後勝ちで畳むため、プリセットを末尾に追記した状態でも測れる
+- Add `check-style.mjs` / グラデーション塗り・光彩・すりガラス・文字の影・絵文字アイコン・ページ内アニメーション・インラインスタイル・色の直書きを機械検出する検査を追加。セレクタを追跡し、画像上の減光など機能的なオーバーレイは通す
+
+### 🐛 Bug Fixes / バグ修正
+
+- Fix dark text tokens scattered across 6 values / dark 背景のテキスト色が 6 段階に散らばっていたのを 3 トークンへ集約
+- Fix self-referencing `--v-card-border` / 自己参照になっており既定スタイルでカードの枠線が消えていた問題を修正
+- Fix footer contrast below threshold / フッターの色が直書きでコントラストが 2.43:1 と基準未満だった問題を修正
+- Fix footer placeholder colliding with Vue interpolation / `global-bottom.vue` のプレースホルダを `___ORG_NAME___` に変更。`{{ORG_NAME}}` は Vue の補間構文と衝突し、置換し忘れてもエラーにならずフッターが空になっていた
+- Fix `h2` demoted from title / `h2` をタイトルに戻し、`slide-gen` の入力受け渡しを拡張
+
+### 🔧 Improvements / 改善
+
+- Split `:root` into palette and design blocks / `:root` を配色用と意匠用の 2 ブロックに分け、プリセットの差し替えが互いを壊さないようにした
+- Ban decoration-only expression / 情報を 1 つも足さないのに資料を安く見せる装飾を禁止し、機械検査でガードするようにした。例外は画像の上に文字を載せるための減光と破線などのパターンのみ
+- Require meaning for emphasis / 意味のない強調を禁止。`.accent` は既定で使わず、付ける理由を presenter note に書けないなら外す。カードの色は区切りの構造であって情報ではないため、カードごとに色を変えない
+- Define logo placement / ロゴの置き場所を表紙・フッター・締めの 3 つに定め、dark 背景では白抜き版が要る点を手順に含めた。レビュー観点にも「dark 背景でロゴが沈む」「扱いが不統一 / 主張しすぎ」を追加
+- Align `slide-gen` visual checklist with `slide-review` / `slide-gen` の目視チェックリストを強調・装飾の方針に揃えた
+
+### 🏗️ Infrastructure / インフラ
+
+- Make `slide-gen` build web-only / `build` は Cloudflare Workers で配信する静的サイトだけを作るようにし、PDF / PNG 出力を Makefile のターゲットへ分離。Chromium に依存しなくなり Workers Builds でそのまま通る
+- Add `make contrast` / コントラスト実測を Makefile のターゲットとして追加
+
 ## [v0.6.0] - 2026-08-22
 
 自律実行フロー（`issue-sweep` → `impl` → `refine-git`）の収束性とスループットの作り直しを中心にしたリリース。あわせて `refine` の差分版分離、`spec-audit-git` / `mock-drift` の追加、herdr の導入、install/update スクリプトのツール単位分割を含む。
