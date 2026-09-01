@@ -1,5 +1,18 @@
 > 注: このファイルは `~/dotfiles` リポジトリ全体（fish / nvim / tmux / install scripts / `.claude/` 配下のスキル類すべて）の変更履歴です。
 
+## [v0.9.0] - 2026-09-01
+
+Playwright で実際にレンダリングした画面のスクリーンショットを見てレビューする `visual-review` スキルを追加したリリース。コードの静的解析（`design-review`）やモックとのコード比較（`mock-drift`）では検出できない、実描画での崩れ・重なり・コントラスト不足を対象にする。HALT（HTMX + Templ + Lit）のようなサーバー内蔵型構成にも対応する。
+
+### ✨ New Features / 新機能
+
+- Add `visual-review` skill / Playwright で画面を実描画してスクリーンショットを撮影し、**デザイン品質・モック乖離・仕様乖離**の3観点をレビューするスキルを追加。`design-review`（コードの静的解析）と `mock-drift`（モック↔実装のコード比較）に対し、「ブラウザで実際にどう見えるか」だけに責務を限定する (#10)
+- Add cross-source drift detection / 収集元6種（設定ファイル / Storybook / クライアントルーティング / サーバーサイドルーティング / 仕様書の画面一覧 / モック）を突き合わせ、未実装・仕様未記載・モック未整備・モック取り残し・story 欠落・到達不能を検出する (#10)
+- Add visual mock comparison / HTML モックを実装と同じビューポートで撮影して画像同士を並べて比較する。画像カンプはそのまま読み込み、Markdown モックは本文と実描画を照合する (#10)
+- Support HALT / HTMX / Web Components / `HX-Request` 付きで取得した部分 HTML をラッパーに埋め込んで撮る**フラグメント撮影**（Storybook が無い構成でのコンポーネント単体レビュー手段）、HTMX のスワップ完了と `customElements.whenDefined()` + `updateComplete` の待機、shadow DOM を貫通する動的要素の隠蔽、`static/dist/` 等のビルド成果物の鮮度確認を実装。待機が無いとカスタム要素が空のまま撮影され、デザイン欠陥として誤報告される (#10)
+- Add server-side route collection / Gin / Echo / chi、Rails、Laravel、Django のルート定義から撮影対象を収集する。GET のページルートのみを対象とし、API ルートと**副作用のあるアクションルート（POST / PUT / DELETE）は撮影しない** (#10)
+- Add staged image loading to cap token usage / 画像1枚あたり約 1.5k トークンを消費するため、撮影は一括・レビューは段階的読み込み（desktop×light 全件 → モック照合 → 問題があった画面のみ mobile → dark → tablet）を規定。全件読み込みは `--full` 明示時のみ。縦長ページはビューポート単位に自動スライスし、1枚が巨大画像になるのを防ぐ (#10)
+
 ## [v0.8.0] - 2026-09-01
 
 sweep 系スキル（`issue-sweep` / `refine-sweep` / `spec-sweep` / `report-sweep`）が作業ブランチを作らないままベースブランチへ直接コミットする事故と、ベースブランチをユーザーに確認せず現在の HEAD を推測で採用する事故を塞いだリリース。
