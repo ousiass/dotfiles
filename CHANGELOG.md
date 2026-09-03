@@ -1,5 +1,20 @@
 > 注: このファイルは `~/dotfiles` リポジトリ全体（fish / nvim / tmux / install scripts / `.claude/` 配下のスキル類すべて）の変更履歴です。
 
+## [v0.10.0] - 2026-09-03
+
+sweep 系スキルの研磨タイミングを見直し、Stop Hook との往復で context を浪費していた問題を塞いだリリース。single-pr モードでは作業単位ごとに `refine-git` を回していたが、同じ指摘が作業単位の数だけ重複検出されるうえ、バッチ間の重複・不整合は誰も検出できていなかったため、統合ブランチにすべて積んだ後にまとめて 1 回研磨する方式に変更した。
+
+### 🐛 Bug Fixes / バグ修正
+
+- Fix context burned by Stop Hook round-trips / CI 待ちなどで「待機。」と言ってターンを終える待ち方をすると Stop Hook に押し戻され、1 往復ごとにモデルのターンを 1 回消費していた。過去セッションの実測でブロック 10,946 回（33,120 行中 1/3、2〜3 秒間隔）、フック文言だけでトランスクリプトの 5〜12% を占めていた。待機は 1 つの bash コマンド内で `sleep` を挟んでブロックするよう全 sweep 系スキルに明記した
+- Fix duplicated Stop Hook output / `check-issue-queue.sh` と `check-sweep-state.sh` が同じ状況で同じ内容を二重に出力していたのをやめ、`queue.txt` が非空の場面では後者を無言で exit 0 にした
+- Fix dead fields printed by `check-sweep-state.sh` / スキーマに存在しない `.iteration`（実際は `round`）と廃止済みの `.last_counts` を毎回出力していたのを削除。issue-sweep の 1 停止あたりのフック出力を 500 → 141 文字に削減
+
+### 🔧 Improvements / 改善
+
+- Move polishing after integration in single-pr mode / 作業単位ごとの `/refine-git` 起動を廃止し、統合ブランチの全差分に対して 1 回だけ研磨するフェーズ S-2-0 を新設。作業単位のマージゲートはテストと lint の通過に変更し、統合研磨で critical/major が残った場合は PR を作るがマージせず人に返す。統合差分は 1 作業単位より大きいため `--max-iter` を 2 → 3 に引き上げた
+- Specify blocking CI wait explicitly / 「`gh pr view` を 60 秒間隔で観測」という手段未指定の記述を、`timeout` + `while` + `sleep` で 1 コマンド内にブロックする具体コードへ差し替え（`single-branch-mode.md` S-2-2 / `refine-sweep` の engineer agent）
+
 ## [v0.9.0] - 2026-09-01
 
 Playwright で実際にレンダリングした画面のスクリーンショットを見てレビューする `visual-review` スキルを追加したリリース。コードの静的解析（`design-review`）やモックとのコード比較（`mock-drift`）では検出できない、実描画での崩れ・重なり・コントラスト不足を対象にする。HALT（HTMX + Templ + Lit）のようなサーバー内蔵型構成にも対応する。
