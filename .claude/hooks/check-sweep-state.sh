@@ -31,13 +31,18 @@ if (( age > STALE_THRESHOLD )); then
   exit 0  # 2時間以上更新なし → クラッシュ放置と判定、停止許可
 fi
 
+# check-issue-queue.sh が同じ状況を喋る場合はこちらは黙る（2 本が同時に同じことを
+# 言うと停止 1 回あたりの context 消費が倍になる）。停止のブロック自体は向こうが行う。
+if [[ -f "$DIR/queue.txt" && -s "$DIR/queue.txt" ]]; then
+  exit 0
+fi
+
 # 鮮度 OK ∧ phase != terminal → 停止をブロック
+# メッセージは 1 行に抑える（停止のたびに context に積まれる）。
+# `.iteration` と `.last_counts` は sweep 系のスキーマに存在しないので出力しない
+# （前者は常に 0、後者は常に {} だった）。
 SKILL=$(jq -r '.skill // "sweep"' "$STATE" 2>/dev/null)
-ITER=$(jq -r '.iteration // 0' "$STATE" 2>/dev/null)
-COUNTS=$(jq -c '.last_counts // {}' "$STATE" 2>/dev/null)
 REMAINING=$(jq -r '.queue_remaining // "-"' "$STATE" 2>/dev/null)
 
-echo "${SKILL}: .sweep/state.json は phase=${PHASE}（iter=${ITER}, queue_remaining=${REMAINING}, last_counts=${COUNTS}）で terminal に到達していません。" >&2
-echo "閾値到達まで review→fix を反復するか、状況に応じて termination_reason を設定して phase=terminal にしてから停止してください。" >&2
-echo "（推定で terminal にするのは禁止。失敗で打ち切る場合も termination_reason を設定してレポートを生成すること）" >&2
+echo "${SKILL}: phase=${PHASE}（残 ${REMAINING}）で terminal 未到達。閾値到達まで継続するか termination_reason を設定して terminal 化してから停止（推定 terminal 禁止）。待つだけなら停止せず \`sleep 60\` を 1 コマンド実行して再確認する。" >&2
 exit 2

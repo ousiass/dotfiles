@@ -164,11 +164,22 @@ gh pr create --base "$base_branch" --head "$int_branch" --title "<title>" --body
 
 ### S-2-2. CI 待ちとマージ（**メインスレッドが行う。agent に投げない**）
 
+**1 つの bash コマンドの中でブロックして待つ。** 「待機。」と言ってターンを終える待ち方をすると、
+Stop Hook に押し戻されるたびにモデルのターンを 1 回消費する:
+
 ```bash
-gh pr view "$pr" --json state,statusCheckRollup
+timeout 3600 bash -c '
+  while :; do
+    pending=$(gh pr view "'"$pr"'" --json statusCheckRollup \
+      --jq "[.statusCheckRollup[]? | select(.conclusion == null and .status != \"COMPLETED\")] | length")
+    [ "${pending:-0}" -eq 0 ] && break
+    sleep 60
+  done'
+
+gh pr view "$pr" --json state,statusCheckRollup   # 判定はこの 1 回の結果で行う
 ```
 
-を 60 秒間隔で観測し:
+待機が明けたら:
 
 - 全 check 完了 ∧ FAILURE なし ∧ `state == "OPEN"` → `gh pr merge "$pr" --merge --delete-branch`
 - FAILURE あり ∧ pending 0 → **失敗 check 名を渡して** CI fix agent を起動（`$int_branch` の worktree で修正 push）。**最大 2 回**
@@ -215,5 +226,6 @@ CI fix agent のプロンプトは通常モードのものをそのまま使う�
 - **統合研磨をメイン作業ツリーで直接走らせる**（`$int_branch` を掴んでいるので worktree 作成に失敗する。専用ブランチを切った agent に投げる）
 - **競合したバッチをキューに残したまま次へ進む**（Stop Hook が永久に停止をブロックする。諦めたら必ず消して metrics に残す）
 - **最終 PR のマージ前に `phase=terminal` にする**
+- **CI 待ちをターンを終えて行う**（S-2-2 のブロッキング待機を使う。Stop Hook との往復 1 回 = モデルのターン 1 回）
 - **Issue を PR 本文の `Closes #N` で閉じる**（S-3 の明示 close に統一する）
 - ベースブランチ / 統合ブランチを途中で変える

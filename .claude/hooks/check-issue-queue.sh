@@ -33,5 +33,7 @@ fi
 # 鮮度 OK → sweep アクティブ。停止をブロック
 NEXT=$(head -n1 "$QUEUE")
 REMAINING=$(wc -l <"$QUEUE" | tr -d ' ')
-echo "issue-sweep: 未処理 Issue が ${REMAINING} 件残っています。次は #${NEXT}。/issue-sweep のフェーズ2を続行してください（PR マージまで完了させてから heartbeat 更新→キュー削除）。" >&2
+# メッセージは 1 行に抑える。停止のたびに context に積まれるので、長文は sweep 1 本で
+# 数十万文字になる（実測: 1 セッション 1 万回ブロック = トランスクリプトの 10%）。
+echo "issue-sweep: 未処理 ${REMAINING} 件（次 #${NEXT}）。フェーズ2 を続行。待つだけなら停止せず \`sleep 60\` を 1 コマンド実行して再確認する。" >&2
 exit 2

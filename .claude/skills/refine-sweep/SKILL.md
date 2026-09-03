@@ -297,10 +297,12 @@ Issue #<issue_num> を実装 → PR 作成 → CI 緑待ち → merge → Issue 
    worktree が作られなかった / ベースブランチのままだった場合は、**メインリポジトリで代わりに実装してはならない**。
    failure JSON を返して即座に終了する
 2. impl-wt が返した PR 番号を保持
-3. `gh pr view <PR> --json state,statusCheckRollup` を 60 秒間隔でポーリング:
+3. CI 緑を待つ。**「待機。」と言ってターンを終えて待たない** — 1 つの bash コマンドの中で `sleep` を挟んでブロックする:
+   timeout 3600 bash -c 'while :; do pending=$(gh pr view <PR> --json statusCheckRollup --jq "[.statusCheckRollup[]? | select(.conclusion == null and .status != \"COMPLETED\")] | length"); [ "${pending:-0}" -eq 0 ] && break; sleep 60; done'
+   待機が明けたら `gh pr view <PR> --json state,statusCheckRollup` を 1 回だけ叩いて判定:
    - 全 check 完了 ∧ FAILURE なし ∧ state=OPEN → `gh pr merge <PR> --merge --delete-branch` を実行
    - FAILURE あり ∧ pending=0 → impl-wt を再起動して修正 push（最大 3 回まで）
-   - state=MERGED になったら break
+   - state=MERGED になったら完了
 4. merge 成功後、`gh issue close #<issue_num> --comment "Closed by PR #<PR> (via /refine-sweep iter <iter>)"` で Issue を明示的に close
 5. 完了後に以下の JSON 1 行を最終メッセージとして返す
 
@@ -464,6 +466,7 @@ mkdir -p .sweep
 
 - `--single-pr` 指定時に `~/.claude/skills/issue-sweep/references/single-branch-mode.md` を読まずに進める（差分表だけで手順を推測しない）
 - **Issue ごとに PR を作る / 統合 merge を並列に走らせる / 統合のたびに CI を待つ**（詳細は same reference の禁止行動）
+- **やることが無いときにターンを終えて待つ**（Stop Hook に押し戻されるたびにモデルのターンを 1 回消費する。実測で 1 セッション 1 万往復、トランスクリプトの 10% がフック文言だった。待つときは必ず 1 つの bash コマンドの中で `sleep 60` を挟んでブロックする）
 - **single-pr で engineer agent に `/impl-wt` を呼ばせる**（worktree は sweep が統合ブランチから作る。呼ぶと二重に作られ、しかも `--no-pr` を持たないので PR が生える）
 
 ## 失敗時の挙動
