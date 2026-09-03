@@ -84,7 +84,7 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 
 **バッチごとに PR を作らず、最初に切った統合ブランチ 1 本へ全部積み、最後にベースブランチへ PR を 1 本だけ出す。** 有効時は **`references/single-branch-mode.md` を読んでから**フェーズ0 に入る。フェーズ順は:
 
-`フェーズ0（lock）→ P-0（モード・ベース確定）→ S-0（統合ブランチ作成）→ フェーズ1（キュー構築）→ フェーズ2（S-1 の差分を適用）→ 3-0（spinoff 判定）→ S-2（最終 PR・CI・マージ）→ S-3（Issue close・レポート）`
+`フェーズ0（lock）→ P-0（モード・ベース確定）→ S-0（統合ブランチ作成）→ フェーズ1（キュー構築）→ フェーズ2（S-1 の差分を適用）→ 3-0（spinoff 判定）→ S-2（統合研磨・最終 PR・CI・マージ）→ S-3（Issue close・レポート）`
 
 通常モードからの差分は以下の箇所だけ。他はすべてそのまま:
 
@@ -95,7 +95,7 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 | 1-6 の state.json | `mode` / `base_branch` / `int_branch` / `pr_number` / `integrated_count` を追加（S-0-3） |
 | 2-0 の PR 一覧取得 | 不要（in-flight に PR が居ない）。heartbeat と base 最新化のみ行う |
 | 2-1 の冪等性チェック | PR ではなく **ローカルブランチ `<work_branch>` の有無**で判定する。統合済み（`git merge-base --is-ancestor` が真）ならキュー行を削除して次へ |
-| 2-2 の agent プロンプト | worktree の分岐元を `$int_branch` に、`gh pr create` を禁止、`refine-git` に `--base-ref "origin/$int_branch"` を追加、返答 JSON は `pr_number` の代わりに `work_branch`（S-1） |
+| 2-2 の agent プロンプト | worktree の分岐元を `$int_branch` に、`gh pr create` と**手順4 の `/refine-git` を禁止**（研磨は S-2-0 で統合ブランチにまとめて 1 回）、手順5 のマージゲートは「テストと lint が通ること」に読み替え、返答 JSON は `pr_number` の代わりに `work_branch`（S-1） |
 | 2-3 の判定表 | PR 状態の観測ではなく **agent 返答 → 統合 merge**。競合時は rebase agent 1 回 → 諦め（S-1） |
 | 2-4 の Issue close | ここでは close しない（最終 PR マージ後の S-3 でまとめて close） |
 | 3-1 の完了報告 | S-2 → S-3 を実行してからレポートを書く。Summary にモード・ベース・統合ブランチ・PR URL を必ず入れる |
@@ -527,7 +527,7 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 - **サブスキルに `--auto` を渡さない**（確認を取って止まる / Review が二重に走る / Plan が Issue の記載を再導出する。自律実行では致命的）
 - **サブスキルに `--no-pr` を渡さない**（バッチの Issue ごとに PR ができてしまう。PR は agent 側の手順3 で 1 本だけ作る）
 - **Issue 本文を複数のステップで読み直す**（フェーズ1-2 の解析 1 パスに集約する。メインスレッドは 1-2 が返した JSON だけで 1-3 のバッチ編成を行う）
-- **agent 内で `/refine-git` をスキップする**（レビューを通さずマージゲートに進むと品質ばらつきが出る）
+- **agent 内で `/refine-git` をスキップする**（レビューを通さずマージゲートに進むと品質ばらつきが出る）。**以下 3 点は通常モード（multi-pr）限定** — single-pr モードでは agent 内で研磨せず、S-2-0 で統合ブランチにまとめて 1 回回す（`references/single-branch-mode.md`）
 - **`refine-git` の代わりに `refine` を起動する**（全体スキャンになり、Issue と無関係な既存指摘でマージゲートが永久に落ちる）
 - **`refine-git` に `--skip-minor` / `--max-iter 2` を渡さない**（sweep のマージゲートは minor を見ないので minor のための反復は丸ごと無駄。反復上限を絞らないと 1 PR の実時間が読めない）
 - agent の返答 JSON 以外をメイン context に取り込む（agent 内部の Plan/Develop ログをメインに残すのは禁止）

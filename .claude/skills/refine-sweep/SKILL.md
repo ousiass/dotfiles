@@ -63,7 +63,7 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 
 **Issue ごとに PR を作らず、最初に切った統合ブランチ 1 本へ全反復ぶんを積み、最後にベースブランチへ PR を 1 本だけ出す。** 有効時は **`~/.claude/skills/issue-sweep/references/single-branch-mode.md` を読んでから**フェーズ0 に入る（`skill_name="refine-sweep"`）。フェーズ順は:
 
-`フェーズ0（lock）→ P-0（モード・ベース確定）→ S-0（統合ブランチ作成）→ フェーズ1 → フェーズ2 の反復（S-1 の差分を適用）→ 3-1（double-confirm）→ S-2（最終 PR・CI・マージ）→ S-3（Issue close・レポート）`
+`フェーズ0（lock）→ P-0（モード・ベース確定）→ S-0（統合ブランチ作成）→ フェーズ1 → フェーズ2 の反復（S-1 の差分を適用）→ 3-1（double-confirm）→ S-2（統合研磨・最終 PR・CI・マージ）→ S-3（Issue close・レポート）`
 
 通常モードからの差分は以下の箇所だけ:
 
@@ -74,7 +74,7 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 | フェーズ0 手順3 の state.json | `mode` / `base_branch` / `int_branch` / `pr_number` / `integrated_count` を追加（S-0-3） |
 | 2-1 の base 最新化 | `git pull --ff-only origin "$base_branch"` の代わりに **統合ブランチを進めない**。ベースの更新取り込みが必要なら `git merge --no-ff origin/$base_branch` を明示的に行う |
 | 2-2 の review | 変更なし。メイン作業ツリーが統合ブランチなので、反復ごとの review は自動的に「統合済みの状態」を見る |
-| 2-5 の engineer agent | `/impl-wt` を呼ばせない。**sweep 側が `$int_branch` から worktree を作り**、agent は `/impl #<issue_num> --auto --no-pr` → `/refine-git --no-merge --skip-minor --max-iter 2 --base-ref "origin/$int_branch"` まで。PR 作成・CI 待ち・マージ・Issue close は**すべてやらせない**。返答 JSON は `{"issue":N,"domain":"...","work_branch":"...","worktree":"...","failure":null}` |
+| 2-5 の engineer agent | `/impl-wt` を呼ばせない。**sweep 側が `$int_branch` から worktree を作り**、agent は `/impl #<issue_num> --auto --no-pr` まで（**研磨は回させない** — `/refine-git` は S-2-0 で統合ブランチにまとめて 1 回）。PR 作成・CI 待ち・マージ・Issue close は**すべてやらせない**。返答 JSON は `{"issue":N,"domain":"...","work_branch":"...","worktree":"...","failure":null}` |
 | 2-5 の集約 | agent 返答ごとに **メインスレッドが統合 merge**（S-1、必ず直列）。`closed_count` は `integrated_count` に読み替える |
 | 2-5 の Issue close | ここでは close しない（最終 PR マージ後の S-3 でまとめて close）。`fix_ineffective` 判定は open Issue の fingerprint 比較のままだと統合済み Issue が残り続けて誤検知するので、**統合済み Issue を除外した集合**で比較する |
 | 3-2 の完了処理 | S-2 → S-3 を実行してからレポートを書く。Summary にモード・ベース・統合ブランチ・PR URL を必ず入れる |

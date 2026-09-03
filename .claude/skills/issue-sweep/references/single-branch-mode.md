@@ -3,7 +3,12 @@
 `issue-sweep` / `refine-sweep` / `spec-sweep` / `report-sweep` が共有する集約モードの仕様。
 呼び出し元 SKILL.md は事前に `skill_name` を設定しておく。
 
-**通常モードとの違いは 1 点だけ**: 作業単位（バッチ / Issue / 仕様項目）ごとに PR を作らず、**最初に切った統合ブランチ 1 本に全部積み、最後にベースブランチへ PR を 1 本だけ出す**。キュー管理・lock・state.json・metrics・spinoff 追跡は通常モードのまま。
+**通常モードとの違いは 2 点だけ**:
+
+1. 作業単位（バッチ / Issue / 仕様項目）ごとに PR を作らず、**最初に切った統合ブランチ 1 本に全部積み、最後にベースブランチへ PR を 1 本だけ出す**
+2. **研磨（`/refine-git`）を作業単位ごとに回さず、全部積み終わってから統合ブランチに対して 1 回だけ回す**（フェーズ S-2-0）
+
+キュー管理・lock・state.json・metrics・spinoff 追跡は通常モードのまま。
 
 ## 共通引数
 
@@ -48,11 +53,12 @@ git push -u origin "$int_branch"
 - worktree の分岐元は **ベースブランチではなく `$int_branch`**:
   `git worktree add <path> -b <work_branch> "$int_branch"`
 - **PR を作らせない。** `gh pr create` を禁止し、`--no-pr` を付けたサブスキル（`/impl #<n> --auto --no-pr` 等）で commit + push までにする
-- 研磨は `/refine-git --no-merge --skip-minor --max-iter 2 --base-ref "origin/$int_branch"` を起動する。
-  **`--base-ref` は必須** — 付けないと `origin/develop` 比較になり、既に統合済みの他バッチの差分まで
-  レビュー対象に巻き込んでスコープが際限なく膨らむ
-- 返答 JSON は `pr_number` / `pr_url` の代わりに `"work_branch": "<ブランチ名>"` を返させる。
-  マージゲート判定（`critical_remaining == 0 ∧ major_remaining == 0`）は通常モードと同じ
+- **作業単位ごとの研磨（`/refine-git`）は起動させない。** 研磨は S-2-0 で統合ブランチにまとめて 1 回だけ回す。
+  作業単位ごとに回すと、(a) 同じ指摘が作業単位の数だけ別々に検出・修正されて丸ごと無駄になり、
+  (b) 各作業単位の差分しか見えないので **バッチ間の重複・API 不整合・統合起因の劣化は誰も見ない**
+- 作業単位のゲートは **サブスキルが回すテストと lint が通っていること**。通らなければ success ではなく failure を返させる
+- 返答 JSON は `pr_number` / `pr_url` / 研磨系フィールドの代わりに `"work_branch": "<ブランチ名>"` を返させる:
+  `{"issues": [<a>,<b>], "work_branch": "<name>", "worktree": "<絶対パス>", "skills": [...]}`
 
 ### 統合（メインスレッド、**必ず 1 件ずつ直列**）
 
@@ -96,9 +102,53 @@ worktree <worktree_path> のブランチ <work_branch> が統合ブランチ <in
 - 各項目のコミット後に `git push origin "$int_branch"`
 - Issue は open のまま残す（後で `/impl #N` に渡す設計）。最終 PR は Issue をリンクするだけで close しない
 
-## フェーズ S-2: 最終 PR の作成・CI・マージ
+## フェーズ S-2: 統合研磨・最終 PR の作成・CI・マージ
 
 キューが空 ∧ in-flight 0 ∧ **spinoff 追跡の round も打ち止め**（後述）になってから 1 回だけ実行する。
+
+### S-2-0. 統合研磨（必須）
+
+統合ブランチに積んだ全差分を **まとめて 1 回だけ** 研磨する。作業単位ごとに研磨しないのはこのため。
+メインスレッドはコードに触らないので `Agent` ツール（`subagent_type: claude`）に丸投げする。
+
+```
+統合ブランチ <int_branch> に積まれた差分をまとめて研磨してください。メインスレッドには JSON だけを返します。
+
+1. 統合ブランチの先端から worktree を 1 つ作る。**<int_branch> 自体を checkout しない**
+   （メイン作業ツリーが掴んでいるため失敗する）。専用ブランチを切る:
+   ts=$(date +%Y%m%d-%H%M%S)
+   git fetch origin
+   git worktree add <repo>-refine-$ts -b sweep/refine-$ts "origin/<int_branch>"
+   cd <repo>-refine-$ts
+2. `/refine-git --no-merge --skip-minor --max-iter 3 --base-ref "origin/<base_branch>"` を Skill ツールで起動する。
+   - `--base-ref` は **ベースブランチ**（統合ブランチではない）。sweep が積んだ全差分が対象になる
+   - `--skip-minor` 必須: マージゲートは minor を見ない。minor は直すたびに差分が広がって新しい minor が生える
+   - `--max-iter 3`: 統合差分は 1 作業単位より大きいので通常の 2 では収束しない
+3. 修正コミットがあれば push する: `git push -u origin sweep/refine-$ts`
+4. 成功時の JSON 1 行:
+   {"work_branch": "sweep/refine-<ts>", "worktree": "<絶対パス>", "refine_status": "<clean|iter_limit|no_progress>", "refine_iters": <K>, "critical_remaining": <N>, "major_remaining": <N>, "minor_remaining": <N>, "pushed": <true|false>}
+   起動自体に失敗した場合: {"failure": "<1行で原因>", "worktree": "<作成済みなら絶対パス>"}
+
+返答ルール:
+- 上記 JSON 以外を最終メッセージに含めない。
+- PR 作成・マージはしない（メインスレッドの責務）。
+- 修正が 1 件も無かった場合は `pushed: false` で返す。
+```
+
+**取り込み**: `pushed: true` なら S-1 の統合手順（`git merge --no-ff` → `git push origin "$int_branch"` → worktree 掃除 →
+作業ブランチ削除）をそのまま使う。キューが空で他に in-flight が居ないので競合は起きない。
+万一競合したら S-1 と同じく rebase agent 1 回 → 諦め（諦めた場合は研磨なしとして扱う）。
+
+**判定**:
+
+| 結果 | 実行すること |
+|---|---|
+| `critical_remaining == 0 ∧ major_remaining == 0` | S-2-1 へ（PR 作成 → CI → マージ） |
+| どちらかが残る | S-2-1 で **PR は作るがマージしない**。`sweep_notify "Manual intervention needed"`、`termination_reason: "manual_intervention"` で S-3 へ。PR 本文に残指摘を列挙する |
+| `failure` / 取り込み断念 | 研磨なしとして S-2-1 へ進み、PR 本文とレポートに「統合研磨に失敗（理由）」を明記する |
+
+**作業単位を落とすことはしない。** 統合済みの差分はもう戻せないので、critical/major が残った場合の唯一のゲートは
+「マージせず人に返す」こと。
 
 ### S-2-1. PR 作成
 
@@ -159,7 +209,10 @@ CI fix agent のプロンプトは通常モードのものをそのまま使う�
 - **統合ブランチを push せずローカルだけで進める**（クラッシュで全成果が消える。S-0-2 と各統合後に push する）
 - **統合 merge を並列に走らせる**（メイン作業ツリー 1 本を共有している。取り込みは必ず直列）
 - **統合のたびに CI 緑を待つ**（このモードの利点を丸ごと消す。CI は最終 PR で 1 回）
-- **`/refine-git` に `--base-ref "origin/$int_branch"` を渡さない**（統合済みの他バッチまでレビュー対象に入り、スコープが sweep の進行とともに膨らむ）
+- **作業単位ごとに `/refine-git` を起動する**（同じ指摘を作業単位の数だけ検出・修正することになる。研磨は S-2-0 で 1 回）
+- **S-2-0 の統合研磨を飛ばして最終 PR を出す**（single-pr モードではここが唯一のレビューゲート）
+- **統合研磨の `--base-ref` に統合ブランチを渡す**（差分が空になり `refine-git` が exit 2 で落ちる。渡すのは `origin/$base_branch`）
+- **統合研磨をメイン作業ツリーで直接走らせる**（`$int_branch` を掴んでいるので worktree 作成に失敗する。専用ブランチを切った agent に投げる）
 - **競合したバッチをキューに残したまま次へ進む**（Stop Hook が永久に停止をブロックする。諦めたら必ず消して metrics に残す）
 - **最終 PR のマージ前に `phase=terminal` にする**
 - **Issue を PR 本文の `Closes #N` で閉じる**（S-3 の明示 close に統一する）
