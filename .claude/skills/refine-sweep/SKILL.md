@@ -131,7 +131,17 @@ source "$SWEEP_DIR/prelude.sh"
    - 常に: `code-review`, `doc-drift`, `spec-audit`
    - `HAS_HALT=true`: `halt-review` も追加
    - `HAS_ATOMIC=true`: `atomic-review` も追加
-6. **ラベル準備**（存在しなければ作成、既存なら何もしない）:
+6. **severity ラベルと重要度の対応（唯一の定義。他所で読み替えない）**:
+
+   | 内部用語 | ラベル | マージゲート | `--max-minor` の勘定 |
+   |---|---|---|---|
+   | critical | `severity:critical` | 0 件必須 | — |
+   | major | `severity:high` | 0 件必須 | — |
+   | minor | `severity:medium`, `severity:low` | 見ない | 対象 |
+
+   **どのラベルも必ずいずれかのバケツに入る。** 未知の severity 値が来たら minor 扱いにする（ゲートを勝手に厳しくしない）。
+
+7. **ラベル準備**（存在しなければ作成、既存なら何もしない）:
    ```bash
    gh label create refine-sweep --color BB6BD9 --description "created by /refine-sweep" 2>/dev/null || true
    for sev in critical high medium low; do
@@ -240,6 +250,17 @@ jq --argjson iter "$iter" \
    --argjson open_ic "$open_issue_count" \
    --arg ev "$ev_line" \
    --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+**判定材料は open Issue のラベル集計**（review agent が返した「今回の新規件数」ではない。前反復から残っている critical を見落とすため）:
+
+```bash
+source "$SWEEP_DIR/prelude.sh"
+counts=$(gh issue list --label refine-sweep --state open --limit 500 --json labels \
+  | jq -c '[.[] | [.labels[].name]] as $all
+    | { critical: ([$all[] | select(index("severity:critical"))] | length),
+        major:    ([$all[] | select(index("severity:high"))]     | length),
+        minor:    ([$all[] | select(index("severity:critical") or index("severity:high") | not)] | length),
+        open:     ($all | length) }')
+eval "$(echo "$counts" | jq -r '@sh "critical_open=\(.critical) major_open=\(.major) minor_open=\(.minor) open_issue_count=\(.open)"')"
    '.iteration = $iter
     | .last_counts = ($counts + {new_issues: $new_ic, open_issues: $open_ic, closed_this_iter: 0})
     | .evidence += [$ev]
@@ -252,19 +273,18 @@ jq --argjson iter "$iter" \
 ### 2-4. 閾値判定
 
 ```
-open_excess = if include_minor then open_issue_count
-              else (open_issue_count - <minor-labeled open 件数>)
-minor_open = <severity:low ラベル付き open 件数>
-minor_excess = max(0, minor_open - max_minor) if include_minor else 0
 
-if open_issue_count == 0 && new_issue_count == 0:
-  → clean 候補、フェーズ3-1 の double-confirm へ
+`minor_open` は critical / high 以外の全 open（`severity:medium` / `severity:low` / severity 無し）。**取りこぼしを作らないため、minor は「critical でも major でもないもの」で定義する。**
 
 elif iter >= hard_cap:
   → hard_cap_reached, フェーズ3 へ
+`--no-minor` 指定時は minor を Issue 化しないだけで、**過去に作られた minor Issue は判定から除外する**（`include_minor == false` なら `minor_open` を見ない）。
 
-elif include_minor==true && critical+major==0 && minor_open <= max_minor && new_issue_count == 0:
-  → clean 候補（許容数以内の minor 残）、フェーズ3-1 へ
+
+elif critical_open == 0 && major_open == 0
+     && (include_minor == false || minor_open <= max_minor)
+     && new_issue_count == 0:
+  → clean 候補、フェーズ3-1 の double-confirm へ
 
 else:
   → 2-5（Issue 消化）へ
