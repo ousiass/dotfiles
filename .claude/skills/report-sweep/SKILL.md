@@ -46,7 +46,7 @@ user-invocable: true
 | 3-5 手順1 | `feat/#<Issue番号>` ブランチ作成を**行わない**（統合ブランチ上で作業する） |
 | 3-5 手順3 | push 先は統合ブランチ（項目ごとに `git push origin "$int_branch"`） |
 | 3-5 手順4 | 「ベースブランチに戻る」を**統合ブランチに居続ける**に読み替える |
-| フェーズ4 の前 | 機能要望が 1 件以上あれば S-2 を実行して最終 PR を作り、CI 緑を待ってマージする。**Issue は close しない**（後で `/impl #N` `/bug-fix #N` に渡す設計） |
+| フェーズ4 の前 | 機能要望が 1 件以上あれば S-2 を実行して最終 PR を作り、CI 緑を確認する。**PR はマージしない**（レビューとマージはユーザー）。**Issue は close しない**（後で `/impl #N` `/bug-fix #N` に渡す設計） |
 | フェーズ4 の報告 | ブランチ名の代わりにベース / 統合ブランチ / PR URL を提示する。バグ Issue の一覧は変更なし |
 
 機能要望が 0 件（バグのみ）だった場合は統合ブランチに何も積まれないので、**PR を作らず統合ブランチを削除して終わる**（`git checkout "$base_branch" && git branch -D "$int_branch" && git push origin --delete "$int_branch"`）。

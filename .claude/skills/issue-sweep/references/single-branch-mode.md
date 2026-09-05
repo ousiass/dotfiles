@@ -102,7 +102,7 @@ worktree <worktree_path> のブランチ <work_branch> が統合ブランチ <in
 - 各項目のコミット後に `git push origin "$int_branch"`
 - Issue は open のまま残す（後で `/impl #N` に渡す設計）。最終 PR は Issue をリンクするだけで close しない
 
-## フェーズ S-2: 統合研磨・最終 PR の作成・CI・マージ
+## フェーズ S-2: 統合研磨・最終 PR の作成・CI 確認
 
 キューが空 ∧ in-flight 0 ∧ **spinoff 追跡の round も打ち止め**（後述）になってから 1 回だけ実行する。
 
@@ -131,7 +131,7 @@ worktree <worktree_path> のブランチ <work_branch> が統合ブランチ <in
 
 返答ルール:
 - 上記 JSON 以外を最終メッセージに含めない。
-- PR 作成・マージはしない（メインスレッドの責務）。
+- PR 作成はしない（メインスレッドの責務）。マージは sweep では誰も行わない（人が行う）。
 - 修正が 1 件も無かった場合は `pushed: false` で返す。
 ```
 
@@ -143,14 +143,15 @@ worktree <worktree_path> のブランチ <work_branch> が統合ブランチ <in
 
 | 結果 | 実行すること |
 |---|---|
-| `critical_remaining == 0 ∧ major_remaining == 0` | S-2-1 へ（PR 作成 → CI → マージ） |
-| どちらかが残る | S-2-1 で **PR は作るがマージしない**。`sweep_notify "Manual intervention needed"`、`termination_reason: "manual_intervention"` で S-3 へ。PR 本文に残指摘を列挙する |
+| `critical_remaining == 0 ∧ major_remaining == 0` | S-2-1 へ（PR 作成 → CI 確認） |
+| どちらかが残る | S-2-1 へ進む。`sweep_notify "Manual intervention needed"`、`termination_reason: "manual_intervention"` で S-3 へ。PR 本文に残指摘を列挙する |
 | `failure` / 取り込み断念 | 研磨なしとして S-2-1 へ進み、PR 本文とレポートに「統合研磨に失敗（理由）」を明記する |
 
 **作業単位を落とすことはしない。** 統合済みの差分はもう戻せないので、critical/major が残った場合の唯一のゲートは
-「マージせず人に返す」こと。
+PR 本文とレポートに残指摘を明記して人の判断に委ねること。**どのみち sweep は最終 PR をマージしない**（S-2-2）ので、
+残指摘があっても手を止めず S-2-1 へ進み、記録を残すことを優先する。
 
-### S-2-1. PR 作成
+### S-2-1. PR 作成（**マージはしない**）
 
 ```bash
 git push origin "$int_branch"
@@ -161,8 +162,11 @@ gh pr create --base "$base_branch" --head "$int_branch" --title "<title>" --body
 - 本文: 統合した作業単位を 1 行ずつ列挙（Issue 番号 + やったこと）、統合できなかったものは「未統合」として理由付きで列挙、`refine-git` の結果サマリ（critical/major/minor 残数）
 - `gh pr edit <PR> --add-issue <各 Issue URL>` で全件リンクする。**`Closes #N` は使わない**（close は S-3 で明示的に行う）
 - PR 番号を state.json の `pr_number` に記録する
+- **この PR はマージせず open のままユーザーに返す。** レビューとマージは人が行う
 
-### S-2-2. CI 待ちとマージ（**メインスレッドが行う。agent に投げない**）
+### S-2-2. CI 確認（**メインスレッドが行う。agent に投げない**）
+
+**最終 PR をマージするのは人であって sweep ではない。** ここでやるのは「CI を緑にして、マージ可能な状態で人に渡す」ことだけ。
 
 **1 つの bash コマンドの中でブロックして待つ。** 「待機。」と言ってターンを終える待ち方をすると、
 Stop Hook に押し戻されるたびにモデルのターンを 1 回消費する:
@@ -181,29 +185,30 @@ gh pr view "$pr" --json state,statusCheckRollup   # 判定はこの 1 回の結�
 
 待機が明けたら:
 
-- 全 check 完了 ∧ FAILURE なし ∧ `state == "OPEN"` → `gh pr merge "$pr" --merge --delete-branch`
+- 全 check 完了 ∧ FAILURE なし ∧ `state == "OPEN"` → **マージせず** `sweep_notify "Ready to merge" "PR #<PR>: CI 緑。レビューしてマージしてください" ":white_check_mark:"` して S-3 へ。`gh pr merge` は叩かない
 - FAILURE あり ∧ pending 0 → **失敗 check 名を渡して** CI fix agent を起動（`$int_branch` の worktree で修正 push）。**最大 2 回**
-- 上限到達 → `gh pr comment` で状況を残し、`sweep_notify "Manual intervention needed"`、`termination_reason: "manual_intervention"` で S-3 へ（PR は open のまま人に返す）
+- 上限到達 → `gh pr comment` で状況を残し、`sweep_notify "Manual intervention needed"`、`termination_reason: "manual_intervention"` で S-3 へ（CI が赤いまま人に返す）
 
 CI fix agent のプロンプトは通常モードのものをそのまま使う（branch を `$int_branch` に差し替えるだけ）。
 
 ## フェーズ S-3: Issue close とレポート
 
-- PR がマージされた場合のみ、**統合済みの全 Issue を** close する:
-  `gh issue close <n> --comment "Closed by PR #<PR>（single-pr sweep / integration branch: <int_branch>）"`
-  （spec-sweep / report-sweep は close しない。S-1' 参照）
-- `split-from:` の兄弟が全 close なら親も close する（通常モードと同じ）
+- **Issue は close しない。** 最終 PR は open のまま人に渡すので、close はユーザーがマージした後に行う。
+  レポートと PR 本文に「マージ後に close する Issue」として番号を列挙し、コマンドをそのまま貼れる形で示す:
+  `gh issue close <a> <b> --comment "Closed by PR #<PR>（single-pr sweep / integration branch: <int_branch>）"`
+  `split-from:` の親 Issue も、兄弟が全部含まれているなら同じリストに載せる
 - `git worktree prune`
 - レポート冒頭の Summary に必ず入れる:
   ```
   - Mode: single-pr
   - Base branch: <base_branch>
   - Integration branch: <int_branch>
-  - PR: <pr_url>（<merged|open（要手動対応）>）
+  - PR: <pr_url>（open — レビューとマージはユーザーが行う）
+  - CI: <green（マージ可）|red（要修正）|pending>
   - Integrated: <N> / Not integrated: <M>
   ```
 - 「未統合」セクションに `merge_conflict` / `agent_failed` の作業単位を理由付きで列挙する
-- `phase=terminal` にするのは **PR のマージ確認（または手動対応行きの確定）の後**。PR を出しただけで terminal 化しない
+- `phase=terminal` にするのは **CI 結果を確定させた後**（緑を確認した / CI fix が上限に達した）。PR を出しただけで terminal 化しない
 
 ## spinoff 追跡との関係
 
@@ -225,7 +230,9 @@ CI fix agent のプロンプトは通常モードのものをそのまま使う�
 - **統合研磨の `--base-ref` に統合ブランチを渡す**（差分が空になり `refine-git` が exit 2 で落ちる。渡すのは `origin/$base_branch`）
 - **統合研磨をメイン作業ツリーで直接走らせる**（`$int_branch` を掴んでいるので worktree 作成に失敗する。専用ブランチを切った agent に投げる）
 - **競合したバッチをキューに残したまま次へ進む**（Stop Hook が永久に停止をブロックする。諦めたら必ず消して metrics に残す）
-- **最終 PR のマージ前に `phase=terminal` にする**
+- **最終 PR を sweep がマージする**（`gh pr merge` は single-pr モードでは一切叩かない。マージは必ず人が行う）
+- **CI 結果を確定させる前に `phase=terminal` にする**
+- **最終 PR が未マージなのに Issue を close する**（close はユーザーがマージした後に行う）
 - **CI 待ちをターンを終えて行う**（S-2-2 のブロッキング待機を使う。Stop Hook との往復 1 回 = モデルのターン 1 回）
 - **Issue を PR 本文の `Closes #N` で閉じる**（S-3 の明示 close に統一する）
 - ベースブランチ / 統合ブランチを途中で変える
