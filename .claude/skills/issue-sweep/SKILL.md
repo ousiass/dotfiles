@@ -63,6 +63,7 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
   "skill": "issue-sweep",
   "started_at": "<ISO8601>",
   "updated_at": "<ISO8601>",
+  "round_started_at": "<ISO8601>",
   "phase": "iterating" | "terminal",
   "queue_total": <N>,
   "queue_remaining": <N>,
@@ -80,7 +81,7 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 **更新タイミング:**
 - フェーズ0/1 でキュー構築完了後に `phase=iterating, queue_total, queue_remaining=queue_total, processed_count=0, ...` で初期化
 - 各バッチ完了ごとに `queue_remaining -= 1`, `processed_count += 1`, `merged_count` or `failed_count` をインクリメント、`updated_at` 更新
-- spinoff 追跡 round 更新時に `round += 1`、`queue_remaining` を新キューサイズに更新
+- spinoff 追跡 round 更新時に `round += 1`、`round_started_at` を現在時刻に更新、`queue_remaining` を新キューサイズに更新
 - フェーズ3 終了時に `phase=terminal` + `termination_reason` をセット。**失敗で打ち切る場合も必ず terminal 化してレポートを出す**（`phase=iterating` のまま放置すると記録が何も残らない）
 
 ## --abort 処理
@@ -231,7 +232,7 @@ jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       --arg mode "$mode" --arg base "$base_branch" --arg int "${int_branch:-}" \
       --argjson qt "$queue_total" --argjson mr "$max_rounds" '{
   skill: "issue-sweep",
-  started_at: $now, updated_at: $now,
+  started_at: $now, round_started_at: $now, updated_at: $now,
   phase: "iterating",
   mode: $mode, base_branch: $base, int_branch: (if $int == "" then null else $int end),
   queue_total: $qt, queue_remaining: $qt,
@@ -608,6 +609,11 @@ jq -nc \
 集計クエリは `references/metrics-queries.md`（フェーズ3-1 で使う）。ファイルは `.gitignore` 対象。
 
 ## フェーズ3: 完了報告と spinoff 追跡
+source "$SWEEP_DIR/prelude.sh"
+# spinoff 検出の基準時刻は **今の round の開始時刻**（sweep 全体の started_at ではない）。
+# シェル変数で持ち回らず state.json から読む
+since=$(jq -r '.round_started_at' "$SWEEP_DIR/state.json")
+
 
 ### 3-0. spinoff 検出と再 sweep 判定
 
@@ -615,14 +621,14 @@ jq -nc \
 
 ```bash
 # 今回 sweep が処理した親 Issue 番号一覧（フェーズ1 で展開した子 Issue を含む）
-PROCESSED_IDS=$(jq -r --arg since "$sweep_start_iso" \
+PROCESSED_IDS=$(jq -r --arg since "$since" \
   'select(.ts >= $since and ((.source // "") | startswith("refine") | not))
    | .issues[]' \
   "$SWEEP_DIR/metrics.jsonl" | sort -u | tr '\n' ',' | sed 's/,$//')
 
 # sweep 開始以降に作成された OPEN Issue を取得
 new_issues=$(gh issue list --state open \
-  --search "created:>=${sweep_start_iso}" \
+  --search "created:>=${since}" \
   --json number,title,body,labels --limit 200)
 
 # spinoff 由来を判定: /spinoff-issue が付与する `spinoff` ラベルを主シグナルとし、
@@ -650,12 +656,16 @@ spinoff_deferred=$(echo "$spinoff_json" | jq -r '.[] | select(.high | not) | .nu
 ```
 
 判定:
-- `spinoff_all` が **空** → 通常の終了処理（3-1 以降）
-- `spinoff_ids` がある かつ `--no-follow-spinoffs` 指定なし かつ `round_count < max_rounds`（**デフォルト 1**）:
-  - 通知 `sweep_notify "spinoffs detected" "${#spinoff_ids} 件を再 sweep" ":arrows_counterclockwise:"`
-  - `round_count += 1` をインクリメント
-  - `spinoff_ids` を新規キューとして `$SWEEP_DIR/queue.txt` に書き出す（`attempts.json` も `{}` に戻す）
-  - **フェーズ2 に戻る**（ロック / 通知 URL / メトリクスは引き継ぎ、`sweep_start_iso` のみ次周開始時刻に更新）
+- `${#spinoff_all[@]}` が **0** → 通常の終了処理（3-1 以降）
+- `${#spinoff_ids[@]}` が 1 以上 かつ `--no-follow-spinoffs` 指定なし かつ `state.json の .round < .max_rounds`（**デフォルト 1**）:
+  - 通知 `sweep_notify "spinoffs detected" "${#spinoff_ids[@]} 件を再 sweep" ":arrows_counterclockwise:"`
+  - `printf '%s\n' "${spinoff_ids[@]}" > "$SWEEP_DIR/queue.txt"` で新規キューを書き出す（`attempts.json` も `{}` に戻す）
+  - **フェーズ2 に戻る**（ロック / 通知 URL / メトリクスは引き継ぎ、`round` と `round_started_at` だけ進める）:
+    ```bash
+    jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+       '.round = (.round + 1) | .round_started_at = $now | .updated_at = $now' \
+       "$SWEEP_DIR/state.json" > "$SWEEP_DIR/state.json.tmp" && mv "$SWEEP_DIR/state.json.tmp" "$SWEEP_DIR/state.json"
+    ```
 - 上限到達（デフォルトでは 2 周目に入ろうとした時点で必ずここに来る）または `--no-follow-spinoffs` 指定時:
   - レポートに「未処理 spinoffs」セクションを追加して `spinoff_all` を列挙
   - 通知 `sweep_notify "spinoffs left unprocessed" "${#spinoff_all} 件、要手動 sweep" ":warning:"`
