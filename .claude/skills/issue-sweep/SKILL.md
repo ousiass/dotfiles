@@ -286,7 +286,9 @@ git pull --ff-only origin "$base_branch" 2>/dev/null || true
 # このラウンドで使う PR 情報を **1 コールだけ** で取る。
 source "$SWEEP_DIR/prelude.sh"
 # 冪等性チェック（2-1）と状態判定（2-3）の両方がこの結果を使う。
-gh pr list --state all --limit 100 \
+# `head:sweep/` で **sweep が作った PR だけ**に絞る。絞らないと他人の PR や
+# dependabot が窓を埋め、CI 待ちの長い PR ほど 100 件から押し出される。
+gh pr list --search "head:sweep/" --state all --limit 100 \
   --json number,headRefName,state,mergedAt,statusCheckRollup \
   | jq -c '[.[] | {
       pr: .number,
@@ -586,7 +588,7 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 {"ts":"<ISO8601>","issues":[53],"skill":null,"duration_sec":12,"agent_attempts":1,"ci_respawns":0,"pr_number":null,"pr_url":null,"status":"agent_failed","failure":"<理由>","failed_issue":53}
 ```
 
-**status 値:** `merged` / `ci_gave_up` / `agent_failed` / `aborted` / `manual_close`
+**status 値:** `merged` / `ci_gave_up` / `agent_failed` / `aborted` / `manual_close` / `pr_lost` / `branch_guard`
 
 **実装:** 2-2 の起動時に `start_ts=$(date +%s)` を in-flight テーブルに記録し、2-4 / 2-7 の直前で:
 
