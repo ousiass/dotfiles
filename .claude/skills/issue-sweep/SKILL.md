@@ -15,7 +15,7 @@ user-invocable: true
 - `/issue-sweep #<n1> #<n2> ...` — Issue 番号を直接指定
 - `/issue-sweep #<parent>` — 指定した **フェーズ Issue**（`split-from:#<parent>` ラベル付き子 Issue を持つ親）に対しては、子 Issue 群に自動展開してそれだけ処理する。親本体は実装対象にしない（フェーズ単位の一括実装に使える）
 - `/issue-sweep --abort` — 実行中の sweep を中止しキュー / ロックを削除（後述）
-- `/issue-sweep --parallel <N>` — **同時に走る実装 agent 数**の上限（**デフォルト 5**、上限 5）。ユーザーに値を確認せず常にこのデフォルトで起動する
+- `/issue-sweep --parallel <N>` — **同時に走る実装 agent 数**。**常に 5 で起動する**（上限も 5）。負荷を下げたいときだけ 1〜4 を渡す。ユーザーに値を確認しない
 - `/issue-sweep --max-inflight <M>` — **同時に抱える未マージ PR 数**の上限（実装中 + CI 待ち + マージ待ち。**デフォルト 10**、上限 15）。CI 待ちが実装スロットを食い潰さないよう `--parallel` とは別枠
 - `/issue-sweep --no-batch` — 関連 Issue のバッチ編成（フェーズ1-4）を無効化し、常に 1 Issue = 1 PR で処理する
 - `/issue-sweep --no-follow-spinoffs` — sweep 中に spinoff された Issue を再 sweep するのを抑止（追跡ゼロ。検出結果はレポート列挙のみ）
@@ -44,7 +44,6 @@ mkdir -p "$SWEEP_DIR"
 
 以降 `.sweep/...` と書かれた箇所はすべて `$SWEEP_DIR/...` を指す。Stop Hook も同じパスを見る。
 
-## 状態管理 `.sweep/state.json`
 **Bash ツールは呼び出しごとに新しいシェル**で、変数も関数も持ち越されない。`$base_branch` / `$int_branch` / `assert_not_base` は **P-0-0 が生成する `$SWEEP_DIR/prelude.sh` から毎回読み直す**（`../sweep-common/branch-preflight.md`）。それらを使う bash スニペットはすべて次の 2 行で始める:
 
 ```bash
@@ -53,6 +52,7 @@ source "$SWEEP_DIR/prelude.sh"
 ```
 
 
+## 状態管理 `.sweep/state.json`
 sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` の間（lock が新鮮な限り）停止をブロックする。**「キューが空っぽいから終わった」と推定で `phase=terminal` にしてはならない**。terminal 化前にキュー残数 = 0 と spinoff 検出済みを必ず確認する。
 
 **このファイルは sweep が所有する。** worktree 内で走る `refine-git` 等は `refine/references/common-setup.md` 手順4 の所有権ガードで書き込みを控えるので、sweep 実行中に横から terminal 化されることはない。
@@ -62,9 +62,9 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 {
   "skill": "issue-sweep",
   "started_at": "<ISO8601>",
-  "updated_at": "<ISO8601>",
   "round_started_at": "<ISO8601>",
   "phase": "iterating" | "terminal",
+  "updated_at": "<ISO8601>",
   "queue_total": <N>,
   "queue_remaining": <N>,
   "processed_count": <N>,
@@ -230,7 +230,8 @@ queue_total=$(wc -l < "$SWEEP_DIR/queue.txt" | tr -d ' ')
 max_rounds=${max_rounds:-1}   # --max-rounds 未指定時のデフォルト
 jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       --arg mode "$mode" --arg base "$base_branch" --arg int "${int_branch:-}" \
-      --argjson qt "$queue_total" --argjson mr "$max_rounds" '{
+      --argjson qt "$queue_total" --argjson mr "$max_rounds" \
+      --argjson par "${parallel_n:-5}" --argjson mi "${max_inflight:-10}" '{
   skill: "issue-sweep",
   started_at: $now, round_started_at: $now, updated_at: $now,
   phase: "iterating",
@@ -238,6 +239,7 @@ jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   queue_total: $qt, queue_remaining: $qt,
   processed_count: 0, merged_count: 0, failed_count: 0,
   round: 0, max_rounds: $mr,
+  parallel: $par, max_inflight: $mi,
   termination_reason: null
 }' > "$SWEEP_DIR/state.json"
 ```
@@ -250,7 +252,7 @@ jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 
 枠は 2 つに分ける（片方が他方を食い合わないように）:
 
-- `--parallel N`（デフォルト 5、上限 5）= **同時に走る実装 agent の数**
+- `--parallel N`（常に 5。下げたいときだけ 1〜4）= **同時に走る実装 agent の数**
 - `--max-inflight M`（デフォルト 10、上限 15）= **同時に抱える未マージ PR の数**（実装中 + CI 待ち + マージ待ち）
 
 CI 待ちの PR が溜まっても実装スロットは空くので、実装が止まらない。
@@ -270,9 +272,9 @@ CI 待ちの PR が溜まっても実装スロットは空くので、実装が�
 | `stage` | `implementing` / `ci` / `fixing` |
 | `ci_respawns` | CI fix agent の再起動回数 |
 | `worktree` | agent が返した worktree の絶対パス |
+| `zero_check_rounds` | `checks_total == 0` を観測した連続ラウンド数（2-3 の CI 無し判定に使う） |
 | `start_ts` | バッチ開始 unix time（metrics 用） |
 
-| `zero_check_rounds` | `checks_total == 0` を観測した連続ラウンド数（2-3 の CI 無し判定に使う） |
 ### メインループ
 
 in-flight が 0 かつキューが空になるまで、以下を上から順に 1 回ずつ実行して繰り返す。
@@ -281,11 +283,11 @@ in-flight が 0 かつキューが空になるまで、以下を上から順に 
 
 ```bash
 echo "$PPID:$(date +%s)" > "$SWEEP_DIR/lock"
+source "$SWEEP_DIR/prelude.sh"
 git fetch origin "$base_branch" 2>/dev/null || true
 git pull --ff-only origin "$base_branch" 2>/dev/null || true
 
 # このラウンドで使う PR 情報を **1 コールだけ** で取る。
-source "$SWEEP_DIR/prelude.sh"
 # 冪等性チェック（2-1）と状態判定（2-3）の両方がこの結果を使う。
 # `head:sweep/` で **sweep が作った PR だけ**に絞る。絞らないと他人の PR や
 # dependabot が窓を埋め、CI 待ちの長い PR ほど 100 件から押し出される。
@@ -308,7 +310,7 @@ fast-forward できない場合は警告だけ出して続行する。Stop Hook 
 
 #### 2-1. スロット補充（launch）
 
-`実装中 < N` かつ `in_flight < M` かつキューに**起動可能な**バッチが残っていれば、空きスロット分だけ起動する。
+`実装中 < parallel` かつ `in_flight < max_inflight` かつキューに**起動可能な**バッチが残っていれば、空きスロット分だけ起動する。
 
 ```bash
 head -n20 "$SWEEP_DIR/queue.txt"   # 候補を眺める。1 行 = 1 バッチ
