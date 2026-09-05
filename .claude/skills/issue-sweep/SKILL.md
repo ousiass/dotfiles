@@ -377,8 +377,8 @@ Issue #<a>[, #<b>, #<c>] を **1 つの worktree にまとめて** 処理して�
    `critical_remaining == 0 ∧ major_remaining == 0` を満たすなら、**マージコマンドは叩かず**
    PR 作成までで返す（マージはメインの責務）。満たさなければ failure として返す。
    `status` が `clean` でなくても（`iter_limit` / `no_progress`）この 2 つが 0 なら合格。
-6. 成功時の JSON 1行:
-   {"issues": [<a>,<b>,<c>], "pr_number": <N>, "pr_url": "<URL>", "branch": "sweep/issues-<a>", "worktree": "<worktree の絶対パス>", "skills": ["<Issue ごとに使ったスキル>"], "refine_status": "<clean|iter_limit|no_progress>", "refine_iters": <K>, "critical_remaining": 0, "major_remaining": 0, "minor_remaining": <N>}
+6. 成功時の JSON 1行（`skills` は `issues` と同じ順・同じ長さの配列）:
+   {"issues": [<a>,<b>,<c>], "pr_number": <N>, "pr_url": "<URL>", "branch": "sweep/issues-<a>", "worktree": "<worktree の絶対パス>", "skills": ["impl","bug-fix","impl"], "refine_status": "<clean|iter_limit|no_progress>", "refine_iters": <K>, "critical_remaining": 0, "major_remaining": 0, "minor_remaining": <N>}
 7. 失敗時の JSON（**どの Issue で転んだかを必ず含める**。切り分けに使う）:
    {"failure": "<1行で原因>", "phase": "<どのフェーズ>", "failed_issue": <n>, "completed_issues": [<実装まで終わった Issue>], "worktree": "<作成済みなら絶対パス>", "pr_number": <あれば>, "pr_url": "<あれば>"}
 
@@ -585,14 +585,15 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 - CI 諦め（respawn 上限到達時）
 
 **スキーマ:**
+skills_json=$(echo "$agent_response" | jq -c '.skills // []')     # agent 返答の skills をそのまま
 
-`issues` がバッチの全 Issue。先頭 Issue が要るときは `issues[0]` を使う（以前は後方互換の `issue` フィールドを二重に持っていた）。
+`issues` がバッチの全 Issue、`skills` が同じ順で対応するスキル名。先頭 Issue が要るときは `issues[0]` を使う（以前は後方互換の `issue` フィールドを二重に持っていた）。**agent の返答 `skills` をそのまま配列で持つ**（先頭 1 つに潰すと `bug-fix` と `impl` が混在したバッチの集計が壊れる）。
 
 ```json
-{"ts":"<ISO8601>","issues":[42],"skill":"impl","duration_sec":423,"agent_attempts":1,"ci_respawns":0,"pr_number":127,"pr_url":"https://...","status":"merged"}
-{"ts":"<ISO8601>","issues":[12,13,14],"skill":"impl","duration_sec":2140,"agent_attempts":1,"ci_respawns":0,"pr_number":129,"pr_url":"https://...","status":"merged"}
-{"ts":"<ISO8601>","issues":[51],"skill":"bug-fix","duration_sec":1820,"agent_attempts":3,"ci_respawns":2,"pr_number":131,"pr_url":"https://...","status":"ci_gave_up","failed_checks":"unit-tests,lint"}
-{"ts":"<ISO8601>","issues":[53],"skill":null,"duration_sec":12,"agent_attempts":1,"ci_respawns":0,"pr_number":null,"pr_url":null,"status":"agent_failed","failure":"<理由>","failed_issue":53}
+{"ts":"<ISO8601>","issues":[42],"skills":["impl"],"duration_sec":423,"agent_attempts":1,"ci_respawns":0,"pr_number":127,"pr_url":"https://...","status":"merged"}
+{"ts":"<ISO8601>","issues":[12,13,14],"skills":["impl","impl","bug-fix"],"duration_sec":2140,"agent_attempts":1,"ci_respawns":0,"pr_number":129,"pr_url":"https://...","status":"merged"}
+{"ts":"<ISO8601>","issues":[51],"skills":["bug-fix"],"duration_sec":1820,"agent_attempts":3,"ci_respawns":2,"pr_number":131,"pr_url":"https://...","status":"ci_gave_up","failed_checks":"unit-tests,lint"}
+{"ts":"<ISO8601>","issues":[53],"skills":[],"duration_sec":12,"agent_attempts":1,"ci_respawns":0,"pr_number":null,"pr_url":null,"status":"agent_failed","failure":"<理由>","failed_issue":53}
 ```
 
 **status 値:** `merged` / `ci_gave_up` / `agent_failed` / `aborted` / `manual_close` / `pr_lost` / `branch_guard`
@@ -604,7 +605,7 @@ issues=$(printf '%s\n' $batch_issues | jq -sc 'map(tonumber)')   # バッチの�
 jq -nc \
   --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --argjson issues "$issues" \
-  --arg skill "$skill_used" \
+  --argjson skills "$skills_json" \
   --argjson dur "$(( $(date +%s) - start_ts ))" \
   --argjson att "$agent_attempts" \
   --argjson resp "$respawn_count" \
@@ -616,7 +617,7 @@ since=$(jq -r '.round_started_at' "$SWEEP_DIR/state.json")
 
   --arg url "$pr_url" \
   --arg status "$status" \
-  '{ts:$ts,issues:$issues,skill:$skill,duration_sec:$dur,agent_attempts:$att,ci_respawns:$resp,pr_number:$pr,pr_url:$url,status:$status}' \
+  '{ts:$ts,issues:$issues,skills:$skills,duration_sec:$dur,agent_attempts:$att,ci_respawns:$resp,pr_number:$pr,pr_url:$url,status:$status}' \
   >> "$SWEEP_DIR/metrics.jsonl"
 ```
 
@@ -727,7 +728,7 @@ source "$SWEEP_DIR/prelude.sh"
   echo "|---|---|---|---|---|---|"
   jq -r --arg since "$sweep_start_iso" \
     'select(.ts >= $since and ((.source // "") | startswith("refine") | not)) |
-     "| \(.issues | map("#\(.)") | join(", ")) | \(.skill // "-") | \(.duration_sec)s | \(.status) | \(.pr_url // "-") | \(.ci_respawns // 0) |"' \
+     "| \(.issues | map("#\(.)") | join(", ")) | \((.skills // []) | unique | join(", ") | if . == "" then "-" else . end) | \(.duration_sec)s | \(.status) | \(.pr_url // "-") | \(.ci_respawns // 0) |"' \
     "$SWEEP_DIR/metrics.jsonl"
   echo
   echo "## Failures & Manual Intervention"
