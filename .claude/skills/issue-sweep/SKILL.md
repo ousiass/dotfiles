@@ -609,6 +609,11 @@ jq -nc \
   --argjson att "$agent_attempts" \
   --argjson resp "$respawn_count" \
   --argjson pr "$pr_number" \
+source "$SWEEP_DIR/prelude.sh"
+# spinoff 検出の基準時刻は **今の round の開始時刻**（sweep 全体の started_at ではない）。
+# シェル変数で持ち回らず state.json から読む
+since=$(jq -r '.round_started_at' "$SWEEP_DIR/state.json")
+
   --arg url "$pr_url" \
   --arg status "$status" \
   '{ts:$ts,issues:$issues,skill:$skill,duration_sec:$dur,agent_attempts:$att,ci_respawns:$resp,pr_number:$pr,pr_url:$url,status:$status}' \
@@ -618,11 +623,6 @@ jq -nc \
 集計クエリは `references/metrics-queries.md`（フェーズ3-1 で使う）。ファイルは `.gitignore` 対象。
 
 ## フェーズ3: 完了報告と spinoff 追跡
-source "$SWEEP_DIR/prelude.sh"
-# spinoff 検出の基準時刻は **今の round の開始時刻**（sweep 全体の started_at ではない）。
-# シェル変数で持ち回らず state.json から読む
-since=$(jq -r '.round_started_at' "$SWEEP_DIR/state.json")
-
 
 ### 3-0. spinoff 検出と再 sweep 判定
 
@@ -658,10 +658,11 @@ spinoff_json=$(echo "$new_issues" | jq -c --arg ids "$PROCESSED_IDS" '
                  | any(. == "severity:critical" or . == "severity:high" or . == "priority:high")) }
     ]')
 
-spinoff_all=$(echo "$spinoff_json" | jq -r '.[].number')
+# 件数は配列に読み込んでから数える（改行区切り文字列に ${#...} を使うと「文字数」が返る）
+mapfile -t spinoff_all < <(echo "$spinoff_json" | jq -r '.[].number')
 # 再 sweep 対象は重要度の高いものだけ。--follow-all-spinoffs 指定時は spinoff_all をそのまま使う
-spinoff_ids=$(echo "$spinoff_json" | jq -r '.[] | select(.high) | .number')
-spinoff_deferred=$(echo "$spinoff_json" | jq -r '.[] | select(.high | not) | .number')
+mapfile -t spinoff_ids      < <(echo "$spinoff_json" | jq -r '.[] | select(.high) | .number')
+mapfile -t spinoff_deferred < <(echo "$spinoff_json" | jq -r '.[] | select(.high | not) | .number')
 ```
 
 判定:
@@ -676,9 +677,9 @@ spinoff_deferred=$(echo "$spinoff_json" | jq -r '.[] | select(.high | not) | .nu
        "$SWEEP_DIR/state.json" > "$SWEEP_DIR/state.json.tmp" && mv "$SWEEP_DIR/state.json.tmp" "$SWEEP_DIR/state.json"
     ```
 - 上限到達（デフォルトでは 2 周目に入ろうとした時点で必ずここに来る）または `--no-follow-spinoffs` 指定時:
-  - レポートに「未処理 spinoffs」セクションを追加して `spinoff_all` を列挙
-  - 通知 `sweep_notify "spinoffs left unprocessed" "${#spinoff_all} 件、要手動 sweep" ":warning:"`
-- `spinoff_deferred` が空でない場合は、再 sweep の有無にかかわらずレポートに **「未追跡 spinoffs（重要度フィルタで対象外）」** セクションを追加して列挙する（黙って握り潰さない）
+  - レポートに「未処理 spinoffs」セクションを追加して `"${spinoff_all[@]}"` を列挙
+  - 通知 `sweep_notify "spinoffs left unprocessed" "${#spinoff_all[@]} 件、要手動 sweep" ":warning:"`
+- `${#spinoff_deferred[@]}` が 1 以上の場合は、再 sweep の有無にかかわらずレポートに **「未追跡 spinoffs（重要度フィルタで対象外）」** セクションを追加して列挙する（黙って握り潰さない）
 
 ### 3-1. 完了報告
 
