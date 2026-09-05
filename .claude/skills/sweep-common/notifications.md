@@ -22,11 +22,11 @@ echo "https://hooks.slack.com/services/T0XXX/B0XXX/xxxx" > .sweep/notify.url
 
 | イベント | 通知内容 | 絵文字 |
 |---|---|---|
-| Issue マージ完了（2-5 直後） | `Merged #<n> (PR #<P>, <duration>)` | `:white_check_mark:` |
-| CI 失敗検知（2-4 内） | `CI failed on PR #<P> (attempt <k>/3): <checks>` | `:warning:` |
-| sweep が諦め（2-4 上限到達 / 2-8 agent failure） | `Manual intervention needed: #<n> — <理由>` | `:rotating_light:` |
-| 最終 PR が CI 緑（single-pr の S-2-2） | `Ready to merge: PR #<P>` | `:white_check_mark:` |
-| sweep 全完了（フェーズ3） | `Sweep done: <merged> merged, <failed> failed, elapsed <duration>` | `:checkered_flag:` |
+| バッチのマージ完了（Issue close 直後） | `Merged #<n> (PR #<P>, <duration>)` | `:white_check_mark:` |
+| CI 確定失敗を検知 | `CI failed on PR #<P> (attempt <k>/3): <checks>` | `:warning:` |
+| sweep が諦めた（CI respawn 上限到達 / agent failure 上限到達） | `Manual intervention needed: #<n> — <理由>` | `:rotating_light:` |
+| 最終 PR が CI 緑（single-pr モード） | `Ready to merge: PR #<P>` | `:white_check_mark:` |
+| sweep 全完了（完了報告フェーズ） | `Sweep done: <merged> merged, <failed> failed, elapsed <duration>` | `:checkered_flag:` |
 
 **送信関数の実装:**
 

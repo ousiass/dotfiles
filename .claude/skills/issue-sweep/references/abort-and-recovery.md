@@ -23,8 +23,8 @@ git worktree prune
 
 ## 失敗時の挙動
 
-- **1 バッチの失敗で sweep 全体を止めない。** 2-9 の `attempts.json` が 2 に達したバッチだけ諦め、キューから該当行を消して metrics に `agent_failed` を記録し、残りのバッチを流し続ける
+- **1 バッチの失敗で sweep 全体を止めない。** `attempts.json` が 2 に達したバッチだけ諦め、キューから該当行を消して metrics に `agent_failed` を記録し、残りのバッチを流し続ける
 - 諦めたバッチは**必ずキューから消す**。残すと Stop Hook が停止をブロックし続けて sweep が終われない
-- 観測時の `CLOSED ∧ merged == false`（手動 close）は1回目は agent 再起動、2回連続でユーザー判断
+- 観測時の `CLOSED ∧ merged == false`（手動 close）は 1 回目は agent 再起動、2 回連続でユーザー判断
 - キューファイルが壊れた場合は `--abort` で全削除してフェーズ1からやり直す
-- **すべてのバッチが諦めに終わった場合も、フェーズ3 に進んで terminal 化とレポート生成を行う**（`termination_reason = "batch_failed"`）。記録が残らないまま終わるのが最悪
+- **すべてのバッチが諦めに終わった場合も、完了報告フェーズに進んで terminal 化とレポート生成を行う**（`termination_reason = "batch_failed"`）。記録が残らないまま終わるのが最悪
