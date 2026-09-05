@@ -272,6 +272,7 @@ CI 待ちの PR が溜まっても実装スロットは空くので、実装が�
 | `worktree` | agent が返した worktree の絶対パス |
 | `start_ts` | バッチ開始 unix time（metrics 用） |
 
+| `zero_check_rounds` | `checks_total == 0` を観測した連続ラウンド数（2-3 の CI 無し判定に使う） |
 ### メインループ
 
 in-flight が 0 かつキューが空になるまで、以下を上から順に 1 回ずつ実行して繰り返す。
@@ -296,7 +297,8 @@ gh pr list --search "head:sweep/" --state all --limit 100 \
       state: .state,
       merged: (.mergedAt != null),
       failed_checks: [.statusCheckRollup[]? | select(.conclusion == "FAILURE") | .name],
-      waiting: ([.statusCheckRollup[]? | select(.conclusion == null and .status != "COMPLETED")] | length)
+      waiting: ([.statusCheckRollup[]? | select(.conclusion == null and .status != "COMPLETED")] | length),
+      checks_total: ([.statusCheckRollup[]?] | length)
     }]'
 ```
 
@@ -395,7 +397,9 @@ Issue #<a>[, #<b>, #<c>] を **1 つの worktree にまとめて** 処理して�
 | `merged == true` | 2-4（Issue close）→ 2-5（キュー削除）→ 2-6（worktree 掃除）→ in-flight から外す |
 | `state == "CLOSED" ∧ merged == false` | 手動 close。`ci_respawns == 0` なら 2-2 で再起動（2-1 の冪等性チェックが既存 PR を拾う）。1 回以上なら諦めて `sweep_notify "Manual intervention needed"`、in-flight から外し metrics に `manual_close` を記録してキューから該当行を消す |
 | `failed_checks` が空でない ∧ `waiting == 0` | CI 確定失敗。`ci_respawns >= 2` なら諦め（下記）。それ未満なら `ci_respawns += 1`、`gh pr comment` で attempt を記録し、**下記の CI fix プロンプトで agent を起動**して `stage=fixing` にする |
-| `waiting == 0 ∧ failed_checks 空 ∧ state == "OPEN"` | `gh pr merge <PR> --merge --delete-branch` を実行。成功なら次ラウンドで `merged` を検知。失敗なら `sweep_notify "merge failed"` して in-flight から外しユーザー報告に回す |
+| `checks_total == 0 ∧ zero_check_rounds < 2` | **まだマージしない。** PR 作成直後で check が登録されていないだけかもしれない。`zero_check_rounds += 1` して次ラウンドへ。**2 ラウンド連続で 0 件**なら「CI を持たないリポジトリ」と判定して下行のマージに進む |
+| `waiting == 0 ∧ failed_checks 空 ∧ state == "OPEN" ∧ (checks_total >= 1 ∨ zero_check_rounds >= 2)` | `gh pr merge <PR> --merge --delete-branch` を実行。成功なら次ラウンドで `merged` を検知。失敗なら `sweep_notify "merge failed"` して in-flight から外しユーザー報告に回す |
+| **一覧に PR が見つからない** | 取りこぼし。`gh pr view <PR> --json state,mergedAt,statusCheckRollup` を **その PR だけ** 1 回叩いて判定し直す。それでも見つからなければ `sweep_notify "PR lost"` して in-flight から外し、metrics に `pr_lost` を記録してキュー行を削除する |
 | それ以外 | CI 実行中。そのまま in-flight に残す |
 
 CI を諦める場合:
