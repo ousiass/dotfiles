@@ -33,7 +33,7 @@ echo "https://hooks.slack.com/services/T0XXX/B0XXX/xxxx" > .sweep/notify.url
 ```bash
 sweep_notify() {
   local title="$1" msg="$2" emoji="${3:-}"
-  local url_file=".sweep/notify.url"
+  local url_file="${SWEEP_DIR:-.sweep}/notify.url"
   [[ -f "$url_file" ]] || return 0  # URL 未設定 → 無音
   local url
   url=$(head -n1 "$url_file")
