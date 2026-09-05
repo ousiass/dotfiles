@@ -193,13 +193,18 @@ gh label list --limit 200 --json name -q '.[].name'
 
 ### 3-4: Issue 作成
 
+本文は**必ず同梱テンプレートから作る**（自前で見出しを起こさない。起票経路によって Issue の形が変わると後段の `/bug-fix` `/impl` が読み取れなくなる）。
+
 **バグの場合**:
+
+1. `templates/bug.md` を Read し、`<…>` プレースホルダをフェーズ1-2 で集めた内容で埋める。埋められない項目は `未確認` と書く（項目ごと消さない）
+2. 埋めた本文を一時ファイルに書き出して渡す:
 
 ```bash
 gh issue create \
   --title "[Bug] <機能>: <症状>" \
   --label bug --label "severity:<level>" [--label "area:<領域>"] \
-  --body-file <bug.md 相当>
+  --body-file <埋めた本文のパス>
 ```
 
 **機能要望の場合（Issue+spec-gen モード）**: プレースホルダーとして作成:
@@ -211,7 +216,7 @@ gh issue create \
   --body "仕様策定中（report-sweep 実行中）。完了後に実装内容を追記する。"
 ```
 
-**機能要望の場合（Issue のみモード）**: 通常の feature テンプレートで作成。
+**機能要望の場合（Issue のみモード）**: `templates/feature.md` をバグと同じ手順で埋めて `--body-file` に渡す。
 
 ### 3-5: 機能要望のみ: spec-gen 実行
 
@@ -283,7 +288,8 @@ rm -f "$SWEEP_DIR/lock"
 - **フェーズ1 で全情報を一括収集**。フェーズ 3 以降は原則追加ヒアリングしない（重複 Issue との衝突と、承認済み `(NEW)` ラベル未承認時の 2 例外のみ）
 - 質問は必ず `AskUserQuestion` を使い、1 回 4 問以内
 - バグ側はコード調査しない（原因推定は書かない）。機能要望側は `spec-gen` が既存仕様書を読むためコード/仕様書スキャンは走る
-- `spec-gen` 本体のロジックは複製せず `~/.claude/skills/spec-gen/SKILL.md` を参照
+- `spec-gen` 本体のロジックは複製せず `../spec-gen/SKILL.md` を参照
+- **Issue 本文は同梱の `templates/bug.md` / `templates/feature.md` から作る**（自前で見出しを起こさない。埋められない項目は消さず `未確認` と書く）
 - 未存在ラベルはユーザー承認なしに作成しない（フェーズ 2 の一括承認に含める）
 - 各 Issue は open のまま残す（後で `/impl #N` `/bug-fix #N` にそのまま渡せる）。single-pr モードでも最終 PR で close しない
 - **フェーズ P-0 を飛ばさない**。モードとベースブランチを聞かずに始めない / 現在の HEAD を推測でベースに採用しない（`~/.claude/skills/issue-sweep/references/branch-preflight.md`）
