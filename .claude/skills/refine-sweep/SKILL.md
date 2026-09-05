@@ -61,7 +61,7 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 
 ## single-pr モード（`--single-pr`）
 
-**Issue ごとに PR を作らず、最初に切った統合ブランチ 1 本へ全反復ぶんを積み、最後にベースブランチへ PR を 1 本だけ出す。** 有効時は **`~/.claude/skills/issue-sweep/references/single-branch-mode.md` を読んでから**フェーズ0 に入る（`skill_name="refine-sweep"`）。フェーズ順は:
+**Issue ごとに PR を作らず、最初に切った統合ブランチ 1 本へ全反復ぶんを積み、最後にベースブランチへ PR を 1 本だけ出す。** 有効時は **`../sweep-common/single-branch-mode.md` を読んでから**フェーズ0 に入る（`skill_name="refine-sweep"`）。フェーズ順は:
 
 `フェーズ0（lock）→ P-0（モード・ベース確定）→ S-0（統合ブランチ作成）→ フェーズ1 → フェーズ2 の反復（S-1 の差分を適用）→ 3-1（double-confirm）→ S-2（統合研磨・最終 PR・CI 確認）→ S-3（レポート）`
 
@@ -99,7 +99,7 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 
 ## フェーズ P-0: モードとベースブランチの確定（必須）
 
-**`~/.claude/skills/issue-sweep/references/branch-preflight.md` を読んでその手順どおりに実行する。スキップ不可。**
+**`../sweep-common/branch-preflight.md` を読んでその手順どおりに実行する。スキップ不可。**
 `--single-pr` / `--multi-pr` と `--base` の両方が引数で確定している場合のみ、ヒアリング（P-0-2）を省略できる。
 
 ここで確定するもの:

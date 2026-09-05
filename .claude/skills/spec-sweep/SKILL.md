@@ -34,7 +34,7 @@ user-invocable: true
 
 ## single-pr モード（`--single-pr`）
 
-有効時は **`~/.claude/skills/issue-sweep/references/single-branch-mode.md` を読んでから**フェーズ1 に入る（`skill_name="spec-sweep"`）。差分は以下だけ:
+有効時は **`../sweep-common/single-branch-mode.md` を読んでから**フェーズ1 に入る（`skill_name="spec-sweep"`）。差分は以下だけ:
 
 | 箇所 | single-pr での差し替え |
 |---|---|
@@ -142,7 +142,7 @@ user-invocable: true
 - 質問は必ず `AskUserQuestion` を使い、1 回 4 問以内
 - 既存仕様書ディレクトリを最優先（新規ディレクトリを勝手に作らない）
 - 各 Issue は open のまま残す（後で `/impl #N` がそのまま使える）。single-pr モードでも最終 PR で close しない
-- **フェーズ P-0 を飛ばさない**。モードとベースブランチを聞かずに始めない / 現在の HEAD を推測でベースに採用しない（`~/.claude/skills/issue-sweep/references/branch-preflight.md`）
+- **フェーズ P-0 を飛ばさない**。モードとベースブランチを聞かずに始めない / 現在の HEAD を推測でベースに採用しない（`../sweep-common/branch-preflight.md`）
 - **作業ブランチを作らずベースブランチ上で仕様書をコミットしない**。ブランチ作成に失敗したらその項目を諦めて人に返す（`git reset` / `git checkout -f` で自動的に直して続行しない）
 - `--single-pr` 指定時は `~/.claude/skills/issue-sweep/references/single-branch-mode.md` を読んでから進める（差分表だけで手順を推測しない）
 - `spec-gen` 本体のロジックは複製せず参照する（`~/.claude/skills/spec-gen/SKILL.md`）

@@ -33,7 +33,7 @@ user-invocable: true
 - `gh` CLI が認証済み
 - `.claude/hooks/check-issue-queue.sh` と `.claude/hooks/check-sweep-state.sh` が実行可能
 - `settings.json` の Stop / SessionStart Hook が有効
-- ベースブランチは**フェーズ P-0 でユーザーに確認して確定する**（`references/branch-preflight.md`）。起動時の HEAD がどこであっても、それを推測でベースに採用しない
+- ベースブランチは**フェーズ P-0 でユーザーに確認して確定する**（`../sweep-common/branch-preflight.md`）。起動時の HEAD がどこであっても、それを推測でベースに採用しない
 
 **`.sweep/` の場所（最初に必ず設定する）:** worktree 内で走るサブスキルと同じファイルを見るため、**常にメインリポジトリ側**を指す:
 
@@ -82,7 +82,7 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 
 ## single-pr モード（`--single-pr`）
 
-**バッチごとに PR を作らず、最初に切った統合ブランチ 1 本へ全部積み、最後にベースブランチへ PR を 1 本だけ出す。** 有効時は **`references/single-branch-mode.md` を読んでから**フェーズ0 に入る。フェーズ順は:
+**バッチごとに PR を作らず、最初に切った統合ブランチ 1 本へ全部積み、最後にベースブランチへ PR を 1 本だけ出す。** 有効時は **`../sweep-common/single-branch-mode.md` を読んでから**フェーズ0 に入る。フェーズ順は:
 
 `フェーズ0（lock）→ P-0（モード・ベース確定）→ S-0（統合ブランチ作成）→ フェーズ1（キュー構築）→ フェーズ2（S-1 の差分を適用）→ 3-0（spinoff 判定）→ S-2（統合研磨・最終 PR・CI 確認）→ S-3（レポート）`
 
@@ -114,7 +114,7 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 
 ## フェーズ P-0: モードとベースブランチの確定（必須）
 
-**`references/branch-preflight.md` を読んでその手順どおりに実行する。スキップ不可。**
+**`../sweep-common/branch-preflight.md` を読んでその手順どおりに実行する。スキップ不可。**
 `--single-pr` / `--multi-pr` と `--base` の両方が引数で確定している場合のみ、ヒアリング（P-0-2）を省略できる。
 
 ここで確定するもの:
@@ -555,7 +555,7 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 
 ## 通知（`.sweep/notify.url`）
 
-各所で `sweep_notify "<title>" "<msg>" "<emoji>"` を呼ぶ。**`.sweep/notify.url` が存在しなければ通知は完全に no-op** なので、無ければ呼び出し箇所ごと無視してよい。存在する場合のみ `references/notifications.md` を読み、関数定義と通知タイミング表に従う。
+各所で `sweep_notify "<title>" "<msg>" "<emoji>"` を呼ぶ。**`.sweep/notify.url` が存在しなければ通知は完全に no-op** なので、無ければ呼び出し箇所ごと無視してよい。存在する場合のみ `../sweep-common/notifications.md` を読み、関数定義と通知タイミング表に従う。
 
 ## テレメトリ（`.sweep/metrics.jsonl`）
 
