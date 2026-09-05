@@ -52,8 +52,8 @@ SWEEP_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(git rev-parse --path-format=absolu
 source "$SWEEP_DIR/prelude.sh"
 ```
 
-
 ## 状態管理 `.sweep/state.json`
+
 sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` の間（lock が新鮮な限り）停止をブロックする。**「キューが空っぽいから終わった」と推定で `phase=terminal` にしてはならない**。terminal 化前にキュー残数 = 0 と spinoff 検出済みを必ず確認する。
 
 **このファイルは sweep が所有する。** worktree 内で走る `refine-git` 等は `refine/references/common-setup.md` 手順4 の所有権ガードで書き込みを控えるので、sweep 実行中に横から terminal 化されることはない。
@@ -64,8 +64,8 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
   "skill": "issue-sweep",
   "started_at": "<ISO8601>",
   "round_started_at": "<ISO8601>",
-  "phase": "iterating" | "terminal",
   "updated_at": "<ISO8601>",
+  "phase": "iterating" | "terminal",
   "queue_total": <N>,
   "queue_remaining": <N>,
   "processed_count": <N>,
@@ -239,8 +239,8 @@ jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   mode: $mode, base_branch: $base, int_branch: (if $int == "" then null else $int end),
   queue_total: $qt, queue_remaining: $qt,
   processed_count: 0, merged_count: 0, failed_count: 0,
-  round: 0, max_rounds: $mr,
   parallel: $par, max_inflight: $mi,
+  round: 0, max_rounds: $mr,
   termination_reason: null
 }' > "$SWEEP_DIR/state.json"
 ```
@@ -272,8 +272,8 @@ CI 待ちの PR が溜まっても実装スロットは空くので、実装が�
 | `pr` | PR 番号（未作成なら null） |
 | `stage` | `implementing` / `ci` / `fixing` |
 | `ci_respawns` | CI fix agent の再起動回数 |
-| `worktree` | agent が返した worktree の絶対パス |
 | `zero_check_rounds` | `checks_total == 0` を観測した連続ラウンド数（2-3 の CI 無し判定に使う） |
+| `worktree` | agent が返した worktree の絶対パス |
 | `start_ts` | バッチ開始 unix time（metrics 用） |
 
 ### メインループ
@@ -283,8 +283,8 @@ in-flight が 0 かつキューが空になるまで、以下を上から順に 
 #### 2-0. ラウンド冒頭（heartbeat / base 最新化 / PR 一覧の一括取得）
 
 ```bash
-echo "$PPID:$(date +%s)" > "$SWEEP_DIR/lock"
 source "$SWEEP_DIR/prelude.sh"
+echo "$PPID:$(date +%s)" > "$SWEEP_DIR/lock"
 git fetch origin "$base_branch" 2>/dev/null || true
 git pull --ff-only origin "$base_branch" 2>/dev/null || true
 
@@ -510,66 +510,50 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 
 ## 禁止行動
 
+**本文の手順に書いてあることは再掲しない。** ここにあるのは「手順どおりに読んでも踏みうる罠」だけ。
+
 **ブランチ**
 
-- **フェーズ P-0 を飛ばす / モードとベースブランチを聞かずに始める**（`references/branch-preflight.md`）
-- **現在の HEAD や `develop` を推測でベースブランチに採用する**
-- **worktree を作らずメインリポジトリで実装する**（ベースブランチ直コミットの主因。worktree 作成に失敗したらそのバッチを諦めて failure を返す）
+- **現在の HEAD や `develop` を推測でベースブランチに採用する**（起点はユーザーが決める）
+- **worktree を作らずメインリポジトリで実装する**（ベースブランチ直コミットの主因。作成に失敗したらそのバッチを諦める）
 - **事前ガードに引っかかった状態を `git reset` / `git checkout -f` で自動的に直して続行する**（人に返す）
+- ベースブランチを途中で変える
 
 **キュー / マージ**
 
 - **PR マージ完了前にキューから該当行を削除する**（最重要 — マージ忘れの根本原因）
-- **メインが CI 緑後にマージするのを忘れる / マージ完了を確認せず in-flight から外す**（agent は PR 作成までで返るため、メインが観測して直接マージしないと PR が埋もれる）
-- **agent 内で `gh pr merge` を叩く**（マージはメインの責務）
-- **バッチの一部 Issue だけ close してキューから消す**（2-4 で全件 close する）
-- **諦めた PR / 諦めたバッチをキューに残したまま sweep を終わらせようとする**（Stop Hook が永久に停止をブロックする。諦めたら必ずキューから消して metrics に記録する）
-- **`$SWEEP_DIR/queue.txt` の行に試行回数などを書き足す**（削除が `grep -vxF` の完全一致なので消せなくなる。試行回数は `attempts.json`）
+- **メインが CI 緑後にマージするのを忘れる / マージ完了を確認せず in-flight から外す**（agent は PR 作成までで返るので、メインが観測しないと PR が埋もれる）
+- **バッチの一部 Issue だけ close してキューから消す**
+- **`queue.txt` の行に試行回数などを書き足す**（削除が `grep -vxF` の完全一致なので消せなくなる）
+- **バッチの試行回数を in-flight テーブル（メモリ）だけで数える**（セッションを張り直すと同じバッチを無限に再試行する）
 
 **パイプライン**
 
-- **実装 → 全 PR の CI 待ち → また実装、というバリアを作る**（CI 時間がそのまま実装 agent 0 本の空白になる。スロットが空いてキューが残っているなら即補充する）
-- **bash の `while` ループの中で agent を再起動しようとする**（bash から `Agent` ツールは呼べない。2-0 で状態を取り、2-3 で LLM が判定する）
-- **PR ごと / バッチごとに `gh pr view` や `gh pr list --head` を叩く**（2-0 の一覧取得 1 コールで全部引ける。ラウンドあたりのコール数を in-flight 本数に比例させない）
-- **1 本の PR の CI 失敗で他の in-flight の処理を止める**（諦めるのはその PR だけ）
+- **bash の `while` ループの中で agent を再起動しようとする**（bash から `Agent` ツールは呼べない。状態取得と判定を分ける理由がこれ）
+- **実装 → 全 PR の CI 待ち → また実装、というバリアを作る**（CI 時間がそのまま実装 agent 0 本の空白になる）
+- **1 本の PR の CI 失敗で他の in-flight を止める / 1 バッチの失敗で sweep 全体を止める**（諦めるのはその 1 本だけ）
 - **CI 失敗を検知せず待機を継続する**（無限待機の原因）
-- **失敗 check 名を agent に伝えず「とりあえず再実行」を頼む**（原因不明のまま盲目的に手を入れる事故になる）
-- **バッチの試行回数を in-flight テーブル（メモリ）だけで数える**（セッションを張り直すと同じバッチを無限に再試行する。`attempts.json` に永続化する）
-- **1 バッチの失敗で sweep 全体を止める**（2-7 の上限に達したバッチだけ諦めて残りを流す）
-- **CI 待ちの PR が溜まっているせいで実装スロットを空けない**（`--parallel` と `--max-inflight` は別枠）
-- **ラウンド冒頭の base branch 最新化をスキップする**（古い base で次を実装すると競合・無駄作業の原因）
-- **やることが無いときにターンを終えて待つ**（Stop Hook に押し戻されるたびにモデルのターンを 1 回消費する。実測で 1 セッション 1 万往復、トランスクリプトの 10% がフック文言だった。待つときは必ず 1 つの bash コマンドの中で `sleep 60` を挟んでブロックする）
+- **シェル変数（`$base_branch` / `$int_branch` / カウンタ類）が次の Bash 呼び出しまで残ると仮定する**（毎回新しいシェル。prelude を source し、カウンタは state.json から読む）
+- **やることが無いときにターンを終えて待つ**（Stop Hook に押し戻されるたびにモデルのターンを 1 回消費する。待つときは 1 つの bash コマンドの中で `sleep 60` を挟む）
 
 **agent への委譲**
 
 - **メインスレッドで直接サブスキル（`/impl` 等）を Skill ツール起動する**（context 汚染の根本原因。必ず `Agent` 経由）
 - **メインスレッド自身がコードを修正する / コミットする / PR を編集する**（CTO は実装に手を出さない）
-- **wt 版スキル（`/impl-wt`, `/bug-fix-wt`）を呼ぶ**（worktree は 2-3 で sweep 側が作る。wt 版を呼ぶと二重に作られる）
-- **サブスキルに `--auto` を渡さない**（確認を取って止まる / Review が二重に走る / Plan が Issue の記載を再導出する。自律実行では致命的）
-- **サブスキルに `--no-pr` を渡さない**（バッチの Issue ごとに PR ができてしまう。PR は agent 側の手順3 で 1 本だけ作る）
-- **Issue 本文を複数のステップで読み直す**（フェーズ1-2 の解析 1 パスに集約する。メインスレッドは 1-2 が返した JSON だけで 1-3 のバッチ編成を行う）
-- **agent 内で `/refine-git` をスキップする**（レビューを通さずマージゲートに進むと品質ばらつきが出る）。**以下 3 点は通常モード（multi-pr）限定** — single-pr モードでは agent 内で研磨せず、S-2-0 で統合ブランチにまとめて 1 回回す（`references/single-branch-mode.md`）
-- **`refine-git` の代わりに `refine` を起動する**（全体スキャンになり、Issue と無関係な既存指摘でマージゲートが永久に落ちる）
-- **`refine-git` に `--skip-minor` / `--max-iter 2` を渡さない**（sweep のマージゲートは minor を見ないので minor のための反復は丸ごと無駄。反復上限を絞らないと 1 PR の実時間が読めない）
-- agent の返答 JSON 以外をメイン context に取り込む（agent 内部の Plan/Develop ログをメインに残すのは禁止）
+- **agent の返答 JSON 以外をメイン context に取り込む**（agent 内部の Plan/Develop ログをメインに残さない）
 
 **終了処理**
 
-- 「ここで停止します」「次に進む前に確認してください」とユーザー判断を待って止まる（Stop Hook が押し戻す）
-- **`$SWEEP_DIR/state.json` を `phase=terminal` にする前にキュー残数 = 0 と spinoff 検出済みを確認しない**
+- **`phase=terminal` にする前にキュー残数 = 0 と spinoff 検出済みを確認しない**
 - **失敗で打ち切るときに terminal 化とレポート生成をスキップする**（`phase=iterating` のまま放置すると記録が何も残らない）
-- **spinoff 検出（3-0）自体をスキップして sweep を終わらせる**（追跡しない分は必ずレポートに列挙する）
 - **`max_rounds` のデフォルトを自己判断で 1 より大きくする**（増やすのはユーザーが明示指定した時だけ）
 - **重要度フィルタで落ちた spinoff（`spinoff_deferred`）をレポートに書かずに捨てる**
-- **「spinoff も追跡しますか？」「次の round に進みますか？」のような確認をユーザーに取る**
-- **ユーザーに並列度（--parallel / --max-inflight）を確認する**（デフォルトで常に起動）
-- ベースブランチを途中で変える
-- フェーズ0 の lock 取得をスキップする
+- **ユーザーに確認を取って止まる**（「spinoff も追跡しますか？」「次の round に進みますか？」「並列度はいくつに？」。すべてデフォルトで進める。Stop Hook が押し戻す）
 
 **single-pr モード**
 
-- `--single-pr` 指定時に `references/single-branch-mode.md` を読まずに進める（差分表だけで手順を推測しない）
-- **バッチごとに PR を作る / 統合 merge を並列に走らせる / 統合のたびに CI を待つ**（詳細は `references/single-branch-mode.md` の禁止行動）
+- `--single-pr` 指定時に `../sweep-common/single-branch-mode.md` を読まずに進める（差分表だけで手順を推測しない）
+- **agent 内で `/refine-git` を起動する**（single-pr では研磨は S-2-0 で統合ブランチにまとめて 1 回。作業単位ごとに回すと同じ指摘を単位の数だけ検出・修正することになる）
 
 ## 通知（`.sweep/notify.url`）
 
@@ -585,7 +569,6 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 - CI 諦め（respawn 上限到達時）
 
 **スキーマ:**
-skills_json=$(echo "$agent_response" | jq -c '.skills // []')     # agent 返答の skills をそのまま
 
 `issues` がバッチの全 Issue、`skills` が同じ順で対応するスキル名。先頭 Issue が要るときは `issues[0]` を使う（以前は後方互換の `issue` フィールドを二重に持っていた）。**agent の返答 `skills` をそのまま配列で持つ**（先頭 1 つに潰すと `bug-fix` と `impl` が混在したバッチの集計が壊れる）。
 
@@ -602,6 +585,7 @@ skills_json=$(echo "$agent_response" | jq -c '.skills // []')     # agent 返答
 
 ```bash
 issues=$(printf '%s\n' $batch_issues | jq -sc 'map(tonumber)')   # バッチの全 Issue
+skills_json=$(echo "$agent_response" | jq -c '.skills // []')     # agent 返答の skills をそのまま
 jq -nc \
   --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --argjson issues "$issues" \
@@ -610,11 +594,6 @@ jq -nc \
   --argjson att "$agent_attempts" \
   --argjson resp "$respawn_count" \
   --argjson pr "$pr_number" \
-source "$SWEEP_DIR/prelude.sh"
-# spinoff 検出の基準時刻は **今の round の開始時刻**（sweep 全体の started_at ではない）。
-# シェル変数で持ち回らず state.json から読む
-since=$(jq -r '.round_started_at' "$SWEEP_DIR/state.json")
-
   --arg url "$pr_url" \
   --arg status "$status" \
   '{ts:$ts,issues:$issues,skills:$skills,duration_sec:$dur,agent_attempts:$att,ci_respawns:$resp,pr_number:$pr,pr_url:$url,status:$status}' \
@@ -630,6 +609,11 @@ since=$(jq -r '.round_started_at' "$SWEEP_DIR/state.json")
 実装中の発見が `impl` / `bug-fix` のフェーズ3 で `/spinoff-issue --batch` により **キュー構築後** に起票されているため、それらを拾い直す:
 
 ```bash
+source "$SWEEP_DIR/prelude.sh"
+# spinoff 検出の基準時刻は **今の round の開始時刻**（sweep 全体の started_at ではない）。
+# シェル変数で持ち回らず state.json から読む
+since=$(jq -r '.round_started_at' "$SWEEP_DIR/state.json")
+
 # 今回 sweep が処理した親 Issue 番号一覧（フェーズ1 で展開した子 Issue を含む）
 PROCESSED_IDS=$(jq -r --arg since "$since" \
   'select(.ts >= $since and ((.source // "") | startswith("refine") | not))
@@ -704,6 +688,7 @@ mapfile -t spinoff_deferred < <(echo "$spinoff_json" | jq -r '.[] | select(.high
 5. **Markdown レポート生成** — `$SWEEP_DIR/report-sweep-<timestamp>.md` に書き出す:
 
 ```bash
+source "$SWEEP_DIR/prelude.sh"
 ts=$(date -u +%Y%m%dT%H%M%SZ)
 report="$SWEEP_DIR/report-sweep-${ts}.md"
 # カウンタ類はシェルに残らない。state.json が唯一の持ち回り媒体
@@ -711,7 +696,6 @@ eval "$(jq -r '@sh "sweep_start_iso=\(.started_at) processed_count=\(.processed_
 total_dur=$(( $(date +%s) - $(date -d "$sweep_start_iso" +%s) ))
 {
   echo "# issue-sweep report — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-source "$SWEEP_DIR/prelude.sh"
   echo
   echo "## Summary"
   echo "- Started: $sweep_start_iso"

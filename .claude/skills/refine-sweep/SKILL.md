@@ -537,36 +537,37 @@ elapsed=$(( $(date +%s) - $(date -d "$started_at" +%s) ))
 
 ## 禁止行動
 
+**本文の手順に書いてあることは再掲しない。** ここにあるのは「手順どおりに読んでも踏みうる罠」だけ。
+
 **ブランチ**
 
-- **フェーズ P-0 を飛ばす / モードとベースブランチを聞かずに始める**（`~/.claude/skills/issue-sweep/references/branch-preflight.md`）
-- **`git branch --show-current` の結果を推測でベースブランチに採用する**
-- **worktree を作らずメインリポジトリで実装する**（ベースブランチ直コミットの主因。worktree が無いなら failure を返して諦める）
+- **`git branch --show-current` の結果を推測でベースブランチに採用する**（起点はユーザーが決める）
 - **事前ガードに引っかかった状態を `git reset` / `git checkout -f` で自動的に直して続行する**（人に返す）
+- **シェル変数（`$base_branch` / `$iter` / `$start_ts` 等）が次の Bash 呼び出しまで残ると仮定する**（毎回新しいシェル。prelude を source し、カウンタは state.json から読む）
 
-**その他**
+**agent への委譲**
 
 - **メインスレッド自身がコードを修正する / コミットする / PR を編集する**（CTO は実装に触らない）
-- **メインスレッドで PR マージ完了のポーリングや CI fix ループを直接回す**（impl-wt agent 内に閉じ込める）
+- **メインが CI 緑後にマージするのを忘れる / マージ完了を確認せず in-flight から外す**（agent は PR 作成までで返るので、メインが観測しないと PR が埋もれる）
+- **Issue を close せずに PR merge で済ませる**（メインが merge 直後に `gh issue close` を必ず実行する）
+- **agent プロンプトに埋められないプレースホルダ（`<worktree_path>` 等）を残す**（agent がガードを実行できず、ベースブランチ直コミットの検知が丸ごと落ちる）
 - **review agent に Issue 作成を止めさせる**（旧設計。現在は Issue 化が意図的設計）
-- **fix agent が `Skill(impl-wt)` を呼ばず自前で PR を作る**（impl-wt に一任することでフローを統一）
-- **fix agent が `gh pr merge --auto` を使う**（CI 緑ポーリング → 直接 `--merge` に統一）
-- **fix agent が Issue を close せずに PR merge で済ませる**（`Closes #N` 記法 or 明示的な `gh issue close` で必ず close）
-- **周回数ベースで早期に打ち切る**（打ち切りは `fix_ineffective` か `hard_cap` のみ）
-- `hard_cap` に到達しても無限ループする
-- **最終 review 1 回だけで `clean` を宣言する**（3-1 の double-confirm で 2 回連続 0 を確認してから terminal 化）
+- **`checks_total == 0` を「CI 緑」とみなしてマージする**（PR 作成直後は check が 1 つも登録されていない。2 ラウンド連続 0 件を確認してから CI 無しと判定する）
+- **やることが無いときにターンを終えて待つ**（Stop Hook に押し戻されるたびにモデルのターンを 1 回消費する。待つときは 1 つの bash コマンドの中で `sleep 60` を挟む）
+
+**反復と終了**
+
+- **周回数ベースで早期に打ち切る**（打ち切りは `fix_ineffective` か `hard_cap` のみ）／ `hard_cap` に到達しても無限ループする
 - **デフォルトで minor をスキップする**（`--no-minor` 明示時のみ）
 - **`phase=terminal` にする前に最終 review を再実行しない**
 - **state.json に `evidence` / `last_counts` を復活させる**（証跡は `refine-metrics.jsonl` 一本。二重管理すると片方だけ更新される）／ レポートに `## Evidence` セクションを書かない
 - **`refine-sweep-stuck` ラベルを勝手に外す**（人手判断が入るまで維持）
-- ユーザーに「続けますか」「次の wave に進みますか」を聞く（Stop Hook が押し戻す）
+- **ユーザーに確認を取って止まる**（「続けますか」「次の反復に進みますか」「並列度はいくつに？」。すべてデフォルトで進める。Stop Hook が押し戻す）
 
 **single-pr モード**
 
-- `--single-pr` 指定時に `~/.claude/skills/issue-sweep/references/single-branch-mode.md` を読まずに進める（差分表だけで手順を推測しない）
-- **Issue ごとに PR を作る / 統合 merge を並列に走らせる / 統合のたびに CI を待つ**（詳細は same reference の禁止行動）
-- **やることが無いときにターンを終えて待つ**（Stop Hook に押し戻されるたびにモデルのターンを 1 回消費する。実測で 1 セッション 1 万往復、トランスクリプトの 10% がフック文言だった。待つときは必ず 1 つの bash コマンドの中で `sleep 60` を挟んでブロックする）
-- **single-pr で engineer agent に `/impl-wt` を呼ばせる**（worktree は sweep が統合ブランチから作る。呼ぶと二重に作られ、しかも `--no-pr` を持たないので PR が生える）
+- `--single-pr` 指定時に `../sweep-common/single-branch-mode.md` を読まずに進める（差分表だけで手順を推測しない）
+- **Issue ごとに PR を作る / 統合 merge を並列に走らせる / 統合のたびに CI を待つ**（詳細は同 reference の禁止行動）
 
 ## 失敗時の挙動
 
@@ -574,5 +575,3 @@ elapsed=$(( $(date +%s) - $(date -d "$started_at" +%s) ))
 - engineer agent failure が 2 反復連続で同じ Issue: `refine-sweep-stuck` ラベルを付与し次反復から除外して継続
 - 全 open Issue が stuck: レポートに列挙して terminal 化
 - 同じ Issue 集合（fingerprint set）が連続 2 反復完全一致: `fix_ineffective` で終了
-source "$SWEEP_DIR/prelude.sh"
-- **シェル変数（`$base_branch` / `$iter` / `$start_ts` 等）が次の Bash 呼び出しまで残ると仮定する**（毎回新しいシェル。prelude を source し、カウンタは state.json から読む）

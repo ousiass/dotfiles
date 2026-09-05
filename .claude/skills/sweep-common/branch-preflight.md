@@ -96,7 +96,7 @@ git rev-parse --verify "origin/$base_branch" >/dev/null 2>&1 \
 { "mode": "single-pr" | "multi-pr", "base_branch": "<base>" }
 ```
 
-state.json が既にあれば `jq` で更新する。**まだ無いスキル（issue-sweep はフェーズ1-6 で初期化する）では、その初期化時にこの 2 つを必ず含める。**
+state.json が既にあれば `jq` で更新する。**この時点でまだ state.json を作っていないスキル（issue-sweep はキュー構築の最後に初期化する）では、その初期化時にこの 2 つを必ず含める。**
 後続の初期化が state.json を丸ごと上書きして P-0 の決定を消さないよう気をつける。
 
 `mode` は以降のフェーズ分岐の唯一の根拠。引数の有無を後から読み直さない。
