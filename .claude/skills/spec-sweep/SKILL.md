@@ -29,6 +29,7 @@ user-invocable: true
 - `/spec-sweep --multi-pr` — 項目ごとに `feat/#N` ブランチを切る従来モード
 - `/spec-sweep --base <branch>` — ベースブランチ（PR のマージ先）
 - `/spec-sweep --branch <name>` — 統合ブランチ名。デフォルト `sweep/spec-sweep-<YYYYmmdd-HHMMSS>`
+- `/spec-sweep --abort` — 実行中の sweep を中止し lock を削除して state.json を terminal 化する
 
 **`--single-pr` / `--multi-pr` と `--base` は、指定がなければフェーズ P-0 で `AskUserQuestion` で必ず聞く。推測で決めない。**
 
@@ -46,6 +47,38 @@ user-invocable: true
 | フェーズ2 手順6 | push 先は統合ブランチ（項目ごとに `git push origin "$int_branch"`） |
 | フェーズ3 の前 | S-2 を実行して最終 PR を作り、CI 緑を確認する。**PR はマージしない**（レビューとマージはユーザー）。**Issue は close しない**（S-1' / S-3 参照。後で `/impl #N` に渡す設計） |
 | フェーズ3 の報告 | ブランチ名一覧の代わりにベース / 統合ブランチ / PR URL を提示する |
+
+## フェーズ0: lock と state.json の準備（必須）
+
+sweep 系共通の進行状態を持つ。`prelude.sh` も `assert_not_base` もここで作る state.json を読む。
+
+**対話フェーズでは lock を書かない。** Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` かつ lock が新鮮な間だけ停止をブロックする。計画ヒアリング中に lock があると、ユーザーへの質問でターンを終えるたびに押し戻されて進めなくなる。
+
+1. **`$SWEEP_DIR` の確定と多重起動チェック**:
+
+```bash
+SWEEP_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")}/.sweep"
+mkdir -p "$SWEEP_DIR"
+if [[ -f "$SWEEP_DIR/lock" ]] && (( $(date +%s) - $(cut -d: -f2 "$SWEEP_DIR/lock") < 7200 )); then
+  echo "他セッションが sweep 実行中。停止するには /spec-sweep --abort" >&2; exit 2
+fi
+rm -f "$SWEEP_DIR/lock"
+```
+
+2. **state.json を初期化**（`phase="planning"`。lock はまだ書かない）:
+
+```bash
+jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{
+  skill: "spec-sweep", started_at: $now, updated_at: $now,
+  phase: "planning", mode: null, base_branch: null, int_branch: null, pr_number: null,
+  total: 0, remaining: 0, completed_count: 0, failed_count: 0,
+  termination_reason: null
+}' > "$SWEEP_DIR/state.json"
+```
+
+3. `--abort` 指定時は `rm -f "$SWEEP_DIR/lock"` + `phase=terminal, termination_reason="aborted"` にして `git worktree prune` し、終了する（他フェーズに進まない）。
+
+**lock を書くのはフェーズ2 の直前**（1-3 の承認が済み、以降ユーザーに聞かない区間に入るとき）。フェーズ3 の完了報告 / 打ち切り時に必ず `rm -f "$SWEEP_DIR/lock"` と `phase=terminal` をセットする。
 
 ## フェーズ P-0: モードとベースブランチの確定（必須）
 
@@ -106,7 +139,17 @@ user-invocable: true
 
 ## フェーズ2: 順次実行
 
-依存関係順に、各項目について以下を実行:
+**開始時に lock を取得し `phase=iterating` にする**（ここから先はユーザーに聞かない区間）:
+
+```bash
+source "$SWEEP_DIR/prelude.sh"
+echo "$PPID:$(date +%s)" > "$SWEEP_DIR/lock"
+jq --argjson n "<項目数>" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+   '.phase = "iterating" | .total = $n | .remaining = $n | .updated_at = $now' \
+   "$SWEEP_DIR/state.json" > "$SWEEP_DIR/state.json.tmp" && mv "$SWEEP_DIR/state.json.tmp" "$SWEEP_DIR/state.json"
+```
+
+依存関係順に、各項目について以下を実行（項目の冒頭で `echo "$PPID:$(date +%s)" > "$SWEEP_DIR/lock"` の heartbeat を打つ）:
 
 1. **ベースブランチに戻る**（P-0 で確定した `$base_branch`）
 2. **`TaskUpdate` で当該タスクを in_progress に**
@@ -130,10 +173,20 @@ user-invocable: true
 
 ## フェーズ3: 完了報告
 
+- **ユーザーに聞く前に必ず `phase=terminal` + `termination_reason="manual_intervention"` にして lock を消す**（Stop Hook が押し戻して質問できなくなるため）
 サマリーをユーザーに提示:
 
 - 全項目の Issue URL とブランチ名一覧
 - スキップ/失敗があれば明記
+**先に terminal 化する**（これを飛ばすと Stop Hook が停止をブロックし続ける）:
+
+```bash
+jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+   '.phase = "terminal" | .termination_reason = "completed" | .updated_at = $now' \
+   "$SWEEP_DIR/state.json" > "$SWEEP_DIR/state.json.tmp" && mv "$SWEEP_DIR/state.json.tmp" "$SWEEP_DIR/state.json"
+rm -f "$SWEEP_DIR/lock"
+```
+
 - 「中断なく書く」を選んだ場合は `/spec-review <仕様書パス>` の実行を推奨
 
 ## ルール
@@ -149,3 +202,5 @@ user-invocable: true
 - 計画フェーズで集めた `項目名 / 概要 / 影響仕様書 / CTO 確認事項` を渡し、spec-gen 内の追加ヒアリングは最小化
 - コミットメッセージは `<type>: <説明>` 形式（CLAUDE.md 準拠）
 - `git commit` / `git push` で `--no-verify` を使わない
+- **対話フェーズ（0〜1）では lock を書かない / 実行フェーズ（2）に入る直前に書く**。ユーザーに質問して止まる区間で lock があると Stop Hook に押し戻される
+- **終了時・打ち切り時は必ず `phase=terminal` + `rm -f lock`**。放置すると次回起動が「他 sweep 実行中」で弾かれる

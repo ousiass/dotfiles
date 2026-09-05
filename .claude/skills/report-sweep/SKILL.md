@@ -32,6 +32,7 @@ user-invocable: true
 - `--multi-pr`: 機能要望ごとに `feat/#N` ブランチを切る従来モード
 - `--base <branch>`: ベースブランチ（PR のマージ先）
 - `--branch <name>`: 統合ブランチ名。デフォルト `sweep/report-sweep-<YYYYmmdd-HHMMSS>`
+- `--abort`: 実行中の sweep を中止し lock を削除して state.json を terminal 化する
 
 **`--single-pr` / `--multi-pr` と `--base` は、指定がなければフェーズ P-0 で `AskUserQuestion` で必ず聞く。推測で決めない。**
 
@@ -51,7 +52,27 @@ user-invocable: true
 
 機能要望が 0 件（バグのみ）だった場合は統合ブランチに何も積まれないので、**PR を作らず統合ブランチを削除して終わる**（`git checkout "$base_branch" && git branch -D "$int_branch" && git push origin --delete "$int_branch"`）。
 
-## フェーズ0: 前提スキャン
+## フェーズ0: 前提スキャン + lock / state.json の準備
+
+**対話フェーズでは lock を書かない。** Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` かつ lock が新鮮な間だけ停止をブロックする。ヒアリング中に lock があると、質問でターンを終えるたびに押し戻されて進めなくなる。
+
+```bash
+SWEEP_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")}/.sweep"
+mkdir -p "$SWEEP_DIR"
+if [[ -f "$SWEEP_DIR/lock" ]] && (( $(date +%s) - $(cut -d: -f2 "$SWEEP_DIR/lock") < 7200 )); then
+  echo "他セッションが sweep 実行中。停止するには /report-sweep --abort" >&2; exit 2
+fi
+rm -f "$SWEEP_DIR/lock"
+jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{
+  skill: "report-sweep", started_at: $now, updated_at: $now,
+  phase: "planning", mode: null, base_branch: null, int_branch: null, pr_number: null,
+  total: 0, remaining: 0, completed_count: 0, failed_count: 0,
+  termination_reason: null
+}' > "$SWEEP_DIR/state.json"
+```
+
+`--abort` 指定時は `rm -f "$SWEEP_DIR/lock"` + `phase=terminal, termination_reason="aborted"` にして終了する（他フェーズに進まない）。
+**lock を書くのはフェーズ3 の直前**（フェーズ2 の一括承認が済み、以降ユーザーに聞かない区間に入るとき）。
 
 - `spec-gen` SKILL.md フェーズ 1-0 の手順で既存仕様書ディレクトリを探索し、ベースマップを Read で把握する
 - ベースブランチは次のフェーズ P-0 で確定する（**現在ブランチ名をそのままベースとして記録しない**）
@@ -140,7 +161,19 @@ user-invocable: true
 
 ## フェーズ3: 順次実行
 
-各項目について以下を実行。ベースブランチから始める。
+**開始時に lock を取得し `phase=iterating` にする**（ここから先は原則ユーザーに聞かない区間）:
+
+```bash
+source "$SWEEP_DIR/prelude.sh"
+echo "$PPID:$(date +%s)" > "$SWEEP_DIR/lock"
+jq --argjson n "<項目数>" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+   '.phase = "iterating" | .total = $n | .remaining = $n | .updated_at = $now' \
+   "$SWEEP_DIR/state.json" > "$SWEEP_DIR/state.json.tmp" && mv "$SWEEP_DIR/state.json.tmp" "$SWEEP_DIR/state.json"
+```
+
+3-2 の重複 Issue 確認だけは `AskUserQuestion` で止まるため、**その質問の直前に lock を消し、回答後に書き直す**（Stop Hook に押し戻されないようにする）。
+
+各項目について以下を実行。ベースブランチから始める（項目の冒頭で lock に heartbeat を打つ）。
 
 ### 3-1: `TaskUpdate` で当該タスクを `in_progress` に
 
@@ -202,6 +235,15 @@ gh issue create \
 
 ## フェーズ4: 完了報告
 
+**先に terminal 化する**（これを飛ばすと Stop Hook が停止をブロックし続ける）:
+
+```bash
+jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+   '.phase = "terminal" | .termination_reason = "completed" | .updated_at = $now' \
+   "$SWEEP_DIR/state.json" > "$SWEEP_DIR/state.json.tmp" && mv "$SWEEP_DIR/state.json.tmp" "$SWEEP_DIR/state.json"
+rm -f "$SWEEP_DIR/lock"
+```
+
 サマリーを提示:
 
 - 全項目の一覧（タイトル + URL + ブランチ名（該当時）+ ステータス: 作成 / spec-gen 完了 / コメント追記 / スキップ / 失敗）
@@ -238,6 +280,7 @@ gh issue create \
 
 - 当該項目で停止し、`TaskUpdate` でタスクの状態を明示
 - 完了済み項目はそのまま残す
+- **ユーザーに聞く前に必ず `phase=terminal` + `termination_reason="manual_intervention"` にして lock を消す**（Stop Hook が押し戻して質問できなくなるため）
 - ユーザーに `項目 N で失敗 / 完了: 1..N-1 / 未着手: N+1..` を報告し、再開可否を確認
 
 ## ルール
@@ -253,3 +296,5 @@ gh issue create \
 - `--single-pr` 指定時は `../sweep-common/single-branch-mode.md` を読んでから進める（差分表だけで手順を推測しない）
 - コミットメッセージは `<type>: <説明>` 形式（CLAUDE.md 準拠）
 - `git commit` / `git push` で `--no-verify` を使わない
+- **対話フェーズ（0〜2）では lock を書かない / 実行フェーズ（3）に入る直前に書く**。ユーザーに質問して止まる区間で lock があると Stop Hook に押し戻される
+- **終了時・打ち切り時は必ず `phase=terminal` + `rm -f lock`**。放置すると次回起動が「他 sweep 実行中」で弾かれる
