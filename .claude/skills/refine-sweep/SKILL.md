@@ -33,7 +33,9 @@ user-invocable: true
 
 ## 状態管理 `.sweep/state.json`
 
-sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` の間（lock が新鮮な限り）停止をブロックする。**review を再実行せず推定で `phase=terminal` にしてはならない**。terminal 化前に必ず最終 review を走らせ、その出力パスを `evidence` に append する。
+sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` の間（lock が新鮮な限り）停止をブロックする。**review を再実行せず推定で `phase=terminal` にしてはならない**。terminal 化の直前に最終 review を走らせ、その行が `$SWEEP_DIR/refine-metrics.jsonl` に append されていることを確認する。
+
+**監査証跡は `refine-metrics.jsonl` 一本。** state.json に行番号を写す `evidence` 配列と、review の生カウントを重複保持する `last_counts` は廃止した（issue-sweep と同じ判断。Stop Hook は `phase` と lock の鮮度だけで判定しており、どちらも表示にしか使っていなかった）。
 
 **スキーマ:**
 ```json
@@ -45,19 +47,14 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
   "iteration": <N>,
   "hard_cap_iter": <N>,
   "thresholds": {"critical": 0, "major": 0, "minor": <max_minor>},
-  "last_counts": {
-    "critical": <N>, "major": <N>, "minor": <N>,
-    "new_issues": <N>, "open_issues": <N>, "closed_this_iter": <N>
-  },
-  "evidence": ["<path>", ...],
   "termination_reason": null | "thresholds_met" | "hard_cap_reached" | "agent_failed" | "fix_ineffective" | "aborted"
 }
 ```
 
 **更新タイミング:**
-- フェーズ0/1 開始時に `phase=iterating, iteration=0, evidence=[]` で初期化
-- 各反復の 2-3（review 直後）と 2-5 末尾（Issue 消化直後）で `iteration`, `last_counts`, `evidence` を更新
-- フェーズ3 で `phase=terminal` と `termination_reason` をセット。**直前に最終 review を走らせ evidence を追加してから terminal 化する**
+- フェーズ0/1 開始時に `phase=iterating, iteration=0` で初期化
+- 各反復の 2-3（review 直後）で `iteration` を更新（カウント類は `refine-metrics.jsonl` にだけ書く）
+- フェーズ3 で `phase=terminal` と `termination_reason` をセット。**直前に最終 review を走らせ、その行が `refine-metrics.jsonl` に append されたことを確認してから terminal 化する**
 
 ## single-pr モード（`--single-pr`）
 
@@ -97,8 +94,6 @@ source "$SWEEP_DIR/prelude.sh"
      started_at: $now, updated_at: $now,
      phase: "iterating", iteration: 0, hard_cap_iter: $hc,
      thresholds: {critical: 0, major: 0, minor: $mm},
-     last_counts: {critical: null, major: null, minor: null, new_issues: null, open_issues: null, closed_this_iter: null},
-     evidence: [],
      termination_reason: null
    }' > .sweep/state.json
    ```
@@ -241,15 +236,17 @@ jq -nc \
   --argjson by_src "$(echo "$new_issues" | jq .by_source)" \
   --argjson halt "$HAS_HALT" \
   '{ts:$ts,source:"refine-sweep-review",iter:$iter,new_issues:$new_ic,open_issues:$open_ic,counts:$counts,by_source:$by_src,halt:$halt}' \
-  >> .sweep/refine-metrics.jsonl
+  >> "$SWEEP_DIR/refine-metrics.jsonl"
 
-ev_line=".sweep/refine-metrics.jsonl:$(wc -l < .sweep/refine-metrics.jsonl | tr -d ' ')"
-jq --argjson iter "$iter" \
-   --argjson counts "$(echo "$new_issues" | jq .counts)" \
-   --argjson new_ic "$new_issue_count" \
-   --argjson open_ic "$open_issue_count" \
-   --arg ev "$ev_line" \
-   --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+jq --argjson iter "$iter" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+   '.iteration = $iter | .updated_at = $now' \
+   "$SWEEP_DIR/state.json" > "$SWEEP_DIR/state.json.tmp" && mv "$SWEEP_DIR/state.json.tmp" "$SWEEP_DIR/state.json"
+```
+
+**証跡の規則**: 各反復で `refine-metrics.jsonl` に最低 1 行（`source: "refine-sweep-review"`）を append する。**1 行も無いままフェーズ3 に進ませない。**
+
+### 2-4. 閾値判定
+
 **判定材料は open Issue のラベル集計**（review agent が返した「今回の新規件数」ではない。前反復から残っている critical を見落とすため）:
 
 ```bash
@@ -261,17 +258,6 @@ counts=$(gh issue list --label refine-sweep --state open --limit 500 --json labe
         minor:    ([$all[] | select(index("severity:critical") or index("severity:high") | not)] | length),
         open:     ($all | length) }')
 eval "$(echo "$counts" | jq -r '@sh "critical_open=\(.critical) major_open=\(.major) minor_open=\(.minor) open_issue_count=\(.open)"')"
-   '.iteration = $iter
-    | .last_counts = ($counts + {new_issues: $new_ic, open_issues: $open_ic, closed_this_iter: 0})
-    | .evidence += [$ev]
-    | .updated_at = $now' \
-   .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
-```
-
-**evidence の append 規則**: 各反復で最低 1 件追加。空のままフェーズ3 に進ませない。
-
-### 2-4. 閾値判定
-
 ```
 
 `minor_open` は critical / high 以外の全 open（`severity:medium` / `severity:low` / severity 無し）。**取りこぼしを作らないため、minor は「critical でも major でもないもの」で定義する。**
@@ -410,7 +396,7 @@ fi
 
 clean 候補（`open_issue_count == 0 && new_issue_count == 0` または minor 許容範囲内）の場合、**もう一度 2-2 と同じ並列 review を走らせる**（consume なしの純粋な再 review）:
 
-- 結果を `.sweep/refine-metrics.jsonl` に append し、state.json の `last_counts` / `evidence` を更新（evidence に最低 1 件追加）
+- 結果を `$SWEEP_DIR/refine-metrics.jsonl` に append する（この行が「最終 review を実際に走らせた」証跡になる）
 - 連続 2 回とも新規 Issue = 0 → status=`clean` 確定、3-2 へ
 - 2 回目で新規 Issue が出た → reviewer のゆらぎ or 検出漏れ。1 回目の 0 を信用せずフェーズ2-5 に戻して消化（`hard_cap` 未到達の限り、`iter += 1`）
 
@@ -424,7 +410,7 @@ clean 候補（`open_issue_count == 0 && new_issue_count == 0` または minor �
      '.phase = "terminal" | .termination_reason = $reason | .updated_at = $now' \
      .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
    ```
-3. レポート生成 `.sweep/report-refine-sweep-<ts>.md`（**`## Evidence` セクション必須**）:
+3. レポート生成 `$SWEEP_DIR/report-refine-sweep-<ts>.md`（**`## Evidence` セクション必須**）:
 
 ```bash
 ts=$(date -u +%Y%m%dT%H%M%SZ)
@@ -446,11 +432,13 @@ elapsed=$(( $(date +%s) - $(date -d "$started_at" +%s) ))
   echo
   echo "| Iter | New | Closed | Open (end) | Critical | Major | Minor |"
   echo "|---|---|---|---|---|---|---|"
-  jq -r 'select(.source == "refine-sweep-review") | "| \(.iter) | \(.new_issues) | ? | \(.open_issues) | \(.counts.critical) | \(.counts.major) | \(.counts.minor) |"' .sweep/refine-metrics.jsonl
+  jq -rs '(map(select(.source == "refine-sweep-consume")) | INDEX(.iter | tostring)) as $c
+    | map(select(.source == "refine-sweep-review"))[]
+    | "| \(.iter) | \(.new_issues) | \($c[.iter | tostring].closed // "-") | \(.open_issues) | \(.counts.critical) | \(.counts.major) | \(.counts.minor) |"' "$SWEEP_DIR/refine-metrics.jsonl"
   echo
-  echo "## Evidence"
+  echo "## Evidence（review 実行の証跡）"
   echo
-  jq -r '.evidence[] | "- \(.)"' .sweep/state.json
+  jq -r 'select(.source == "refine-sweep-review") | "- iter \(.iter) @ \(.ts): new=\(.new_issues) open=\(.open_issues)"' "$SWEEP_DIR/refine-metrics.jsonl"
   echo
   echo "## Remaining open issues"
   gh issue list --label refine-sweep --state open --limit 500 --json number,title,labels \
@@ -487,9 +475,8 @@ elapsed=$(( $(date +%s) - $(date -d "$started_at" +%s) ))
 - `hard_cap` に到達しても無限ループする
 - **最終 review 1 回だけで `clean` を宣言する**（3-1 の double-confirm で 2 回連続 0 を確認してから terminal 化）
 - **デフォルトで minor をスキップする**（`--no-minor` 明示時のみ）
-- **`.sweep/state.json` を `phase=terminal` にする前に最終 review を再実行しない**
-- **`.sweep/state.json` の `evidence` 配列が空のままフェーズ3 に進む / terminal 化する**
-- レポートに `## Evidence` セクションを書かない
+- **`phase=terminal` にする前に最終 review を再実行しない**
+- **state.json に `evidence` / `last_counts` を復活させる**（証跡は `refine-metrics.jsonl` 一本。二重管理すると片方だけ更新される）／ レポートに `## Evidence` セクションを書かない
 - **`refine-sweep-stuck` ラベルを勝手に外す**（人手判断が入るまで維持）
 - ユーザーに「続けますか」「次の wave に進みますか」を聞く（Stop Hook が押し戻す）
 
