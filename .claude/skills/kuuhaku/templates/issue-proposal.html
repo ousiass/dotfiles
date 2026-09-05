@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&display=swap">
+<style>
+:root {
+  --kh-accent:       #2563EB;
+  --kh-accent-dark:  #1D4ED8;
+  --kh-accent-light: #EFF6FF;
+  --kh-text:       #1A1A1A;
+  --kh-text-light: #666666;
+  --kh-text-muted: #999999;
+  --kh-border:  #E5E7EB;
+  --kh-bg:      #FFFFFF;
+  --kh-bg-gray: #F7F8FA;
+  --kh-warn:    #B45309;
+  --kh-warn-bg: #FEF6EC;
+  --kh-font: "Noto Sans JP", -apple-system, BlinkMacSystemFont, sans-serif;
+  --kh-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { font-family: var(--kh-font); color: var(--kh-text); background: var(--kh-bg); line-height: 1.7; margin: 0; font-size: 13px; }
+.page { width: 210mm; min-height: 297mm; padding: 16mm 16mm; page-break-after: always; position: relative; }
+.page:last-child { page-break-after: auto; }
+h1, h2, h3 { letter-spacing: -.01em; font-weight: 700; margin: 0; }
+
+/* ---- 表紙 ---- */
+.cover-label { font-size: .78rem; font-weight: 500; color: var(--kh-accent); letter-spacing: .15em; text-transform: uppercase; margin-bottom: 14px; }
+.cover-title { font-size: 1.9rem; line-height: 1.5; margin-bottom: 10px; }
+.cover-sub { font-size: .95rem; color: var(--kh-text-light); font-weight: 300; margin-bottom: 40px; }
+.cover-meta { display: flex; flex-direction: column; gap: 10px; padding: 24px; background: var(--kh-bg-gray); border-radius: 12px; font-size: .82rem; }
+.cover-meta .row { display: flex; }
+.cover-meta dt { width: 140px; flex-shrink: 0; color: var(--kh-text-light); font-weight: 500; }
+.cover-meta dd { margin: 0; }
+.cover-note { margin-top: 32px; padding: 18px 20px; border-left: 3px solid var(--kh-accent); background: var(--kh-accent-light); font-size: .84rem; border-radius: 0 8px 8px 0; }
+.cover-note strong { color: var(--kh-accent-dark); }
+
+/* ---- サマリ ---- */
+.summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 24px 0 32px; }
+.summary-card { text-align: center; padding: 18px 8px; border-radius: 12px; border: 1px solid var(--kh-border); }
+.summary-card .num { font-size: 1.7rem; font-weight: 700; color: var(--kh-accent); line-height: 1; margin-bottom: 6px; }
+.summary-card .label { font-size: .72rem; color: var(--kh-text-light); }
+
+/* ---- セクション ---- */
+.sec-label { font-size: .72rem; font-weight: 500; color: var(--kh-accent); letter-spacing: .12em; text-transform: uppercase; margin-bottom: 6px; }
+.sec-title { font-size: 1.15rem; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 2px solid var(--kh-text); }
+section { margin-bottom: 28px; }
+
+/* ---- 候補カード ---- */
+.item { border: 1px solid var(--kh-border); border-radius: 10px; padding: 12px 18px; margin-bottom: 9px; page-break-inside: avoid; }
+.item-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+.item-num { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--kh-text); color: #fff; font-size: .72rem; font-weight: 700; flex-shrink: 0; }
+.item-screen { font-size: .72rem; color: var(--kh-text-muted); font-family: var(--kh-font-mono); }
+.item-title { font-size: .92rem; font-weight: 500; flex: 1; }
+.tag { display: inline-block; font-size: .68rem; font-weight: 500; padding: 3px 10px; border-radius: 100px; white-space: nowrap; }
+.tag--ask   { background: var(--kh-warn-bg); color: var(--kh-warn); }
+.tag--self  { background: var(--kh-accent-light); color: var(--kh-accent-dark); }
+.tag--piggy { background: var(--kh-bg-gray); color: var(--kh-text-light); border: 1px solid var(--kh-border); }
+.item-body { font-size: .82rem; color: var(--kh-text-light); margin-bottom: 8px; }
+.item-meta { display: flex; gap: 16px; font-size: .74rem; color: var(--kh-text-muted); }
+.item-meta b { color: var(--kh-text); font-weight: 500; }
+
+/* ---- 相談リスト ---- */
+.ask-item { display: flex; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--kh-border); }
+.ask-item:last-child { border-bottom: none; }
+.ask-num { flex-shrink: 0; font-size: .82rem; font-weight: 700; color: var(--kh-accent); width: 20px; }
+.ask-title { font-size: .88rem; font-weight: 500; margin-bottom: 4px; }
+.ask-to { font-size: .76rem; color: var(--kh-text-light); }
+
+/* ---- 相乗り ---- */
+table.piggy { width: 100%; border-collapse: collapse; font-size: .8rem; }
+table.piggy th, table.piggy td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--kh-border); }
+table.piggy th { color: var(--kh-text-light); font-weight: 500; font-size: .72rem; }
+
+footer { position: absolute; bottom: 12mm; left: 16mm; right: 16mm; font-size: .68rem; color: var(--kh-text-muted); display: flex; justify-content: space-between; border-top: 1px solid var(--kh-border); padding-top: 8px; }
+</style>
+</head>
+<body>
+
+<!--
+  ============================================================================
+  起票候補 提案書テンプレート（kuuhaku）
+  ----------------------------------------------------------------------------
+  上のCSSは触らない。デザインを固定するためのファイル。{{ }} を埋めて使う。
+
+  ■ これは「相談書」である（2026-08-14 FBで確定）
+    送付先は上長・実装担当者。読み手から見れば全件が相談。
+    → 内部管理用の分類（自分で判断可 / 記録のみ / 起票不可）を PDF に書かない。
+      それらは 履歴.md 側に残す。
+    → タグは2種だけ。「要確認」＝意図を聞きたい / 「修正のご提案」＝直し方まで提示できる。
+    → 各項目に必ず「ご相談: 」または「ご提案: 」の1文を入れ、相手に何をしてほしいかを書く。
+
+  ■ 確度を書かない（2026-08-18 FB）
+    確度（高／要確認／意図の可能性）は「そう言い切れるか」というこちらの内部評価。
+    相手の判断を変えないうえ、タグ（要確認／修正のご提案）と情報が重複する。
+    item-meta に置くのは次の2つ:
+      影響 … 何が損なわれるか（顧客企業への請求金額／管理者が原因を取り違える）
+      確認 … どこまで確かめたか（実画面で再現済み／実DBで確認済み／コード読解のみ）
+    「確認」は内部評価ではなく事実なので、相手が信頼度を判断する材料になる。
+
+  ■ 事実だけで止めない。何の期待を裏切るかまで書く（2026-08-18 FB）
+    タイトルが「何が起きるか」を満たしていても「それの何がいけないの？」と感じられることがある。
+    指摘は3点で1組:  事実（タイトル） → 壊す前提（本文の1文目） → 誰がどう困るか（続き）
+    ✕ プランの月額料金を変更すると、契約中の組織のその月の請求額も変わります
+    ○ 契約には開始日があるのに、プラン自体の価格には開始日がありません。編集した時点で
+      過去にさかのぼって「その価格だったこと」になります。影響は請求金額と画面表示の2つ。
+    検算: 書いた指摘に「だから何？」と自分で聞く。答えられないなら壊す前提を書き落としている。
+
+  ■ 状態の記述には、困る場面を1つ添える（2026-08-18 FB）
+    「〜できません」「〜が効きません」は状態であって影響ではない。
+    誰が・何をしようとして・どこで詰まるかを1文で書く。
+    検算: その指摘で実際に困る人の1シーンを1文で書けるか。書けないなら影響が分かっていない。
+
+  ■ 一覧は「読み手が次に取る行動」でまとめる（2026-08-18 FB）
+    5件を超えたら、読み手の行動が同じものを固めてグループ名を見出しに出す。
+    行動が違うものを混ぜると、読み手は毎項目で「自分が何をする話か」を判定させられる。
+    分ける軸は内容で決まる: コードを直す/文書を直す ・ 自分たちで決める/確認が要る ・ 今すぐ/次で
+    分けたら sec-label にも出す（「/admin/plans ― 実装について」「― 仕様書について」）。
+
+  ■ 画面写真を入れる（2026-08-18 FB）
+    文章だけだと読み手は画面を想像できない。該当画面を貼ると説明が何行か消える。
+      実画面を操作できる → 実画面のスクショ（第一選択）
+      環境が動かない     → 操作マニュアルPDFの抜粋。表紙に「実画面ではない」と明記
+      どちらも無い       → 貼らない。作り物を実物のように見せない
+    貼らない判断も明示する（写真では伝わらない指摘には貼らず、対応表などで代替する）。
+    切り出したら開いて読めるか確認する。小さい文字は2倍に拡大してから埋め込む。
+
+  ■ タイトルは、それだけ読んで何の話か分かる文にする（2026-08-14 FB）
+    ✕ パスワード更新時、既定で「変更済み」として扱われる   ← 全文読まないと分からない
+    ○ 呼び出し方によっては、パスワード再発行後も強制変更画面を通らずに済んでしまう
+    ✕ セッション無効化つきパスワード変更が、定義のみで使われていない
+    ○ 他端末のログインを切るパスワード変更処理が、実装されているが使われていない
+    技術用語を先頭に置かない。「何が起きるか」を平易な日本語で言い切る。
+
+  ■ どの画面の話かを全ページに出す（2026-08-14 FB）
+    表紙タイトル・cover-meta の「対象画面」・各ページの sec-label・footer の4箇所。
+
+  ■ 作らないページ（2026-08-14 FB）
+    ・「主な発見」 … 相談一覧と重複する
+    ・「今後の進め方」 … 相談内容の言い換えになる。各カードに「ご相談: 」を書いた以上、
+                        同じことを2回書くことになる
+    ページ数は内容で決まる。空のページを型として持たない。
+    表紙 → 相談一覧 →（各相談の補足）→（既存issue）→（お願いしたいこと）
+
+  ■ 相手が行動できることだけ書く
+    相談・提案の内容            → 各カードの「ご相談: 」に1箇所だけ
+    こちらから依頼すること      → 「お願いしたいこと」として最後に短く
+    こちらの作業計画・次の調査対象 → 書かない（相手に無関係。履歴.md に残す）
+
+  ■ 選択肢を出すときは、比較表の前にサマリを置く（2026-08-14 FB）
+    比較表だけだと「ごちゃっとしていて見づらい」。各案が何かを1行ずつ先に示す。
+    そのうえで比較表からは「内容」の行を削る（サマリと重複するため）。
+    表に残すのは、案によって答えが変わる観点だけ。
+
+  ■ 1件の情報量が多くても、骨格を崩さない（2026-08-14 FB）
+    構成は固定。表紙 → カードで一覧 → 詳細 →（お願いしたいこと）。
+    1件に案の比較表・確認事項・コスト比較などが付く場合は、
+      ・カードには要点と「ご相談: 」の1文まで
+      ・item-meta の末尾に「詳細: 次ページ」と書く
+      ・詳細は次ページに「〜の補足」として置く
+    ✕ P2「ご相談1／2」→ P3「ご相談1の続き」→ P4「ご相談2／2」（1件を複数ページに展開）
+    ○ P2「ご相談したい2件」（カード2枚）→ P3「ご相談1の補足」→ P4「お願いしたいこと」
+    読み手にとって毎回同じ形式であることが、1件の情報量より優先する。
+
+  ■ ページ溢れの確認（必須）
+    .page は min-height なので、1ページに詰めすぎると勝手に次ページへ溢れる。
+    カードは1ページ3件までを目安に、4件目以降は「（続き）」ページへ送る。
+    PDF化後に必ず2つを照合する:
+      1) 各ページの高さ（A4縦 = 約1123px。超えていたらそのページが溢れている）
+         [...document.querySelectorAll('.page')].map((e,i)=>({p:i+1, h: Math.round(e.getBoundingClientRect().height)}))
+      2) div.page の枚数 == PDFのページ数
+    枚数が一致しなければ提出しない。数十pxの超過なら見出しの margin を詰める（24px→16px）。
+
+  ■ PDF化
+    python3 -c "
+    import asyncio, os
+    from playwright.async_api import async_playwright
+    async def main():
+        async with async_playwright() as p:
+            b = await p.chromium.launch(); pg = await b.new_page()
+            await pg.goto('file://' + os.path.abspath('起票候補_提案書.html'))
+            await pg.wait_for_timeout(2500)
+            await pg.pdf(path='起票候補_提案書.pdf', format='A4', print_background=True,
+                         margin={'top':'0','bottom':'0','left':'0','right':'0'})
+            await b.close()
+    asyncio.run(main())"
+
+    ページ数の照合:
+    python3 -c "import re;d=open('起票候補_提案書.pdf','rb').read();print(len(re.findall(rb'/Type\s*/Page[^s]',d)))"
+
+  ■ 出力先・命名
+    <出力ルート>/<PJ>/YYYY-MM-DD_起票候補_提案書_<画面フォルダ名>.pdf
+  ============================================================================
+-->
+
+<!-- ===== 1. 表紙 ===== -->
+<div class="page" style="position:relative;">
+  <div class="cover-label">Issue Proposal</div>
+  <h1 class="cover-title">{{画面名}}<br>起票候補のご相談</h1>
+  <p class="cover-sub">{{PJ名}} ／ <code>{{ルートパス}}</code> ― 画面理解調査で検出した、仕様と実装の乖離</p>
+
+  <dl class="cover-meta">
+    <div class="row"><dt>対象画面</dt><dd><strong>{{ルートパス}}</strong>（{{画面が何をする画面か}}）</dd></div>
+    <div class="row"><dt>対象リポジトリ</dt><dd>{{org/repo}}（{{ブランチ}}, HEAD <code>{{ハッシュ}}</code> / {{コミット日}}）</dd></div>
+    <div class="row"><dt>調査範囲</dt><dd>全{{N}}画面中{{n}}画面目・フェーズ{{k}} {{フェーズ名}}</dd></div>
+    <div class="row"><dt>調査日</dt><dd>{{YYYY-MM-DD}}</dd></div>
+    <div class="row"><dt>相談件数</dt><dd>{{N}}件（うち{{a}}件は実装意図の確認、{{b}}件は修正のご提案）</dd></div>
+  </dl>
+
+  <div class="cover-note">
+    <strong>本書の位置づけ</strong>: 画面ごとに仕様書と実装コードを突き合わせ、検出した乖離を<strong>起票前にご相談する</strong>ための資料です。issueは未作成で、確認結果を踏まえてから起票します。
+  </div>
+
+  <!-- 動作確認が未実施なら必ず出す。済んでいれば削除してよい -->
+  <div class="cover-note" style="border-left-color:var(--kh-warn); background:var(--kh-warn-bg); margin-top:14px;">
+    <strong style="color:var(--kh-warn);">確認状況</strong>: {{コード読解のみか、実物確認済みか}}。各項目の「確認」欄に、どこまで確かめたかを書いています。
+  </div>
+
+  <div style="margin-top:26px; padding-top:16px; border-top:1px solid var(--kh-border);">
+    <h3 style="font-size:.88rem; margin-bottom:6px;">調査の進め方</h3>
+    <p style="font-size:.8rem; color:var(--kh-text-light); margin:0;">
+      1画面ごとに①仕様書②操作マニュアル③実装コードを突き合わせて乖離を検出しています。ご相談の前に、既存issue検索（{{x}}クエリ）と<code>git log</code>による履歴確認（{{y}}本）を行い、対応済みのものや意図的な変更でないことを確認しています。
+    </p>
+  </div>
+</div>
+
+<!-- ===== 2. 相談一覧（1ページ3件まで。溢れたら「（続き）」ページへ） ===== -->
+<div class="page">
+  <div class="sec-label">{{ルートパス}}</div>
+  <h2 class="sec-title">ご相談したい{{N}}件</h2>
+
+  <div class="item">
+    <div class="item-head">
+      <span class="item-num">{{通し番号}}</span>
+      <span class="item-title">{{それだけ読んで何の話か分かる文。技術用語を先頭に置かない}}</span>
+      <span class="tag tag--ask">要確認</span>
+    </div>
+    <div class="item-body">{{仕様がどう言い、実装がどう動き、誰がどう困るか}}<br><strong>ご相談</strong>: {{相手に何を確認したいか}}</div>
+    <div class="item-meta"><span><b>影響</b>: {{何が損なわれるか。対象を名指しする}}</span><span><b>確認</b>: {{実画面で再現済み／実DBで確認済み／コード読解のみ}}</span></div>
+  </div>
+
+  <div class="item">
+    <div class="item-head">
+      <span class="item-num">{{通し番号}}</span>
+      <span class="item-title">{{同上}}</span>
+      <span class="tag tag--self">修正のご提案</span>
+    </div>
+    <div class="item-body">{{同上}}<br><strong>ご提案</strong>: {{どう直せば閉じるか}}</div>
+    <div class="item-meta"><span><b>影響</b>: {{同上}}</span><span><b>確認</b>: {{同上}}</span></div>
+  </div>
+</div>
+
+<!-- ===== 3. 既存issue（該当が無ければページごと削除） ===== -->
+<div class="page">
+  <div class="sec-label">{{ルートパス}}</div>
+  <h2 class="sec-title">既存issueで指摘済みの{{c}}件</h2>
+
+  <p style="font-size:.82rem; color:var(--kh-text-light); margin:0 0 14px;">新たな起票はいたしません。既にご指摘のある内容ですが、{{現在の状況}}を確認しましたので、状況の共有として記載します。</p>
+
+  <div class="item">
+    <div class="item-head">
+      <span class="item-num" style="background:var(--kh-text-muted);">―</span>
+      <span class="item-title">{{何が起きるか}}</span>
+      <span class="tag tag--piggy">既存issue</span>
+    </div>
+    <div class="item-body">{{挙動の説明}}</div>
+    <div class="item-meta"><span><b>該当issue</b>: #{{番号}}（{{どう指摘されているか}}）</span></div>
+  </div>
+
+  <table class="piggy" style="margin-top:16px;">
+    <tr><th>issue</th><th>状態</th><th>確認した内容</th></tr>
+    <tr><td>#{{番号}}</td><td>{{OPEN/CLOSED}}</td><td>{{git等で確認した事実}}</td></tr>
+  </table>
+</div>
+
+<!-- ===== 最終ページ: お願いしたいこと =====
+     依頼が無ければ このページを作らず、footer を1つ前のページに置く。
+     相談内容はカードの「ご相談: 」に書いてあるので、ここで繰り返さない。
+     ここに書くのは 相談ではなく こちらから依頼すること だけ。
+     （例: 鍵ファイルの共有・本番データの確認・アカウントの発行） -->
+<div class="page">
+  <div class="sec-label">{{ルートパス}}</div>
+  <h2 class="sec-title">お願いしたいこと</h2>
+
+  <div class="ask-item">
+    <div class="ask-num">―</div>
+    <div>
+      <div class="ask-title">{{何をお願いするか}}</div>
+      <div class="ask-to">{{なぜ必要か・それがあると何が進むか}}</div>
+    </div>
+  </div>
+
+  <footer>
+    <span>{{PJ名}} 画面理解調査 — {{ルートパス}}</span>
+    <span>{{YYYY-MM-DD}} 作成</span>
+  </footer>
+</div>
+
+</body>
+</html>
