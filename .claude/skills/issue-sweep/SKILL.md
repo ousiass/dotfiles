@@ -31,6 +31,7 @@ user-invocable: true
 ## 前提条件
 
 - `gh` CLI が認証済み
+- **GNU coreutils**（`date -d` / `timeout` を使う）。macOS では `brew install coreutils` で `gdate` / `gtimeout` を PATH に置く
 - `.claude/hooks/check-issue-queue.sh` と `.claude/hooks/check-sweep-state.sh` が実行可能
 - `settings.json` の Stop / SessionStart Hook が有効
 - ベースブランチは**フェーズ P-0 でユーザーに確認して確定する**（`../sweep-common/branch-preflight.md`）。起動時の HEAD がどこであっても、それを推測でベースに採用しない
@@ -736,7 +737,7 @@ source "$SWEEP_DIR/prelude.sh"
   if [[ -f "$SWEEP_DIR/refine-metrics.jsonl" ]]; then
     echo
     echo "## Recent refine runs（直近 24h）"
-    cutoff=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-24H +%Y-%m-%dT%H:%M:%SZ)
+    cutoff=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
     jq -r --arg c "$cutoff" \
       'select(.ts >= $c and (.source | startswith("refine"))) |
        "- [\(.source)] PR #\(.pr_number) iter \(.iter): critical=\(.critical) major=\(.major) minor=\(.minor)"' \

@@ -29,8 +29,9 @@ user-invocable: true
 ## 前提
 
 - `git`, `gh` CLI 認証済み
-- ベースブランチは**フェーズ P-0 でユーザーに確認して確定する**（`~/.claude/skills/issue-sweep/references/branch-preflight.md`）。`git branch --show-current` の結果を推測でベースに採用しない
-- `.sweep/` 書き込み権限
+- **GNU coreutils**（`date -d` / `timeout` を使う）。macOS では `brew install coreutils` で `gdate` / `gtimeout` を PATH に置く
+- ベースブランチは**フェーズ P-0 でユーザーに確認して確定する**（`../sweep-common/branch-preflight.md`）。`git branch --show-current` の結果を推測でベースに採用しない
+- `$SWEEP_DIR/` 書き込み権限
 - ラベル `refine-sweep` と `refine-sweep-iter-<N>` を必要に応じて自動作成
 
 ## 状態管理 `$SWEEP_DIR/state.json`
@@ -277,9 +278,9 @@ else:
   → 2-5（Issue 消化）へ
 ```
 
-`hard_cap` 到達時のみ物理打ち切り。それ以外は `fix_ineffective` 判定に任せて粘る。
 `--no-minor` 指定時は minor を Issue 化しないだけで、**過去に作られた minor Issue は判定から除外する**（`include_minor == false` なら `minor_open` を見ない）。
 
+`hard_cap` 到達時のみ物理打ち切り。それ以外は `fix_ineffective` 判定に任せて粘る。
 
 ### 2-5. Issue 消化（in-flight パイプライン）
 
@@ -419,7 +420,6 @@ agent が返した `worktree` パスをそのまま消す（`failure` のとき�
 git worktree remove --force "<worktree>" 2>/dev/null || true
 ```
 
-**fix_ineffective 判定（Issue の fingerprint set 比較）**:
 #### 2-5-7. 失敗時（stuck 判定）
 
 agent が `failure` を返した / CI を諦めた Issue は、その反復では**諦めてキューから消す**（1 反復 = 1 Issue あたり 1 回の試行。残すと Stop Hook が永久に停止をブロックする）。metrics に `status` を記録し、失敗 Issue 番号を反復ごとのファイルに残す:
@@ -443,6 +443,7 @@ fi
 
 **キューが空 ∧ in-flight が 0 になったらこの反復は終了**。`closed_count` / `failed_ids` を確定させて下記の fix_ineffective 判定に進む。
 
+**fix_ineffective 判定（Issue の fingerprint set 比較）**:
 
 各反復終了時に、label=`refine-sweep` かつ label≠`refine-sweep-stuck` の open Issue の fingerprint set を保存し、前反復と比較する:
 
@@ -492,8 +493,8 @@ clean 候補（`open_issue_count == 0 && new_issue_count == 0` または minor �
 3. レポート生成 `$SWEEP_DIR/report-refine-sweep-<ts>.md`（**`## Evidence` セクション必須**）:
 
 ```bash
-ts=$(date -u +%Y%m%dT%H%M%SZ)
 source "$SWEEP_DIR/prelude.sh"
+ts=$(date -u +%Y%m%dT%H%M%SZ)
 report="$SWEEP_DIR/report-refine-sweep-${ts}.md"
 mkdir -p "$SWEEP_DIR"
 # 反復カウンタ・開始時刻はシェルに残らない。state.json から読む
