@@ -130,7 +130,7 @@ jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{
 
 ### 1-3: 収集内容の整理
 
-収集した項目を番号付きリストで提示:
+集めた項目を内部で正規化するだけで、**ここでは提示も承認もしない**（提示と承認はフェーズ2 が 1 回だけ行う）:
 
 - タイトルを「タイトル・ラベル統一ルール」の形式に整える
 - 種別ごとにラベル案を決める（`bug` + `severity:` / `enhancement` + `priority:` + 任意の `area:`）
@@ -207,7 +207,7 @@ gh issue create \
   --body-file <埋めた本文のパス>
 ```
 
-**機能要望の場合（Issue+spec-gen モード）**: プレースホルダーとして作成:
+**機能要望の場合（Issue+spec-gen モード）**: 本文は spec-gen が後で書き換えるのでプレースホルダで作成する:
 
 ```bash
 gh issue create \
@@ -292,10 +292,10 @@ rm -f "$SWEEP_DIR/lock"
 - **Issue 本文は同梱の `templates/bug.md` / `templates/feature.md` から作る**（自前で見出しを起こさない。埋められない項目は消さず `未確認` と書く）
 - 未存在ラベルはユーザー承認なしに作成しない（フェーズ 2 の一括承認に含める）
 - 各 Issue は open のまま残す（後で `/impl #N` `/bug-fix #N` にそのまま渡せる）。single-pr モードでも最終 PR で close しない
-- **フェーズ P-0 を飛ばさない**。モードとベースブランチを聞かずに始めない / 現在の HEAD を推測でベースに採用しない（`~/.claude/skills/issue-sweep/references/branch-preflight.md`）
+- **フェーズ P-0 を飛ばさない**。モードとベースブランチを聞かずに始めない / 現在の HEAD を推測でベースに採用しない（`../sweep-common/branch-preflight.md`）
 - **作業ブランチを作らずベースブランチ上で仕様書をコミットしない**。ブランチ作成に失敗したらその項目を諦めて人に返す（`git reset` / `git checkout -f` で自動的に直して続行しない）
 - `--single-pr` 指定時は `../sweep-common/single-branch-mode.md` を読んでから進める（差分表だけで手順を推測しない）
 - コミットメッセージは `<type>: <説明>` 形式（CLAUDE.md 準拠）
-- `git commit` / `git push` で `--no-verify` を使わない
 - **対話フェーズ（0〜2）では lock を書かない / 実行フェーズ（3）に入る直前に書く**。ユーザーに質問して止まる区間で lock があると Stop Hook に押し戻される
 - **終了時・打ち切り時は必ず `phase=terminal` + `rm -f lock`**。放置すると次回起動が「他 sweep 実行中」で弾かれる
+- `git commit` / `git push` で `--no-verify` を使わない

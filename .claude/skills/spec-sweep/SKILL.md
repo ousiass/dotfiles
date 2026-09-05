@@ -82,7 +82,7 @@ jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{
 
 ## フェーズ P-0: モードとベースブランチの確定（必須）
 
-フェーズ1 の**前**に実行する。**`~/.claude/skills/issue-sweep/references/branch-preflight.md` を読んでその手順どおりに実行する。スキップ不可。**
+フェーズ0 の直後、フェーズ1 の**前**に実行する。**`../sweep-common/branch-preflight.md` を読んでその手順どおりに実行する。スキップ不可。**
 `--single-pr` / `--multi-pr` と `--base` の両方が引数で確定している場合のみ、ヒアリング（P-0-2）を省略できる。
 
 ここで確定するもの:
@@ -173,15 +173,11 @@ jq --argjson n "<項目数>" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 
 - 当該項目で停止し、`TaskUpdate` で当該タスクの状態を明示
 - 完了済み項目はそのまま残す
+- **ユーザーに聞く前に必ず `phase=terminal` + `termination_reason="manual_intervention"` にして lock を消す**（Stop Hook が押し戻して質問できなくなるため）
 - ユーザーに `項目N で失敗 / 完了済み: 1..N-1 / 未着手: N+1..` を報告し、再開可否を確認
 
 ## フェーズ3: 完了報告
 
-- **ユーザーに聞く前に必ず `phase=terminal` + `termination_reason="manual_intervention"` にして lock を消す**（Stop Hook が押し戻して質問できなくなるため）
-サマリーをユーザーに提示:
-
-- 全項目の Issue URL とブランチ名一覧
-- スキップ/失敗があれば明記
 **先に terminal 化する**（これを飛ばすと Stop Hook が停止をブロックし続ける）:
 
 ```bash
@@ -191,6 +187,10 @@ jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 rm -f "$SWEEP_DIR/lock"
 ```
 
+サマリーをユーザーに提示:
+
+- 全項目の Issue URL とブランチ名一覧
+- スキップ/失敗があれば明記
 - 「中断なく書く」を選んだ場合は `/spec-review <仕様書パス>` の実行を推奨
 
 ## ルール
@@ -201,10 +201,10 @@ rm -f "$SWEEP_DIR/lock"
 - 各 Issue は open のまま残す（後で `/impl #N` がそのまま使える）。single-pr モードでも最終 PR で close しない
 - **フェーズ P-0 を飛ばさない**。モードとベースブランチを聞かずに始めない / 現在の HEAD を推測でベースに採用しない（`../sweep-common/branch-preflight.md`）
 - **作業ブランチを作らずベースブランチ上で仕様書をコミットしない**。ブランチ作成に失敗したらその項目を諦めて人に返す（`git reset` / `git checkout -f` で自動的に直して続行しない）
-- `--single-pr` 指定時は `~/.claude/skills/issue-sweep/references/single-branch-mode.md` を読んでから進める（差分表だけで手順を推測しない）
-- `spec-gen` 本体のロジックは複製せず参照する（`~/.claude/skills/spec-gen/SKILL.md`）
+- `--single-pr` 指定時は `../sweep-common/single-branch-mode.md` を読んでから進める（差分表だけで手順を推測しない）
+- `spec-gen` 本体のロジックは複製せず参照する（`../spec-gen/SKILL.md`）
 - 計画フェーズで集めた `項目名 / 概要 / 影響仕様書 / CTO 確認事項` を渡し、spec-gen 内の追加ヒアリングは最小化
 - コミットメッセージは `<type>: <説明>` 形式（CLAUDE.md 準拠）
-- `git commit` / `git push` で `--no-verify` を使わない
 - **対話フェーズ（0〜1）では lock を書かない / 実行フェーズ（2）に入る直前に書く**。ユーザーに質問して止まる区間で lock があると Stop Hook に押し戻される
 - **終了時・打ち切り時は必ず `phase=terminal` + `rm -f lock`**。放置すると次回起動が「他 sweep 実行中」で弾かれる
+- `git commit` / `git push` で `--no-verify` を使わない
