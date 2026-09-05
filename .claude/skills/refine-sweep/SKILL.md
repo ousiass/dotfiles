@@ -1,21 +1,23 @@
 ---
 name: refine-sweep
-description: 全コードベースを 4-5 観点でレビューし、指摘を Issue 化 → impl-wt で消化 → close まで一連で回す。critical/major=0 ∧ minor 残 Issue ≤ 閾値になるまで反復する。
+description: 全コードベースを 4-5 観点でレビューし、指摘を Issue 化 → worktree で消化 → PR/merge/close まで回す。
 user-invocable: true
 ---
 
 # refine-sweep
 
-`/refine-git` の全コードベース版（`/refine` との違いは修正を Issue 化して複数 PR に分ける点）。特定 PR ではなくリポジトリ全体を対象に `/code-review` / `/doc-drift` / `/spec-audit`（HALT 検知時は `/halt-review`、Atomic Design 検知時は `/atomic-review`）を並列実行し、指摘を **GitHub Issue に作成** した上で `/impl-wt` で 1 件ずつ消化し PR → merge → Issue close まで完結させる。
+`/refine-git` の全コードベース版（`/refine` との違いは修正を Issue 化して複数 PR に分ける点）。特定 PR ではなくリポジトリ全体を対象に `/code-review` / `/doc-drift` / `/spec-audit`（HALT 検知時は `/halt-review`、Atomic Design 検知時は `/atomic-review`）を並列実行し、指摘を **GitHub Issue に作成** した上で、sweep が用意した worktree の中で `/impl` を 1 件ずつ走らせて PR → merge → Issue close まで完結させる。
 
-**Issue を可視性の Source of Truth として扱う**。review が Issue を作り、impl-wt が PR → merge → close する。CTO（メインスレッド）は状態管理と反復判定に専念し、コードには触れない。
+**Issue を可視性の Source of Truth として扱う**。review が Issue を作り、engineer agent が PR → merge → close する。CTO（メインスレッド）は状態管理と反復判定に専念し、コードには触れない。
 
 ## 引数
 
 - `/refine-sweep` — critical + major + minor すべてを Issue 化して消化する（デフォルト）
 - `/refine-sweep --hard-cap N` — 反復回数の物理上限（デフォルト 30）。基本的に到達しない最終セーフティ
 - `/refine-sweep --no-minor` — minor は Issue 化しない（軽量モード）
-- `/refine-sweep --max-minor N` — minor 残許容 Issue 数（デフォルト 5、0 なら完全に消化）
+- `/refine-sweep --max-minor N` — minor 残許容 Issue 数（デフォルト 5、0 なら完全に消化）。minor = `severity:medium` + `severity:low`（フェーズ1 の対応表）
+- `/refine-sweep --parallel <N>` — 同時に走る実装 agent 数の上限（デフォルト 5、上限 5）
+- `/refine-sweep --max-inflight <M>` — 同時に抱える未マージ PR 数の上限（デフォルト 10、上限 15）
 - `/refine-sweep --abort` — 実行中の sweep を中止し lock を削除
 - `/refine-sweep --single-pr` — **1 統合ブランチ集約モード**。Issue ごとに PR を作らず統合ブランチ 1 本に積み、最後にベースブランチへ PR を 1 本だけ出す（後述の「single-pr モード」）
 - `/refine-sweep --multi-pr` — Issue ごとに PR を作る従来モード
@@ -71,9 +73,9 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 | フェーズ0 手順3 の state.json | `mode` / `base_branch` / `int_branch` / `pr_number` / `integrated_count` を追加（S-0-3） |
 | 2-1 の base 最新化 | `git pull --ff-only origin "$base_branch"` の代わりに **統合ブランチを進めない**。ベースの更新取り込みが必要なら `git merge --no-ff origin/$base_branch` を明示的に行う |
 | 2-2 の review | 変更なし。メイン作業ツリーが統合ブランチなので、反復ごとの review は自動的に「統合済みの状態」を見る |
-| 2-5 の engineer agent | `/impl-wt` を呼ばせない。**sweep 側が `$int_branch` から worktree を作り**、agent は `/impl #<issue_num> --auto --no-pr` まで（**研磨は回させない** — `/refine-git` は S-2-0 で統合ブランチにまとめて 1 回）。PR 作成・CI 待ち・マージ・Issue close は**すべてやらせない**。返答 JSON は `{"issue":N,"domain":"...","work_branch":"...","worktree":"...","failure":null}` |
-| 2-5 の集約 | agent 返答ごとに **メインスレッドが統合 merge**（S-1、必ず直列）。`closed_count` は `integrated_count` に読み替える |
-| 2-5 の Issue close | close しない。**最終 PR は sweep がマージしないので Issue も閉じない**（S-3 で「マージ後に close する Issue」として列挙するだけ）。`fix_ineffective` 判定は open Issue の fingerprint 比較のままだと統合済み Issue が残り続けて誤検知するので、**統合済み Issue を除外した集合**で比較する |
+| 2-5-3 の engineer agent | worktree の分岐元を `$base_branch` から **`$int_branch`** に変える。agent は `/impl #<issue_num> --auto --no-pr` まで（**研磨は回させない** — `/refine-git` は S-2-0 で統合ブランチにまとめて 1 回）。PR 作成・CI 待ち・マージ・Issue close は**すべてやらせない**。返答 JSON は `{"issue":N,"domain":"...","work_branch":"...","worktree":"...","failure":null}` |
+| 2-5-4 の判定 | PR 状態の観測ではなく **agent 返答 → 統合 merge**（S-1、必ず直列）。PR が存在しないので 2-5-1 の PR 一覧取得は不要（heartbeat と base 最新化のみ）。`closed_count` は `integrated_count` に読み替える |
+| 2-5-5 の Issue close | close しない。**最終 PR は sweep がマージしないので Issue も閉じない**（S-3 で「マージ後に close する Issue」として列挙するだけ）。`fix_ineffective` 判定は open Issue の fingerprint 比較のままだと統合済み Issue が残り続けて誤検知するので、**統合済み Issue を除外した集合**で比較する |
 | 3-2 の完了処理 | S-2 → S-3 を実行してからレポートを書く。Summary にモード・ベース・統合ブランチ・PR URL（**open のまま**）を必ず入れる |
 
 ## フェーズ0: lock 取得（heartbeat 方式）
@@ -143,9 +145,9 @@ source "$SWEEP_DIR/prelude.sh"
      gh label create "severity:${sev}" --color EEEEEE 2>/dev/null || true
    done
    ```
-7. `start_ts=$(date +%s)`, `iter=0`, `hard_cap=30`, `include_minor=true`, `max_minor=5` を初期化（`--no-minor` 指定時のみ `include_minor=false`、`--hard-cap` / `--max-minor` で上書き可）
+8. `start_ts=$(date +%s)`, `iter=0`, `hard_cap=30`, `include_minor=true`, `max_minor=5` を初期化（`--no-minor` 指定時のみ `include_minor=false`、`--hard-cap` / `--max-minor` で上書き可）
 
-## フェーズ2: review → Issue 化 → impl-wt 消化ループ
+## フェーズ2: review → Issue 化 → 消化ループ
 
 ### 2-1. 反復冒頭
 
@@ -262,10 +264,9 @@ eval "$(echo "$counts" | jq -r '@sh "critical_open=\(.critical) major_open=\(.ma
 
 `minor_open` は critical / high 以外の全 open（`severity:medium` / `severity:low` / severity 無し）。**取りこぼしを作らないため、minor は「critical でも major でもないもの」で定義する。**
 
-elif iter >= hard_cap:
-  → hard_cap_reached, フェーズ3 へ
-`--no-minor` 指定時は minor を Issue 化しないだけで、**過去に作られた minor Issue は判定から除外する**（`include_minor == false` なら `minor_open` を見ない）。
-
+```
+if iter >= hard_cap:
+  → hard_cap_reached、フェーズ3 へ
 
 elif critical_open == 0 && major_open == 0
      && (include_minor == false || minor_open <= max_minor)
@@ -277,58 +278,115 @@ else:
 ```
 
 `hard_cap` 到達時のみ物理打ち切り。それ以外は `fix_ineffective` 判定に任せて粘る。
+`--no-minor` 指定時は minor を Issue 化しないだけで、**過去に作られた minor Issue は判定から除外する**（`include_minor == false` なら `minor_open` を見ない）。
 
-### 2-5. Issue 消化（impl-wt 並列起動）
 
-label=`refine-sweep` の全 open Issue を **`/impl-wt` で消化 → PR → CI 緑 → merge → Issue close** まで完結させる。メインスレッドは Issue キューを組み、engineer agent を wave 分割で並列起動して JSON だけ受け取る。
+### 2-5. Issue 消化（in-flight パイプライン）
 
-**wave 分割ポリシー**:
-1. 各 Issue の本文からファイルパスを抽出（正規表現 `[a-zA-Z0-9_./-]+\.(go|ts|tsx|js|jsx|vue|sql|md|yaml|yml)`）
-2. パスからドメイン推定:
-   - `db`: `migrations/`, `schema.sql`, `db/`, `prisma/`
-   - `backend`: `apps/api/`, `api/`, `src/server/`, `*.go`
-   - `frontend`: `apps/web/`, `web/`, `src/components/`, `*.tsx`, `*.jsx`, `*.vue`
-   - `ci`: `.github/workflows/`, `ci/`, `Dockerfile`
-   - `other`: 上記いずれにもマッチしない or パス抽出不能
-3. **第 1 wave**: `db` ドメインの Issue のみ sequential
-4. **第 2 wave**: `backend` / `frontend` / `ci` / `other` を **各ドメイン内は sequential、ドメイン間は並列**（同一ドメインで PR 競合を避ける）
-5. wave 完了ごとに `git fetch && git pull --ff-only` で base を最新化してから次 wave
+label=`refine-sweep` の全 open Issue を **worktree で消化 → PR → CI 緑 → merge → Issue close** まで完結させる。
 
-各 Issue の engineer agent プロンプト:
+**構造は issue-sweep のフェーズ2 と同じ**（バッチが Issue に、ベースブランチが同じ、という対応）。メインスレッドは「キュー操作 / PR 一覧の取得 / agent 起動 / 判定 / マージ / 失敗処理」だけを行い、**実装は必ず `Agent` に丸投げする**。
+
+- `--parallel N`（デフォルト 5、上限 5）= 同時に走る実装 agent の数
+- `--max-inflight M`（デフォルト 10、上限 15）= 同時に抱える未マージ PR の数
+
+**wave バリア（「N 件実装 → 全部の CI 待ち → また N 件」）は作らない。** CI が 10 分かかるプロジェクトでは、そのバリアがそのまま「実装 agent が 0 本の 10 分」になる。スロットが空いた瞬間に次の Issue を起動する。
+
+#### 2-5-0. キュー構築とドメイン推定
+
+open Issue を `$SWEEP_DIR/queue.txt` に 1 行 1 Issue で書き出す。各 Issue の本文からファイルパスを抽出（正規表現 `[a-zA-Z0-9_./-]+\.(go|ts|tsx|js|jsx|vue|sql|md|yaml|yml)`）してドメインを推定する:
+
+- `db`: `migrations/`, `schema.sql`, `db/`, `prisma/`
+- `backend`: `apps/api/`, `api/`, `src/server/`, `*.go`
+- `frontend`: `apps/web/`, `web/`, `src/components/`, `*.tsx`, `*.jsx`, `*.vue`
+- `ci`: `.github/workflows/`, `ci/`, `Dockerfile`
+- `other`: 上記いずれにもマッチしない or パス抽出不能
+
+**ドメインは並列の可否だけに使う**（2-5-2）。in-flight テーブルは issue-sweep と同じ列に `domain` を足したもので、メッセージ内のテキストとして持ち回る:
+
+| 列 | 内容 |
+|---|---|
+| `issue` / `domain` / `branch` / `pr` / `stage` / `ci_respawns` / `zero_check_rounds` / `worktree` / `start_ts` | issue-sweep のフェーズ2 と同じ |
+
+#### 2-5-1. ラウンド冒頭（heartbeat / base 最新化 / PR 一覧の一括取得）
+
+```bash
+source "$SWEEP_DIR/prelude.sh"
+echo "$PPID:$(date +%s)" > "$SWEEP_DIR/lock"
+git fetch origin "$base_branch" 2>/dev/null || true
+git pull --ff-only origin "$base_branch" 2>/dev/null || true
+
+# このラウンドで使う PR 情報を **1 コールだけ** で取る（冪等性チェックと状態判定の両方がこれを使う）。
+# `head:refine/` で refine-sweep が作った PR だけに絞る
+gh pr list --search "head:refine/" --state all --limit 100 \
+  --json number,headRefName,state,mergedAt,statusCheckRollup \
+  | jq -c '[.[] | {
+      pr: .number, branch: .headRefName, state: .state, merged: (.mergedAt != null),
+      failed_checks: [.statusCheckRollup[]? | select(.conclusion == "FAILURE") | .name],
+      waiting: ([.statusCheckRollup[]? | select(.conclusion == null and .status != "COMPLETED")] | length),
+      checks_total: ([.statusCheckRollup[]?] | length)
+    }]'
+```
+
+#### 2-5-2. スロット補充（launch）
+
+`実装中 < N` かつ `in_flight < M` かつキューに**起動可能な** Issue が残っていれば、空きスロット分だけ起動する。
+
+起動可能の条件（ドメインは PR 競合を避けるためだけに使う）:
+
+- **同じドメインの Issue が in-flight に居ない**（同一ドメイン内は直列）
+- `db` ドメインは **in-flight が 0 のときだけ**起動する。逆に `db` が in-flight に居る間は他を起動しない
+- `refine-sweep-stuck` ラベル付きは起動しない
+
+**冪等性チェック**（2-5-1 の一覧から `branch == "refine/issue-<N>"` を探す。追加の `gh` 呼び出しはしない）:
+
+- `merged == true` → agent を起動せず 2-5-5（close → キュー削除）へ
+- `state == "OPEN"` → 既存 PR あり。agent 起動をスキップし、その PR 番号で `stage=ci` として in-flight に載せる
+- 見つからない → 2-5-3 で起動
+
+#### 2-5-3. 実装 agent の起動
+
+**worktree は sweep 側が 1 つ作ってからパスを埋めて渡す**（`/impl-wt` を呼ばせない。呼ぶと worktree が二重に作られ、しかも `--no-pr` を持たないので PR が二重に生える）:
+
+```bash
+source "$SWEEP_DIR/prelude.sh"
+wt="$(dirname "$main_worktree")/$(basename "$main_worktree")-refine-<issue_num>"
+git worktree add "$wt" -b "refine/issue-<issue_num>" "$base_branch"   # single-pr なら分岐元は "$int_branch"
+assert_not_base "$wt" || { echo "guard 失敗: この Issue は諦める"; }
+```
+
+`git worktree add` が失敗したら **その Issue は起動せず** failure 扱いにする（メインリポジトリで代替作業させない）。
 
 ```
 Agent({
-  description: "refine-sweep iter <iter+1> impl-wt #<issue_num> [<DOMAIN>]",
+  description: "refine-sweep iter <iter+1> #<issue_num> [<DOMAIN>]",
   subagent_type: "claude",
   prompt: """
-Issue #<issue_num> を実装 → PR 作成 → CI 緑待ち → merge → Issue close まで完了させてください。
+Issue #<issue_num> を実装して PR を 1 本作ってください。メインスレッドには JSON だけを返します。
+worktree は作成済みです。**以降のすべての作業を <wt の絶対パス> の中で行ってください。**
 
 手順:
-1. `Skill(impl-wt, args: "#<issue_num>")` で impl-wt を起動し、worktree での実装と PR 作成まで完了させる（impl-wt 自体は PR 作成で止まる設計）。
-   impl-wt が worktree を作った直後に、そこで**必ず**確認する:
-   cur=$(git -C <worktree_path> rev-parse --abbrev-ref HEAD)
+0. 作業を始める前に必ず実行する:
+   cd <wt の絶対パス>
+   cur=$(git rev-parse --abbrev-ref HEAD)
    [[ "$cur" != "<base_branch>" && "$cur" != "main" && "$cur" != "develop" ]] || exit 2
-   worktree が作られなかった / ベースブランチのままだった場合は、**メインリポジトリで代わりに実装してはならない**。
-   failure JSON を返して即座に終了する
-2. impl-wt が返した PR 番号を保持
-3. CI 緑を待つ。**「待機。」と言ってターンを終えて待たない** — 1 つの bash コマンドの中で `sleep` を挟んでブロックする:
-   timeout 3600 bash -c 'while :; do pending=$(gh pr view <PR> --json statusCheckRollup --jq "[.statusCheckRollup[]? | select(.conclusion == null and .status != \"COMPLETED\")] | length"); [ "${pending:-0}" -eq 0 ] && break; sleep 60; done'
-   待機が明けたら `gh pr view <PR> --json state,statusCheckRollup` を 1 回だけ叩いて判定:
-   - 全 check 完了 ∧ FAILURE なし ∧ state=OPEN → `gh pr merge <PR> --merge --delete-branch` を実行
-   - FAILURE あり ∧ pending=0 → impl-wt を再起動して修正 push（最大 3 回まで）
-   - state=MERGED になったら完了
-4. merge 成功後、`gh issue close #<issue_num> --comment "Closed by PR #<PR> (via /refine-sweep iter <iter>)"` で Issue を明示的に close
-5. 完了後に以下の JSON 1 行を最終メッセージとして返す
+   ここで落ちた場合、**メインリポジトリで代わりに実装してはならない**。failure JSON を返して即座に終了する。
+   最初の `git commit` の前にも同じ確認をもう一度行う。
+1. `/impl #<issue_num> --auto --no-pr` を Skill ツールで起動して実装する。
+   **wt 版（`/impl-wt`）は使わない**（worktree は作成済み。呼ぶと二重に作られる）。
+   `--auto` = 確認を取って止まらない / `--no-pr` = PR は手順2 で自分が 1 本だけ作る。
+2. push して `gh pr create --base <base_branch>` で PR を 1 本作る。
+   `gh pr edit <PR> --add-issue <Issue URL>` でリンクする（`Closes` は使わない）。
+3. **PR 作成までで返す。** CI 待ち・マージ・Issue close はメインスレッドの責務なので一切やらない。
 
-成功: {"issue": <issue_num>, "domain": "<DOMAIN>", "pr_number": <N>, "merged": true, "closed": true, "failure": null}
-失敗: {"issue": <issue_num>, "domain": "<DOMAIN>", "pr_number": <N or null>, "merged": false, "closed": false, "failure": "<理由>"}
+成功: {"issue": <issue_num>, "domain": "<DOMAIN>", "pr_number": <N>, "pr_url": "<URL>", "branch": "refine/issue-<N>", "worktree": "<wt の絶対パス>", "failure": null}
+失敗: {"issue": <issue_num>, "domain": "<DOMAIN>", "pr_number": null, "worktree": "<wt の絶対パス>", "failure": "<1行で原因>"}
 
 厳守事項:
 - `$SWEEP_DIR/state.json` を読まない・書き換えない（refine-sweep のメインスレッドが排他管理しているため）
 - `$SWEEP_DIR/lock` を触らない
 - `/issue-sweep` や `/refine-sweep` を再帰起動しない（state 衝突）
-- `gh pr merge --auto` を使わない（CI 緑ポーリング → 直接マージ方式に統一）
-- impl-wt が `Closes #N` を使わない設計なので、merge 後の `gh issue close` を必ず自分で実行する
+- **`gh pr merge` を叩かない / `gh issue close` を叩かない**（マージと close はメインスレッド）
 - JSON 1 行以外を最終メッセージに含めない
 - 内部 log をメインに残さない
 - ユーザー確認で停止しない
@@ -336,39 +394,60 @@ Issue #<issue_num> を実装 → PR 作成 → CI 緑待ち → merge → Issue 
 })
 ```
 
-**集約とループ制御**:
+#### 2-5-4. 判定と実行（メインスレッド）
+
+**issue-sweep のフェーズ2「判定と実行」の表をそのまま使う**（`merged` / 手動 close / CI 確定失敗 / `checks_total == 0` の猫踏み防止 / マージ / 一覧に見つからない / それ以外）。CI fix agent の起動プロンプトも同じものを使い、branch を `refine/issue-<N>` に差し替えるだけでよい。判定と agent 再起動は **LLM 側で行う**（bash の `while` の中から `Agent` は呼べない）。
+
+#### 2-5-5. Issue close + キュー削除 + metrics
+
+マージ完了後:
 
 ```bash
-# 各 wave で並列起動した agent の JSON を集約
-closed_count=$(echo "$wave_results" | jq '[.[] | select(.closed == true)] | length')
-failed_ids=$(echo "$wave_results" | jq -r '[.[] | select(.failure != null) | .issue] | join(" ")')
+gh issue close "<issue_num>" --comment "Closed by PR #<PR> (via /refine-sweep iter <iter>)" || true
+grep -vxF "<issue_num>" "$SWEEP_DIR/queue.txt" > "$SWEEP_DIR/queue.tmp" && mv "$SWEEP_DIR/queue.tmp" "$SWEEP_DIR/queue.txt"
+jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson iter "$iter" \
+   --argjson issue "<issue_num>" --arg domain "<DOMAIN>" --argjson pr "<PR>" --arg status "merged" \
+   '{ts:$ts,source:"refine-sweep-consume",iter:$iter,issue:$issue,domain:$domain,pr_number:$pr,status:$status}' \
+   >> "$SWEEP_DIR/refine-metrics.jsonl"
+```
 
-# stuck 判定（同じ issue が 2 反復連続で failure）
-prev_failed_file=".sweep/failed-iter-$((iter-1)).txt"
-curr_failed_file=".sweep/failed-iter-${iter}.txt"
-echo "$failed_ids" > "$curr_failed_file"
-if [[ -f "$prev_failed_file" ]]; then
-  stuck=$(comm -12 <(sort "$prev_failed_file") <(sort "$curr_failed_file"))
-  if [[ -n "$stuck" ]]; then
-    # 2 反復連続 failure の Issue は「stuck」としてラベル付与し次反復から除外
-    for id in $stuck; do
-      gh issue edit "$id" --add-label "refine-sweep-stuck" 2>/dev/null || true
-    done
-  fi
-fi
+#### 2-5-6. worktree 掃除
 
-# state.json の closed_this_iter を更新
-jq --argjson closed "$closed_count" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-   '.last_counts.closed_this_iter = $closed | .updated_at = $now' \
-   .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
+agent が返した `worktree` パスをそのまま消す（`failure` のときも**必ず**消す。次反復で同じ Issue を再試行するとき名前が衝突する）:
+
+```bash
+git worktree remove --force "<worktree>" 2>/dev/null || true
 ```
 
 **fix_ineffective 判定（Issue の fingerprint set 比較）**:
+#### 2-5-7. 失敗時（stuck 判定）
+
+agent が `failure` を返した / CI を諦めた Issue は、その反復では**諦めてキューから消す**（1 反復 = 1 Issue あたり 1 回の試行。残すと Stop Hook が永久に停止をブロックする）。metrics に `status` を記録し、失敗 Issue 番号を反復ごとのファイルに残す:
+
+```bash
+echo "$failed_ids" > "$SWEEP_DIR/failed-iter-${iter}.txt"
+prev="$SWEEP_DIR/failed-iter-$((iter-1)).txt"
+if [[ -f "$prev" ]]; then
+  # 2 反復連続で失敗した Issue は stuck としてラベル付与し、次反復から除外する
+  for id in $(comm -12 <(sort "$prev") <(sort "$SWEEP_DIR/failed-iter-${iter}.txt")); do
+    gh issue edit "$id" --add-label "refine-sweep-stuck" 2>/dev/null || true
+  done
+fi
+```
+
+#### 2-5-8. 待機と反復の終了
+
+このラウンドで何も進捗がなく（マージ 0 件・新規起動 0 件）、in-flight が残っている場合のみ **1 つの bash コマンドの中で `sleep 60`** してから 2-5-1 に戻る。進捗があった場合は待たずに次のラウンドへ進む。
+
+**「待機。」と言ってターンを終えてはならない**（Stop Hook に押し戻されるたびにモデルのターンを 1 回消費する）。
+
+**キューが空 ∧ in-flight が 0 になったらこの反復は終了**。`closed_count` / `failed_ids` を確定させて下記の fix_ineffective 判定に進む。
+
 
 各反復終了時に、label=`refine-sweep` かつ label≠`refine-sweep-stuck` の open Issue の fingerprint set を保存し、前反復と比較する:
 
 ```bash
-gh issue list --label refine-sweep --state open --limit 500 --json number,title,body \
+gh issue list --label refine-sweep --state open --limit 500 --json number,title,body,labels \
   | jq -c '[.[] | select((.labels // []) | map(.name) | index("refine-sweep-stuck") | not)
            | (.title + "|" + (.body // "" | tostring))] | sort | unique' \
   > "$SWEEP_DIR/issues-iter-${iter}.json"
@@ -414,6 +493,7 @@ clean 候補（`open_issue_count == 0 && new_issue_count == 0` または minor �
 
 ```bash
 ts=$(date -u +%Y%m%dT%H%M%SZ)
+source "$SWEEP_DIR/prelude.sh"
 report="$SWEEP_DIR/report-refine-sweep-${ts}.md"
 mkdir -p "$SWEEP_DIR"
 # 反復カウンタ・開始時刻はシェルに残らない。state.json から読む
@@ -426,7 +506,7 @@ elapsed=$(( $(date +%s) - $(date -d "$started_at" +%s) ))
   echo "- Base branch: ${base_branch}"
   echo "- Iterations: ${iter}"
   echo "- Final status: **${status}** (reason: ${reason})"
-  echo "- Elapsed: $(( $(date +%s) - start_ts ))s"
+  echo "- Elapsed: ${elapsed}s"
   echo
   echo "## Issue trend"
   echo
@@ -490,7 +570,7 @@ elapsed=$(( $(date +%s) - $(date -d "$started_at" +%s) ))
 ## 失敗時の挙動
 
 - review agent failure（1 つでも `failure != null` を返す）: `agent_failed` を記録しフェーズ3 へ
-- impl-wt agent failure が 2 反復連続で同じ Issue: `refine-sweep-stuck` ラベルを付与し次反復から除外して継続
+- engineer agent failure が 2 反復連続で同じ Issue: `refine-sweep-stuck` ラベルを付与し次反復から除外して継続
 - 全 open Issue が stuck: レポートに列挙して terminal 化
 - 同じ Issue 集合（fingerprint set）が連続 2 反復完全一致: `fix_ineffective` で終了
 source "$SWEEP_DIR/prelude.sh"
