@@ -8,15 +8,69 @@
 - ベースブランチ（`develop` / `main`）にそのままコミットしてしまう
 - ベースブランチをユーザーに確認せず、現在の HEAD を推測で採用してしまう
 
+## 前提: シェル変数は次の Bash 呼び出しまで残らない
+
+Bash ツールは**呼び出しごとに新しいシェル**で、env var も関数も持ち越されない（cwd だけが持続する）。
+`$base_branch` / `$int_branch` / `assert_not_base` を「一度定義したから以後使える」と仮定すると、
+2 回目以降の呼び出しでは**空文字と undefined function** になり、ガードが無言で素通りする。
+
+**state.json が唯一の持ち回り媒体。** 変数はそこから毎回読み直す。
+
+### P-0-0. prelude を生成する（P-0 の最初に 1 回だけ）
+
+```bash
+SWEEP_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")}/.sweep"
+mkdir -p "$SWEEP_DIR"
+cat > "$SWEEP_DIR/prelude.sh" <<'PRELUDE'
+# sweep 共通プレリュード。各 bash 呼び出しの先頭で source する。
+set -uo pipefail
+_sw_get() { [[ -f "$SWEEP_DIR/state.json" ]] && jq -r --arg k "$1" '.[$k] // empty' "$SWEEP_DIR/state.json" 2>/dev/null || true; }
+base_branch=$(_sw_get base_branch)
+int_branch=$(_sw_get int_branch)
+main_worktree=$(git rev-parse --show-toplevel)
+PROTECTED_BRANCHES="main master develop staging production"
+
+# $1: 検査対象の作業ツリーのパス
+assert_not_base() {
+  local dir="$1" cur
+  cur=$(git -C "$dir" rev-parse --abbrev-ref HEAD)
+  if [[ -z "$base_branch" ]]; then
+    echo "ERROR: base_branch が未確定（P-0 未実行 / state.json 欠損）" >&2
+    return 1
+  fi
+  if [[ "$cur" == "$base_branch" || " $PROTECTED_BRANCHES " == *" $cur "* ]]; then
+    echo "ERROR: $dir が保護ブランチ $cur に居ます。作業ブランチを作ってから続行してください" >&2
+    return 1
+  fi
+  # single-pr モードのメイン作業ツリーは統合ブランチ以外に居てはならない
+  if [[ -n "$int_branch" && "$dir" == "$main_worktree" && "$cur" != "$int_branch" ]]; then
+    echo "ERROR: メイン作業ツリーが $cur に居ます（期待: $int_branch）" >&2
+    return 1
+  fi
+}
+PRELUDE
+```
+
+### 各 bash 呼び出しの先頭（P-0-0 以降すべて）
+
+```bash
+SWEEP_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")}/.sweep"
+source "$SWEEP_DIR/prelude.sh"
+```
+
+**このファイルおよび各 SKILL.md の bash スニペットは、すべてこの 2 行が先頭にある前提で書かれている。**
+`$base_branch` / `$int_branch` / `$main_worktree` / `assert_not_base` を参照するスニペットで 2 行を省略してはならない。
+
 ## フェーズ P-0: モードとベースブランチの確定（必須・スキップ不可）
 
 lock 取得（フェーズ0）の**直後**、キュー構築 / review 実行（フェーズ1）の**前**に実行する。
+**最初に P-0-0（prelude 生成）を実行してから** P-0-1 に入る。
 `--single-pr` / `--multi-pr` と `--base` の**両方が引数で確定している場合のみ** P-0-2 を省略できる。
 
 ### P-0-1. 候補を集める
 
 ```bash
-main_worktree=$(git rev-parse --show-toplevel)
+source "$SWEEP_DIR/prelude.sh"
 git fetch origin --prune
 git branch -r --format='%(refname:short)' | sed 's|^origin/||' | grep -v '^HEAD$'
 cur_branch=$(git rev-parse --abbrev-ref HEAD)
@@ -55,6 +109,7 @@ state.json が既にあれば `jq` で更新する。**まだ無いスキル（i
 ### P-0-5. メイン作業ツリーの清潔確認
 
 ```bash
+source "$SWEEP_DIR/prelude.sh"
 [[ -z "$(git -C "$main_worktree" status --porcelain)" ]] \
   || { echo "ERROR: メイン作業ツリーに未コミットの変更があります。退避してから再実行してください" >&2; exit 2; }
 ```
@@ -63,23 +118,16 @@ state.json が既にあれば `jq` で更新する。**まだ無いスキル（i
 
 **事後検知・自動退避はしない。** 危険な状態を作る**前**に必ず止める。
 
-```bash
-PROTECTED_BRANCHES="main master develop staging production"
+`assert_not_base` の定義は上記 prelude にある。呼ぶ側は prelude を source するだけでよく、
+**関数定義をスニペットごとにコピーしない**（定義が 2 つに割れると片方だけ直す事故になる）。
 
-# $1: 検査対象の作業ツリーのパス
-assert_not_base() {
-  local dir="$1" cur
-  cur=$(git -C "$dir" rev-parse --abbrev-ref HEAD)
-  if [[ "$cur" == "$base_branch" || " $PROTECTED_BRANCHES " == *" $cur "* ]]; then
-    echo "ERROR: $dir が保護ブランチ $cur に居ます。作業ブランチを作ってから続行してください" >&2
-    return 1
-  fi
-  # single-pr モードのメイン作業ツリーは統合ブランチ以外に居てはならない
-  if [[ -n "${int_branch:-}" && "$dir" == "$main_worktree" && "$cur" != "$int_branch" ]]; then
-    echo "ERROR: メイン作業ツリーが $cur に居ます（期待: $int_branch）" >&2
-    return 1
-  fi
-}
+```bash
+SWEEP_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")}/.sweep"
+source "$SWEEP_DIR/prelude.sh"
+if ! assert_not_base "$main_worktree"; then
+  # この作業単位を諦める（metrics に status:"branch_guard"、キュー行を削除して次へ）
+  exit 2
+fi
 ```
 
 `return 1` したら**その作業単位を諦めて** metrics に `status:"branch_guard"` を残し、キュー行を削除して次へ進む。
@@ -89,7 +137,9 @@ assert_not_base() {
 
 | 呼ぶ側 | タイミング | 呼び出し |
 |---|---|---|
+| メインスレッド（共通） | P-0 の最初 | P-0-0 で prelude を生成する |
 | メインスレッド（共通） | P-0 の直後 | P-0-5 の清潔確認 |
+| メインスレッド（共通） | `$base_branch` / `assert_not_base` を使う **すべての** bash 呼び出しの先頭 | `source "$SWEEP_DIR/prelude.sh"` |
 | メインスレッド（single-pr） | S-0-2 の統合ブランチ作成の直後 | `assert_not_base "$main_worktree"` |
 | メインスレッド（single-pr） | S-1 の統合 `git merge` / `git push` の直前 | `assert_not_base "$main_worktree"` |
 | メインスレッド（spec-sweep / report-sweep の multi-pr） | `feat/#N` ブランチ作成の直後、spec-gen 実行の前 | `assert_not_base "$main_worktree"` |
@@ -115,3 +165,5 @@ assert_not_base() {
 - **worktree 作成に失敗したときメインリポジトリで代替作業する**（これが直コミットの主因）
 - **ガードに引っかかった状態を `git reset` / `git checkout -f` / `git stash` で自動的に「直して」続行する**（事前ガードのみの方針。人に返す）
 - **`mode` を state.json に書かずに引数から都度判断する**（フェーズごとに解釈がぶれる）
+- **シェル変数・関数が次の Bash 呼び出しまで残ると仮定する**（Bash ツールは毎回新しいシェル。`$base_branch` は空文字に、`assert_not_base` は未定義になってガードが無言で素通りする。毎回 prelude を source する）
+- **`assert_not_base` の定義をスニペットにコピーする**（prelude の 1 箇所だけが定義）

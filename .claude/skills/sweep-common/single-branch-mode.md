@@ -27,7 +27,8 @@
 ### S-0-2. 統合ブランチを切って push する
 
 ```bash
-int_branch="${branch_opt:-sweep/${skill_name}-$(date +%Y%m%d-%H%M%S)}"
+source "$SWEEP_DIR/prelude.sh"
+int_branch="${branch_opt:-sweep/${skill_name}-$(date +%Y%m%d-%H%M%S)}"   # S-0-3 で state.json に永続化するまでは手動で保持
 git checkout -B "$int_branch" "origin/$base_branch"
 assert_not_base "$main_worktree"   # branch-preflight.md の事前ガード
 git push -u origin "$int_branch"
@@ -43,6 +44,8 @@ git push -u origin "$int_branch"
 ```json
 { "mode": "single-pr", "base_branch": "<base>", "int_branch": "<int>", "pr_number": null, "integrated_count": 0 }
 ```
+
+**ここに書いた時点で `$int_branch` は prelude 経由で全スニペットから読めるようになる。** 以降シェル変数で持ち回らない。
 
 ## フェーズ S-1: 実装系 sweep の統合（issue-sweep / refine-sweep）
 
@@ -65,6 +68,7 @@ git push -u origin "$int_branch"
 agent が success JSON を返したら、メイン作業ツリー（`$int_branch`）で取り込む:
 
 ```bash
+source "$SWEEP_DIR/prelude.sh"
 assert_not_base "$main_worktree"   # 取り込み先が統合ブランチであることを毎回確認する
 git fetch origin "$work_branch"
 git merge --no-ff --no-edit "$work_branch"
@@ -154,6 +158,7 @@ PR 本文とレポートに残指摘を明記して人の判断に委ねるこ�
 ### S-2-1. PR 作成（**マージはしない**）
 
 ```bash
+source "$SWEEP_DIR/prelude.sh"
 git push origin "$int_branch"
 gh pr create --base "$base_branch" --head "$int_branch" --title "<title>" --body-file <body>
 ```
@@ -172,6 +177,8 @@ gh pr create --base "$base_branch" --head "$int_branch" --title "<title>" --body
 Stop Hook に押し戻されるたびにモデルのターンを 1 回消費する:
 
 ```bash
+source "$SWEEP_DIR/prelude.sh"
+pr=$(jq -r '.pr_number' "$SWEEP_DIR/state.json")   # S-2-1 で記録済み
 timeout 3600 bash -c '
   while :; do
     pending=$(gh pr view "'"$pr"'" --json statusCheckRollup \
@@ -235,4 +242,5 @@ CI fix agent のプロンプトは通常モードのものをそのまま使う�
 - **最終 PR が未マージなのに Issue を close する**（close はユーザーがマージした後に行う）
 - **CI 待ちをターンを終えて行う**（S-2-2 のブロッキング待機を使う。Stop Hook との往復 1 回 = モデルのターン 1 回）
 - **Issue を PR 本文の `Closes #N` で閉じる**（S-3 の明示 close に統一する）
+- **`$int_branch` / `$base_branch` をシェル変数の持ち回りで運ぼうとする**（Bash は毎回新しいシェル。S-0-3 で state.json に書き、以降は `source "$SWEEP_DIR/prelude.sh"` で読む）
 - ベースブランチ / 統合ブランチを途中で変える

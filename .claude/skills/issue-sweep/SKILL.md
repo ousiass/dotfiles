@@ -45,6 +45,13 @@ mkdir -p "$SWEEP_DIR"
 以降 `.sweep/...` と書かれた箇所はすべて `$SWEEP_DIR/...` を指す。Stop Hook も同じパスを見る。
 
 ## 状態管理 `.sweep/state.json`
+**Bash ツールは呼び出しごとに新しいシェル**で、変数も関数も持ち越されない。`$base_branch` / `$int_branch` / `assert_not_base` は **P-0-0 が生成する `$SWEEP_DIR/prelude.sh` から毎回読み直す**（`../sweep-common/branch-preflight.md`）。それらを使う bash スニペットはすべて次の 2 行で始める:
+
+```bash
+SWEEP_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")}/.sweep"
+source "$SWEEP_DIR/prelude.sh"
+```
+
 
 sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` の間（lock が新鮮な限り）停止をブロックする。**「キューが空っぽいから終わった」と推定で `phase=terminal` にしてはならない**。terminal 化前にキュー残数 = 0 と spinoff 検出済みを必ず確認する。
 
@@ -276,6 +283,7 @@ git fetch origin "$base_branch" 2>/dev/null || true
 git pull --ff-only origin "$base_branch" 2>/dev/null || true
 
 # このラウンドで使う PR 情報を **1 コールだけ** で取る。
+source "$SWEEP_DIR/prelude.sh"
 # 冪等性チェック（2-1）と状態判定（2-3）の両方がこの結果を使う。
 gh pr list --state all --limit 100 \
   --json number,headRefName,state,mergedAt,statusCheckRollup \
@@ -677,9 +685,12 @@ spinoff_deferred=$(echo "$spinoff_json" | jq -r '.[] | select(.high | not) | .nu
 ```bash
 ts=$(date -u +%Y%m%dT%H%M%SZ)
 report="$SWEEP_DIR/report-sweep-${ts}.md"
-sweep_start_iso=$(date -u -d @${sweep_start_ts} +%Y-%m-%dT%H:%M:%SZ)
+# カウンタ類はシェルに残らない。state.json が唯一の持ち回り媒体
+eval "$(jq -r '@sh "sweep_start_iso=\(.started_at) processed_count=\(.processed_count) merged_count=\(.merged_count) failed_count=\(.failed_count) mode=\(.mode) base_branch=\(.base_branch) parallel_n=\(.parallel) max_inflight=\(.max_inflight)"' "$SWEEP_DIR/state.json")"
+total_dur=$(( $(date +%s) - $(date -d "$sweep_start_iso" +%s) ))
 {
   echo "# issue-sweep report — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+source "$SWEEP_DIR/prelude.sh"
   echo
   echo "## Summary"
   echo "- Started: $sweep_start_iso"

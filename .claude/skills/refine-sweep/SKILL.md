@@ -81,9 +81,16 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 
 ## フェーズ0: lock 取得（heartbeat 方式）
 
-1. `.sweep/lock` が存在し timestamp が 2 時間以内 → 「他 sweep 実行中」と表示し終了
-2. それ以外は `mkdir -p .sweep && echo "$PPID:$(date +%s)" > .sweep/lock`
-3. `.sweep/state.json` を初期化:
+**Bash ツールは呼び出しごとに新しいシェル**で、変数も関数も持ち越されない。`$base_branch` / `$int_branch` / `assert_not_base` は **P-0-0 が生成する `$SWEEP_DIR/prelude.sh` から毎回読み直す**（`../sweep-common/branch-preflight.md`）。それらを使う bash スニペットはすべて次の 2 行で始める:
+
+```bash
+SWEEP_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")}/.sweep"
+source "$SWEEP_DIR/prelude.sh"
+```
+
+1. `$SWEEP_DIR/lock` が存在し timestamp が 2 時間以内 → 「他 sweep 実行中」と表示し終了
+2. それ以外は `mkdir -p "$SWEEP_DIR" && echo "$PPID:$(date +%s)" > "$SWEEP_DIR/lock"`
+3. `$SWEEP_DIR/state.json` を初期化:
    ```bash
    jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson hc "$hard_cap" --argjson mm "$max_minor" '{
      skill: "refine-sweep",
@@ -138,7 +145,8 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 ### 2-1. 反復冒頭
 
 ```bash
-echo "$PPID:$(date +%s)" > .sweep/lock          # heartbeat
+source "$SWEEP_DIR/prelude.sh"
+echo "$PPID:$(date +%s)" > "$SWEEP_DIR/lock"          # heartbeat
 git fetch origin "$base_branch" 2>/dev/null || true
 git pull --ff-only origin "$base_branch" 2>/dev/null || true
 iter_label="refine-sweep-iter-$((iter+1))"
@@ -400,8 +408,11 @@ clean 候補（`open_issue_count == 0 && new_issue_count == 0` または minor �
 
 ```bash
 ts=$(date -u +%Y%m%dT%H%M%SZ)
-report=".sweep/report-refine-sweep-${ts}.md"
-mkdir -p .sweep
+report="$SWEEP_DIR/report-refine-sweep-${ts}.md"
+mkdir -p "$SWEEP_DIR"
+# 反復カウンタ・開始時刻はシェルに残らない。state.json から読む
+eval "$(jq -r '@sh "iter=\(.iteration) started_at=\(.started_at) reason=\(.termination_reason // "-")"' "$SWEEP_DIR/state.json")"
+elapsed=$(( $(date +%s) - $(date -d "$started_at" +%s) ))
 {
   echo "# refine-sweep report — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo
@@ -475,3 +486,5 @@ mkdir -p .sweep
 - impl-wt agent failure が 2 反復連続で同じ Issue: `refine-sweep-stuck` ラベルを付与し次反復から除外して継続
 - 全 open Issue が stuck: レポートに列挙して terminal 化
 - 同じ Issue 集合（fingerprint set）が連続 2 反復完全一致: `fix_ineffective` で終了
+source "$SWEEP_DIR/prelude.sh"
+- **シェル変数（`$base_branch` / `$iter` / `$start_ts` 等）が次の Bash 呼び出しまで残ると仮定する**（毎回新しいシェル。prelude を source し、カウンタは state.json から読む）
