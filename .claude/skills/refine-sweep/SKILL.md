@@ -31,7 +31,7 @@ user-invocable: true
 - `.sweep/` 書き込み権限
 - ラベル `refine-sweep` と `refine-sweep-iter-<N>` を必要に応じて自動作成
 
-## 状態管理 `.sweep/state.json`
+## 状態管理 `$SWEEP_DIR/state.json`
 
 sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` の間（lock が新鮮な限り）停止をブロックする。**review を再実行せず推定で `phase=terminal` にしてはならない**。terminal 化の直前に最終 review を走らせ、その行が `$SWEEP_DIR/refine-metrics.jsonl` に append されていることを確認する。
 
@@ -95,9 +95,9 @@ source "$SWEEP_DIR/prelude.sh"
      phase: "iterating", iteration: 0, hard_cap_iter: $hc,
      thresholds: {critical: 0, major: 0, minor: $mm},
      termination_reason: null
-   }' > .sweep/state.json
+   }' > "$SWEEP_DIR/state.json"
    ```
-4. フェーズ3 / 中断 / `--abort` 時に `rm -f .sweep/lock`。**`.sweep/state.json` は残す**（履歴・監査用）が、必ず `phase=terminal` にしてから抜けること
+4. フェーズ3 / 中断 / `--abort` 時に `rm -f "$SWEEP_DIR/lock"`。**`$SWEEP_DIR/state.json` は残す**（履歴・監査用）が、必ず `phase=terminal` にしてから抜けること
 
 ## フェーズ P-0: モードとベースブランチの確定（必須）
 
@@ -121,7 +121,7 @@ source "$SWEEP_DIR/prelude.sh"
    - `components/`, `src/components/`, `app/components/` のいずれかに `atoms/` + (`molecules/` or `organisms/`) がある → `HAS_ATOMIC=true`
 4. **フロントエンドプロジェクトの Atomic Design 必須ガード**:
    - `package.json` に `react` / `vue` / `next` / `nuxt` の依存が含まれる → `IS_FRONTEND=true`
-   - `IS_FRONTEND=true` かつ `HAS_HALT=false` かつ `HAS_ATOMIC=false` → **ここで中断**（`.sweep/state.json` に `termination_reason: "atomic_design_required"` を書き込み、`phase=terminal` にして exit 2）
+   - `IS_FRONTEND=true` かつ `HAS_HALT=false` かつ `HAS_ATOMIC=false` → **ここで中断**（`$SWEEP_DIR/state.json` に `termination_reason: "atomic_design_required"` を書き込み、`phase=terminal` にして exit 2）
 5. **レビュー対象スキル一覧**:
    - 常に: `code-review`, `doc-drift`, `spec-audit`
    - `HAS_HALT=true`: `halt-review` も追加
@@ -324,8 +324,8 @@ Issue #<issue_num> を実装 → PR 作成 → CI 緑待ち → merge → Issue 
 失敗: {"issue": <issue_num>, "domain": "<DOMAIN>", "pr_number": <N or null>, "merged": false, "closed": false, "failure": "<理由>"}
 
 厳守事項:
-- `.sweep/state.json` を読まない・書き換えない（refine-sweep のメインスレッドが排他管理しているため）
-- `.sweep/lock` を触らない
+- `$SWEEP_DIR/state.json` を読まない・書き換えない（refine-sweep のメインスレッドが排他管理しているため）
+- `$SWEEP_DIR/lock` を触らない
 - `/issue-sweep` や `/refine-sweep` を再帰起動しない（state 衝突）
 - `gh pr merge --auto` を使わない（CI 緑ポーリング → 直接マージ方式に統一）
 - impl-wt が `Closes #N` を使わない設計なので、merge 後の `gh issue close` を必ず自分で実行する
@@ -371,11 +371,11 @@ jq --argjson closed "$closed_count" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 gh issue list --label refine-sweep --state open --limit 500 --json number,title,body \
   | jq -c '[.[] | select((.labels // []) | map(.name) | index("refine-sweep-stuck") | not)
            | (.title + "|" + (.body // "" | tostring))] | sort | unique' \
-  > ".sweep/issues-iter-${iter}.json"
+  > "$SWEEP_DIR/issues-iter-${iter}.json"
 
-prev_file=".sweep/issues-iter-$((iter-1)).json"
+prev_file="$SWEEP_DIR/issues-iter-$((iter-1)).json"
 if [[ "$iter" -ge 1 && -f "$prev_file" ]]; then
-  curr=$(cat ".sweep/issues-iter-${iter}.json")
+  curr=$(cat "$SWEEP_DIR/issues-iter-${iter}.json")
   prev=$(cat "$prev_file")
   if [[ "$curr" == "$prev" && "$curr" != "[]" ]]; then
     status="fix_ineffective"
@@ -408,7 +408,7 @@ clean 候補（`open_issue_count == 0 && new_issue_count == 0` または minor �
    reason="thresholds_met"   # または hard_cap_reached / agent_failed / fix_ineffective / aborted
    jq --arg reason "$reason" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
      '.phase = "terminal" | .termination_reason = $reason | .updated_at = $now' \
-     .sweep/state.json > .sweep/state.json.tmp && mv .sweep/state.json.tmp .sweep/state.json
+     "$SWEEP_DIR/state.json" > "$SWEEP_DIR/state.json.tmp" && mv "$SWEEP_DIR/state.json.tmp" "$SWEEP_DIR/state.json"
    ```
 3. レポート生成 `$SWEEP_DIR/report-refine-sweep-<ts>.md`（**`## Evidence` セクション必須**）:
 
@@ -450,7 +450,7 @@ elapsed=$(( $(date +%s) - $(date -d "$started_at" +%s) ))
 } > "$report"
 ```
 
-4. `rm -f .sweep/lock`（state.json は terminal のまま残す）
+4. `rm -f "$SWEEP_DIR/lock"`（state.json は terminal のまま残す）
 5. 通知: `sweep_notify "refine-sweep done" "${iter} iters, status=${status}, report: ${report}" ":checkered_flag:"`
 6. ユーザーにレポートパスを返す
 
