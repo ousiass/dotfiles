@@ -387,6 +387,10 @@ Issue #<a>[, #<b>, #<c>] を **1 つの worktree にまとめて** 処理して�
 - 「ユーザーに確認してから次へ進みます」等で停止しない。失敗または完了まで進める。
 - マージはメインスレッドが行う（`gh pr merge` は叩かない）。
 - **critical/major が残った状態で 6 の success JSON を返してはならない**（5 のゲート判定を必ず通す）。
+- **着手した Issue は必ず `gh issue edit <n> --add-assignee @me` で自分に assign する。**
+  サブスキルのフェーズ1 に手順があるが、`--auto` は止まらないことを優先するため
+  ビルドを妨げないこの手続きは落ちやすい。サブスキルには
+  `--issue <n>` を渡し、検証ゲート（`verify-scope.sh`）の assignee 検査を必ず通す。
 ```
 
 返答 JSON の `worktree` を in-flight テーブルに記録する（2-6 の掃除で使う）。

@@ -147,10 +147,11 @@ jq -nc --arg parent "<親Issue番号>" --arg type "<bug|feat|chore|refactor|docs
 - **コミット前に必ず実行する。スキップ不可。**
 
 ```bash
-~/.claude/skills/impl/scripts/verify-scope.sh --type <このスコープの type>
+~/.claude/skills/impl/scripts/verify-scope.sh --type <このスコープの type> [--issue <Issue番号>]
 ```
 
-- 検査するのは 4 点: 追加行の未実装パターン / `fix` 型の回帰テスト有無 / テスト exit code / lint exit code
+- 検査するのは 5 点: 追加行の未実装パターン / `fix` 型の回帰テスト有無 / **Issue の assignee**（着手宣言） / テスト exit code / lint exit code
+- **Issue 起動時は `--issue <Issue番号>` を必ず渡す。** 渡さないと assignee 検査が SKIP になり、フェーズ1 の `--add-assignee @me` 漏れを検知できない（`--auto` では止まらないことが優先されるため、この事務手続きが最も落ちやすい）
 - **exit 0 になるまでコミットしない。** FAIL が出た場合:
   1. FAIL の内容（テスト出力・該当 file:line）を**そのまま** `develop` に渡して修正させる
   2. 再度ゲートを実行する。**緑になるまで上限なしで繰り返す**

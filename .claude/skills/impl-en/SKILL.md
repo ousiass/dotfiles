@@ -116,10 +116,11 @@ jq -nc --arg parent "<parent issue#>" --arg type "<bug|feat|chore|refactor|docs>
 - **Always run before committing. Never skip.**
 
 ```bash
-~/.claude/skills/impl/scripts/verify-scope.sh --type <type of this scope>
+~/.claude/skills/impl/scripts/verify-scope.sh --type <type of this scope> [--issue <issue#>]
 ```
 
-- Four checks: unimplemented patterns in added lines / regression test presence for `fix` scopes / test exit code / lint exit code
+- Five checks: unimplemented patterns in added lines / regression test presence for `fix` scopes / **issue assignee** (work-in-progress marker) / test exit code / lint exit code
+- **Always pass `--issue <issue#>` when invoked on an issue.** Without it the assignee check is skipped, so a missing `--add-assignee @me` from Phase 1 goes undetected (under `--auto`, not stopping takes priority, which makes this bookkeeping step the most likely to be dropped)
 - **Do not commit until it exits 0.** When FAIL is reported:
   1. Pass the FAIL output (test log, offending `file:line`) **verbatim** to `develop` and have it fixed
   2. Re-run the gate. **Repeat with no iteration limit until it is green**

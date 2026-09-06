@@ -384,6 +384,9 @@ worktree は作成済みです。**以降のすべての作業を <wt の絶対�
 失敗: {"issue": <issue_num>, "domain": "<DOMAIN>", "pr_number": null, "worktree": "<wt の絶対パス>", "failure": "<1行で原因>"}
 
 厳守事項:
+- **着手した Issue は必ず `gh issue edit <issue_num> --add-assignee @me` で自分に assign する**
+  （`/impl` のフェーズ1 に手順があるが、`--auto` は止まらないことを優先するためビルドを
+  妨げないこの手続きは落ちやすい。検証ゲートの assignee 検査を必ず通すこと）
 - `$SWEEP_DIR/state.json` を読まない・書き換えない（refine-sweep のメインスレッドが排他管理しているため）
 - `$SWEEP_DIR/lock` を触らない
 - `/issue-sweep` や `/refine-sweep` を再帰起動しない（state 衝突）

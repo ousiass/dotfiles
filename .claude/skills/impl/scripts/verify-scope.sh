@@ -4,15 +4,17 @@
 # 未コミットの変更に対して以下を機械的に検証する:
 #   1. 追加行に未実装パターン（TODO / NotImplementedError / ダミーアサーション等）が無いこと
 #   2. fix 型スコープならテストファイルが追加・変更されていること（fail-first の痕跡）
-#   3. テストコマンドが exit 0 で終わること
-#   4. lint コマンドが exit 0 で終わること
+#   3. --issue 指定時、その Issue が自分に assign されていること（着手宣言）
+#   4. テストコマンドが exit 0 で終わること
+#   5. lint コマンドが exit 0 で終わること
 #
 # 使い方:
-#   verify-scope.sh --type <fix|feat|refactor|docs|test|chore> [--test-cmd CMD] [--lint-cmd CMD]
+#   verify-scope.sh --type <fix|feat|refactor|docs|test|chore> [--issue N] [--test-cmd CMD] [--lint-cmd CMD]
 #   verify-scope.sh --profile-path   # repo プロファイルの保存先パスを表示して終了
 #
 # --test-cmd / --lint-cmd を省略した場合は repo プロファイルから読む。
 # 空文字を明示的に渡す（--test-cmd ""）とその項目を SKIP 扱いにする。
+# --issue は Issue 起動時のみ指定する（テキスト起動では省略し、assignee 検査は SKIP になる）。
 #
 # 終了コード: 0 = FAIL なし / 1 = 1 つ以上 FAIL / 2 = 使い方の誤り
 
@@ -32,17 +34,22 @@ profile_path() {
 [ "${1:-}" = "--profile-path" ] && { profile_path; exit 0; }
 
 scope_type=""
+issue_num=""
 test_cmd=""; test_cmd_set=0
 lint_cmd=""; lint_cmd_set=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --type)     scope_type="${2:-}"; shift 2 ;;
+    --issue)    issue_num="${2:-}"; issue_num="${issue_num#\#}"; shift 2 ;;
     --test-cmd) test_cmd="${2:-}"; test_cmd_set=1; shift 2 ;;
     --lint-cmd) lint_cmd="${2:-}"; lint_cmd_set=1; shift 2 ;;
     *) die "不明な引数: $1" ;;
   esac
 done
+case "$issue_num" in
+  ''|*[!0-9]*) [ -z "$issue_num" ] || die "--issue は Issue 番号（数値）で指定する: $issue_num" ;;
+esac
 [ -n "$scope_type" ] || die '--type は必須（fix|feat|refactor|docs|test|chore）'
 
 root=$(git rev-parse --show-toplevel 2>/dev/null) || die 'git リポジトリの外で実行されている'
@@ -131,7 +138,31 @@ else
   skip "fix 型以外（$scope_type）のため回帰テスト検査は対象外"
 fi
 
-# --- 3. テスト --------------------------------------------------------------
+# --- 3. Issue の assignee（着手宣言） ---------------------------------------
+# --auto では「止まらないこと」が優先されるため、ビルドを妨げない事務手続きは
+# 落ちやすい。テスト・lint と同じゲートに載せて機械的に検知する。
+# gh が無い / 未認証 / Issue を引けない場合は SKIP（ネットワーク都合で
+# コミットをブロックしない）。着手していない事実そのものだけを FAIL にする。
+if [ -z "$issue_num" ]; then
+  skip 'assignee 検査: --issue 未指定（テキスト起動）のため対象外'
+elif ! command -v gh >/dev/null 2>&1; then
+  skip 'assignee 検査: gh CLI が無い'
+elif ! me=$(gh api user --jq '.login' 2>/dev/null) || [ -z "$me" ]; then
+  skip 'assignee 検査: gh が未認証'
+elif ! assignees=$(gh issue view "$issue_num" --json assignees --jq '[.assignees[].login] | join(" ")' 2>/dev/null); then
+  skip "assignee 検査: Issue #$issue_num を取得できない"
+else
+  case " $assignees " in
+    *" $me "*) pass "assignee: #$issue_num は $me に assign 済み" ;;
+    *)
+      fail "Issue #$issue_num が $me に assign されていません（着手宣言が漏れています）"
+      add "          現在の assignee: ${assignees:-なし}"
+      add "          gh issue edit $issue_num --add-assignee @me"
+      ;;
+  esac
+fi
+
+# --- 4. テスト --------------------------------------------------------------
 test_log=$(mktemp); lint_log=$(mktemp)
 trap 'rm -f "$test_log" "$lint_log"' EXIT
 
@@ -146,7 +177,7 @@ else
   skip 'テストコマンド未設定（repo プロファイルの test_cmd が空）'
 fi
 
-# --- 4. lint ----------------------------------------------------------------
+# --- 5. lint ----------------------------------------------------------------
 if [ -n "$lint_cmd" ]; then
   if bash -c "$lint_cmd" >"$lint_log" 2>&1; then
     pass "lint: $lint_cmd"
