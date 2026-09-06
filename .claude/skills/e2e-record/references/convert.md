@@ -97,7 +97,21 @@ jq -r '.log.entries[]
 - ソート・フィルタ・ページング・検索・再読込ボタンは、ほぼ確実に対象
 - 応答時間（`.time`）が大きいものは `@heavy` 判定の材料にする
 
-経路B（Chrome Recorder）では HAR が無い。上記に当たる操作が含まれる場合は、アプリのコードから該当エンドポイントを特定して手動で入れる。
+HAR が欠けている録画（Network タブを開く前に録り始めた等）では、上記に当たる操作をアプリのコードから特定して手動で入れる。
+
+## 4.5. 録画先に依存する部分を落とす
+
+録画がローカルでもステージングでも、**同じ spec が CI で動く**形にする。
+
+| 録画に含まれるもの | 変換 |
+|---|---|
+| ログイン操作（ステージング録画で必ず入る） | **丸ごと捨てる。** 実行時は storageState を使う。捨てたロールは `test.use({ storageState: ... })` に反映する |
+| `page.goto('https://staging.example.com/documents')` | `page.goto('/documents')` に直す。絶対 URL を残さない |
+| 録画時に見えていた実データの ID・氏名・文書番号 | `factories/` の生成物に置き換える。**直書きしない** |
+| Cookie 同意バナー・お知らせモーダルの閉じる操作 | 環境依存なら捨てる。CI でも必ず出るものだけ残す |
+
+ログイン操作の判別: `input[type=password]` への入力、`/login` への遷移、`/auth/*` への POST が目印。
+ログインに使われたアカウントからロールを特定し、対応する storageState を選ぶ。特定できない場合のみテスターに聞く。
 
 ## 5. 確認したいことを assert に翻訳する
 
@@ -127,5 +141,7 @@ jq -r '.log.entries[]
 rg 'waitForTimeout' e2e/                        # 0 件
 rg 'page\.locator' e2e/features/*/specs/        # 0 件
 rg '_recordings' e2e/features/                  # 0 件（録画への参照が残っていないか）
+rg 'https?://' e2e/features/                    # 0 件（録画先の URL が残っていないか）
+rg -i 'password|login' e2e/features/*/specs/    # 0 件（ログイン操作が残っていないか）
 git status --porcelain e2e/_recordings          # 追跡されていないこと
 ```
