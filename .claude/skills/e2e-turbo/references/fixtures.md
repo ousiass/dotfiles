@@ -48,7 +48,7 @@ test.use({ storageState: ({}, use, testInfo) =>
 テストごとに専用データを作り、終了時に派生レコード・ファイルまで回収する。**これが `fullyParallel: true` の前提条件。**
 
 ```ts
-// e2e/fixtures/index.ts
+// e2e/features/document/fixtures.ts
 export const test = base.extend<{ documentFactory: DocumentFactory }>({
   documentFactory: [
     async ({}, use) => {
@@ -63,7 +63,7 @@ export const test = base.extend<{ documentFactory: DocumentFactory }>({
 ```
 
 ```ts
-// e2e/fixtures/factories/document.ts
+// e2e/features/document/factories/document.ts
 export function createDocumentFactory(admin: AdminClient) {
   const created: Array<{ table: string; id: string }> = [];
   const uploaded: string[] = [];

@@ -10,8 +10,8 @@ PR では全量を回さず、変更に影響される spec だけを実行す�
 // e2e/impact-map.json
 {
   "rules": [
-    { "pattern": "src/features/document/approval/**", "specs": ["specs/document/approve.spec.ts"] },
-    { "pattern": "src/features/document/**",          "specs": ["specs/document/**"] },
+    { "pattern": "src/features/document/approval/**", "specs": ["e2e/features/document/specs/approve.spec.ts"] },
+    { "pattern": "src/features/document/**",          "specs": ["e2e/features/document/specs/**"] },
     { "pattern": "src/components/ui/**",              "specs": ["**"] },
     { "pattern": "supabase/migrations/**",            "specs": ["**"] }
   ]

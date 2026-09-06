@@ -100,7 +100,7 @@ protected async runAndWaitForRpc(endpoint: string, action: () => Promise<void>) 
 テスト本体が落ちたのか、前提データが壊れていたのかを区別できるようにする。
 
 ```ts
-// precheckers/document.ts
+// e2e/features/document/prechecks.ts
 const schema = z.object({ id: z.string().uuid(), status: z.literal("draft") });
 
 export function precheckDocument(row: unknown) {
@@ -142,7 +142,7 @@ spec / POM を書いたら、以下を grep で機械的に確認する。
 
 ```bash
 rg 'waitForTimeout' e2e/                        # Law #1: 0 件であること
-rg 'page\.locator' e2e/specs/                   # Law #3: 0 件であること
+rg 'page\.locator' e2e/features/*/specs/        # Law #3: 0 件であること
 rg 'await (locator|this\.\w+)\.(innerText|textContent)\(\)' e2e/  # Law #4
 rg 'not\.toBeVisible|toHaveCount\(0\)' e2e/     # Law #5: 前段に陽性 assert があるか目視
 ```
