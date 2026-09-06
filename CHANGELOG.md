@@ -1,5 +1,49 @@
 > 注: このファイルは `~/dotfiles` リポジトリ全体（fish / nvim / tmux / install scripts / `.claude/` 配下のスキル類すべて）の変更履歴です。
 
+## [v0.11.0] - 2026-09-06
+
+E2E テストと品質監査のスキル群（`e2e-turbo` / `e2e-record` / `test-audit` / `kuuhaku`）を追加し、あわせて sweep 系スキルの共有 reference を `sweep-common/` に切り出して実行時に無言で失われていたガードを塞いだリリース。sweep 側の修正は「シェル変数が Bash 呼び出しをまたいで持ち越される」という誤った前提が根にあり、ベースブランチ直コミット防止のガードが常に素通りしていた。
+
+### ✨ New Features / 新機能
+
+- Add `e2e-turbo` skill / Playwright E2E を並列前提の構造から設計し、全量を数分で完走させるスキルを追加。**3軸 project 分割 + 二段並列**、**storageState 事前生成**（全テストから UI ログインを消す）、**per-test Factory + teardown**（テスト間共有状態を構造的に禁止し `fullyParallel` を成立させる）、**impact-map**（PR では影響 spec のみ実行）の4本柱で構成し、並列度だけ上げると flaky が爆発するため Iron Law とセットで適用する
+- Add `e2e-record` skill / テスターの画面録画を対話形式で Playwright E2E テストに変換し、PR 作成まで行うスキルを追加。録画対象はローカル / ステージングから選べる
+- Add `test-audit` skill / テスト・カバレッジ・CI の抜け漏れを3軸（テストが存在し意味を持つか / 計測と閾値の仕組みがあるか / PR で強制されるか）で監査し、レポートまたは Issue を生成するスキルを追加。判定基準を「ジョブが存在するか」ではなく**「落ちてもマージできるか」**に置き、required status check 未登録・`continue-on-error: true`・`|| true`・`--passWithNoTests`・E2E が `schedule` のみ、といったゲートの形骸化を検出する。コードと CI 設定は変更しない
+- Add `kuuhaku` skill / 仕様書の1画面分を HTML に変換し、疑問への回答往復を通じて仕様の空白を検出するスキルを追加 (#4)
+- Add verification gate to `impl` skills / `verify-scope.sh` をコミット前ゲート（2-6）として必須実行にし、未実装パターン / `fix` 型の回帰テスト有無 / テストと lint の exit code を機械チェックする。FAIL 時は失敗ログを develop に渡して緑になるまで再試行し、同じ FAIL が2回続いたら別アプローチを強制する。あわせて repo プロファイルを `~/.claude/cache/` にリポジトリ別キャッシュ（git common dir がキーなので worktree 間で共有）し、実装前のコンテキストパックをサブエージェントを立てず impl 自身が作成する
+- Add lock and state.json lifecycle to `spec-sweep` / `report-sweep` / 両スキルは state.json も lock も作らないまま single-pr 経路で `single-branch-mode.md` の state.json 更新手順を使う建て付けで、prelude も state.json から `base_branch` を読むためガードが実質無効だった。`issue-sweep` と同じフェーズ0（多重起動チェック + 初期化）と `--abort` を追加し、対話が主体のため lock は実行フェーズ直前でのみ取得する
+
+### 🔧 Improvements / 改善
+
+- Extract shared sweep references into `sweep-common/` / 4つの sweep スキルが共有する `branch-preflight.md` / `single-branch-mode.md` / `notifications.md` が `issue-sweep` 配下に置かれ、他スキルから `~/.claude/skills/...` のハードコードで参照されていた。プロジェクト同梱の `.claude/skills/` に置かれると壊れるため、専用ディレクトリへ移して参照を相対パスに統一した
+- Rework `refine-sweep` issue consumption into an in-flight pipeline / worktree の所有者とマージの責任者が `issue-sweep` と逆だった（同じ `.sweep/` を共有し同じ Stop Hook に監視される2スキルで前提が逆）のを、sweep 側が worktree を作りパスを埋めて渡し、agent は `/impl --auto --no-pr` → PR 作成までで返す方式に統一。メインが in-flight テーブルを持ち、ラウンド冒頭の `gh pr list` 1コールで全 PR を観測してマージする。wave バリアを廃してスロット補充方式にし、CI 待ちが実装スロットを食い潰さないようにした
+- Stop auto-merging the final PR in single-pr mode / 統合ブランチからベースブランチへ出す最終 PR を sweep 側でマージせず、CI 緑を確認したら Ready to merge 通知のみ出して open のままユーザーに返すようにした。レビューとマージは人が行う。`issue-sweep` の multi-pr モードと `refine-sweep` の各 Issue agent の自動マージは従来どおり維持する
+- Restructure `e2e-turbo` into feature-vertical directories / ディレクトリ構成を feature 縦割りに変更し、`.linterly.yml` があれば行数上限を spec 分割基準に反映することを明記した
+
+### 🐛 Bug Fixes / バグ修正
+
+- Fix shell variables assumed to persist across Bash calls / Bash ツールは呼び出しごとに新しいシェルのため、P-0 で定義した `$base_branch` / `$int_branch` / `assert_not_base` が2回目以降は空文字と未定義関数になっていた。`set -u` もないため `assert_not_base` は `cur == ""` との比較になって常に素通りし、**ベースブランチ直コミット防止というガードの存在理由が無言で失われていた**。P-0-0 で `$SWEEP_DIR/prelude.sh` を生成し、変数と関数を毎回読み直す方式に統一した
+- Fix `issue-sweep` merging PRs with no CI runs / マージ条件が `waiting == 0` ∧ `failed_checks` 空 ∧ `state == OPEN` だけだったため、PR 作成直後で `statusCheckRollup` が空配列のときも成立していた。agent が PR を作った直後のラウンドで必ずここを通るため、このレースは常態だった。`checks_total ≥ 1` を条件に加え、CI を持たないリポジトリ向けに2ラウンド連続で0件なら CI 無しと判定する
+- Fix `issue-sweep` PR listing dropping its own PRs / `gh pr list --state all --limit 100` は closed/merged も含むため、活動的なリポジトリでは in-flight の PR が窓から押し出され、「CI 実行中」のまま永久に残るか同じバッチを二重起動していた
+- Fix spinoff detection keyed on an undefined variable / `$sweep_start_iso` の代入が参照より後にあり、その元の `$sweep_start_ts` はスキル中のどこにも代入がなかった。`created:>=` が空になり全 open Issue が返るため、spinoff 追跡が無関係な Issue を再 sweep するか0件で握り潰すかに倒れていた。`state.json` に `round_started_at` を持たせ、周回カウンタも `.round` に一本化した
+- Fix spinoff count measuring string length / `${#spinoff_ids}` が改行区切り文字列の文字数を返していたため、通知の件数が実際と食い違っていた
+- Fix `refine-sweep` severity mapping and threshold check / major に対応する severity ラベルが未定義で、`severity:medium` がどのバケツにも入らず `--max-minor` の勘定からも `critical/major == 0` の判定からも漏れていた。critical = `severity:critical` / major = `severity:high` / minor = それ以外、という対応表をフェーズ1に置いて唯一の定義とした
+- Fix `refine-sweep` state.json schema diverging from `issue-sweep` / 同じ見出しで「sweep 系スキル共通の進行状態ファイル」を宣言しているのに、片方が廃止した `evidence` / `last_counts` をもう片方が持ち、空なら次フェーズへ進むことを禁止行動にしていた。証跡を `refine-metrics.jsonl` 一本に統一した
+- Fix `refine-sweep` referring to `.sweep/` by relative path / `issue-sweep` が29箇所すべてで `$SWEEP_DIR` を使うのに対し `refine-sweep` は全て相対パスで、メインスレッドが cwd を動かすと別の場所を見ていた
+- Fix `sweep_notify` reading `.sweep/` by relative path / cwd が worktree のとき通知が無言で no-op になっていた（`|| return 0` のため気づけない）
+- Fix `spec-sweep` / `report-sweep` leaving the lock behind / エラー時の再開可否ヒアリングと完了報告の経路で terminal 化と lock 削除が抜けており、Stop Hook に押し戻されて質問できなくなるか、次回起動が「他 sweep 実行中」で弾かれていた
+- Fix `spec-sweep` 1-2 exceeding the 4-question limit / 「1項目1質問に厳守」と書きながら5項目を聞いていた。項目間の話である依存関係を、全項目名が揃う 1-1 へ移した
+- Fix `report-sweep` double approval / 1-3「計画確定」とフェーズ2「一括承認」がどちらも 提示 → `AskUserQuestion` → `TaskCreate` をしており、一括承認を選んでいても同じ承認を2度求めていた
+- Fix `report-sweep` not referencing its bundled templates / `templates/bug.md` / `feature.md` が存在するのに 3-4 にパスの記載がなく、Claude がテンプレを読まず自前で本文を書いていた。起票経路によって Issue の形が変わると後段の `/bug-fix` `/impl` が読み取れなくなる
+- Fix sweep-common references pointing at non-existent phase numbers / reference は必要なときだけ読む設計のため、読んだ側が存在しない手順を探しに戻っていた。番号参照をイベント名に置き換え、番号は本体だけが持つようにした
+- Fix `issue-sweep` metrics using a singular `skill` field / agent は `skills` 配列を返すのにスキーマは単数で変換規則がなく、先頭1つに潰すと `bug-fix` と `impl` が混在したバッチの集計が壊れていた
+
+### 📝 Documentation / ドキュメント
+
+- Trim sweep prohibition lists to non-obvious traps / 「実測で1セッション1万往復」が4箇所、「諦めたらキューから消す」が7箇所に全文で重複し、禁止行動の大半が本文の手順の言い換えになっていた。「手順どおりに読んでも踏みうる罠」だけに絞り、`issue-sweep` 45 → 30行、`refine-sweep` 33 → 22行に削減
+- Document `--parallel` as decrease-only / デフォルト5・上限5で実質下げることしかできないのに「上限」と書かれ上げられるように読めていた。あわせて `parallel` / `max_inflight` を state.json に持たせ、判定式が実際の値を指すようにした
+- Document the GNU coreutils requirement / `date -u -d @ts` と `timeout` は GNU 依存で macOS では動かないのに、24h 前の算出だけ BSD フォールバックがあるという中途半端な状態だった。前提条件に明記し、中途半端なフォールバックは削除した
+
 ## [v0.10.0] - 2026-09-03
 
 sweep 系スキルの研磨タイミングを見直し、Stop Hook との往復で context を浪費していた問題を塞いだリリース。single-pr モードでは作業単位ごとに `refine-git` を回していたが、同じ指摘が作業単位の数だけ重複検出されるうえ、バッチ間の重複・不整合は誰も検出できていなかったため、統合ブランチにすべて積んだ後にまとめて 1 回研磨する方式に変更した。
