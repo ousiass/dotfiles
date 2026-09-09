@@ -13,10 +13,11 @@
 #   - fnm + fnm 経由の Node 全バージョン
 #   - Go (Linux のみ /usr/local/go、要 sudo)
 #   - Claude Code (~/.local/share/claude, ~/.local/bin/claude)
+#   - Cursor CLI (~/.local/share/cursor-agent, ~/.local/bin/{cursor-agent,agent})
 #
 # 削除しないもの:
 #   - fish, tmux, neovim, git, curl 等のシステムパッケージ
-#   - ~/.env, ~/.claude のデータ, ~/.mcp.json, dotfiles 自身
+#   - ~/.env, ~/.claude のデータ, ~/.cursor のデータ, ~/.mcp.json, dotfiles 自身
 #   - シンボリックリンク (~/.config/{nvim,tmux,fish,gh-dash} 等)
 #
 # 使い方:
@@ -47,6 +48,13 @@ if [[ -n "${CODEX_CI:-}" || -n "${CODEX_THREAD_ID:-}" ]]; then
     exit 1
 fi
 
+if [[ -n "${CURSOR_AGENT:-}" ]]; then
+    err "Cursor CLI セッション中はこのスクリプトを実行できません。"
+    err "cursor-agent バイナリを削除すると現セッションが壊れます。"
+    err "Cursor CLI を終了してからターミナルで実行してください。"
+    exit 1
+fi
+
 # ------------------------------------------------------------------
 # 確認プロンプト
 # ------------------------------------------------------------------
@@ -63,11 +71,13 @@ cat <<'EOF'
   - fnm および fnm 経由でインストールした Node 全バージョン
   - Go (Linux のみ, /usr/local/go)
   - Claude Code
+  - Cursor CLI (~/.local/share/cursor-agent, ~/.local/bin/{cursor-agent,agent})
 
 削除しないもの:
   - fish/tmux/neovim/git 等のシステムパッケージ
   - ~/.env
   - ~/.claude のデータ
+  - ~/.cursor のデータ（認証情報・設定・チャット履歴）
   - dotfiles 配下のシンボリックリンク
 
 ==================================================================
@@ -108,6 +118,17 @@ rm -rf "/run/user/$(id -u)/fnm_multishells" 2>/dev/null || true
 
 log "Claude Code 削除"
 rm -rf "$HOME/.local/share/claude" "$HOME/.local/bin/claude"
+
+# ~/.cursor（認証情報・設定・チャット履歴）は残し、バイナリのみ消す。
+# 公式インストーラは cursor-agent と agent の2つの symlink を張る。agent は
+# 汎用的な名前なので、cursor-agent の実体を指している場合のみ削除する。
+log "Cursor CLI 削除"
+for link in "$HOME/.local/bin/cursor-agent" "$HOME/.local/bin/agent"; do
+    if [[ -L "$link" && "$(readlink -f "$link")" == "$HOME/.local/share/cursor-agent/"* ]]; then
+        rm -f "$link"
+    fi
+done
+rm -rf "$HOME/.local/share/cursor-agent"
 
 if [[ "$(uname -s)" == "Linux" ]]; then
     if [[ -d /usr/local/go ]]; then

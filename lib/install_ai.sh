@@ -9,6 +9,8 @@
 . "$DOTFILES_DIR/lib/tools/codex.sh"
 # shellcheck source=lib/tools/gemini.sh
 . "$DOTFILES_DIR/lib/tools/gemini.sh"
+# shellcheck source=lib/tools/cursor.sh
+. "$DOTFILES_DIR/lib/tools/cursor.sh"
 # shellcheck source=lib/tools/fugu.sh
 . "$DOTFILES_DIR/lib/tools/fugu.sh"
 # shellcheck source=lib/tools/herdr.sh

@@ -53,6 +53,7 @@ main() {
     update_fugu
     update_codex_cli
     update_gemini_cli
+    update_cursor_cli
     update_herdr
 
     update_lazygit

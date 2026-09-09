@@ -85,6 +85,10 @@ $EDITOR .env
    - **Claude Code** (公式 curl インストーラ)
    - **OpenAI Codex CLI** (`bun install -g @openai/codex`)
    - **Gemini CLI** (`bun install -g @google/gemini-cli`)
+   - **Cursor CLI** (`cursor-agent`、公式 curl インストーラ)
+     - `~/.local/share/cursor-agent/versions/<ver>/` に展開され `~/.local/bin/{cursor-agent,agent}` から参照される
+     - 認証・設定・skills（`~/.cursor/`）は dotfiles 管理外。新マシンでは `cursor-agent login` を実行する
+     - サブエージェント定義は `~/.cursor/agents/` に加えて `~/.claude/agents/` も読まれるため、`.claude/agents/` の定義がそのまま共用される
    - **Fugu** (Sakana AI の Codex 設定バンドル、公式 install スクリプト)
      - `~/.env` から `SAKANA_API_KEY` を拾えれば非対話でインストール、無ければ warn してスキップ
      - `~/.codex/skills/.system/` を経由して `codex-fugu` ランチャと設定バンドルを配置
@@ -111,6 +115,7 @@ $EDITOR .env
 ./install.sh codex_fugu      # fugu と同じ alias
 ./install.sh codex           # codex_cli と同じ alias。Fugu pin があれば自動整合
 ./install.sh codex_cli
+./install.sh cursor          # cursor_cli と同じ alias
 ./install.sh fugu gemini_cli # 複数指定可
 ```
 
@@ -135,6 +140,7 @@ $EDITOR .env
 | `x` | `codex --dangerously-bypass-approvals-and-sandbox` |
 | `fugu` / `f` | `codex-fugu --dangerously-bypass-approvals-and-sandbox` |
 | `fc` | `codex-fugu --dangerously-bypass-approvals-and-sandbox resume --last` |
+| `cu` | `cursor-agent -f` |
 | `h` | `herdr` |
 
 `codex-fugu` は内部で `codex -p fugu "$@"` を `exec` するので、`fugu` でも codex 本体の bypass フラグがそのまま効く。`fc` は Codex CLI の `resume --last` で直近セッションを再開する。
@@ -167,7 +173,8 @@ cd ~/dotfiles
 
 `update.sh` は Neovim / uv / bun / rustup / fnm / Go / Node LTS / AI CLI / cloud CLI / fish plugins / nvim plugins を更新する。
 ただし Fugu を使っている場合、Fugu config bundle が対応 Codex version を pin しているため、Codex 本体の単独 update は行わず、Fugu installer を `--yes --force` で呼び出して plain `codex` と `codex-fugu` の両方が同じ pin version を使うよう自動整合する。
-Codex や Claude Code の実行セッション中は、自分自身を壊さないように該当 CLI の self-update をスキップする。
+Codex / Claude Code / Cursor CLI の実行セッション中は、自分自身を壊さないように該当 CLI の self-update をスキップする（Cursor CLI は shell ツール実行時に `CURSOR_AGENT=1` が入るのでこれで判定する）。
+Cursor CLI は `cursor-agent update` が無言で失敗するケース（長期間更新していないバイナリ）があるため、失敗時は公式インストーラでの再取得にフォールバックする。
 
 ## 各ツールをリセット（テスト/壊れた時用）
 
@@ -177,9 +184,9 @@ Codex や Claude Code の実行セッション中は、自分自身を壊さな�
 bash ~/dotfiles/reset-tools.sh
 ```
 
-- `CLAUDECODE=1` を検出して Claude Code セッション中は自動的に拒否
-- 削除対象: uv / bun (codex/gemini 含む) / Codex CLI standalone package / rustup / fnm + Node / Go / Claude Code
-- 削除しないもの: fish/tmux/neovim/git, ~/.env, ~/.claude のデータ, シンボリックリンク
+- `CLAUDECODE=1` / `CODEX_THREAD_ID` / `CURSOR_AGENT` を検出して各エージェントのセッション中は自動的に拒否
+- 削除対象: uv / bun (codex/gemini 含む) / Codex CLI standalone package / rustup / fnm + Node / Go / Claude Code / Cursor CLI
+- 削除しないもの: fish/tmux/neovim/git, ~/.env, ~/.claude のデータ, ~/.cursor のデータ, シンボリックリンク
 
 ## 注意
 
