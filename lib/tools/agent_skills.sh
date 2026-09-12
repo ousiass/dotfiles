@@ -35,8 +35,10 @@ install_agent_skills() {
     sync_agent_skills_gitignore
 }
 
-# ~/.agents/skills/<name> を ~/.claude/skills/<name> と
-# ~/.codex/skills/<name> に symlink。
+# ~/.agents/skills/<name> を ~/.claude/skills/<name>、~/.codex/skills/<name>、
+# ~/.cursor/skills/<name> に symlink。
+# Cursor CLI は互換で ~/.claude/skills/ も読むが、Cloud Agents の同期対象は
+# ~/.cursor/skills/ だけなのでそちらにも配る。
 # 既存の実体ディレクトリ（ユーザー自作 skill）は保護する。
 link_agent_skills() {
     local src_root="$HOME/.agents/skills"
@@ -44,7 +46,8 @@ link_agent_skills() {
 
     local claude_dst="$HOME/.claude/skills"
     local codex_dst="$HOME/.codex/skills"
-    mkdir -p "$claude_dst" "$codex_dst"
+    local cursor_dst="$HOME/.cursor/skills"
+    mkdir -p "$claude_dst" "$codex_dst" "$cursor_dst"
 
     local skill_dir name dst
     for skill_dir in "$src_root"/*/; do
@@ -52,7 +55,7 @@ link_agent_skills() {
         name="$(basename "$skill_dir")"
         [[ "$name" == .* ]] && continue
 
-        for dst in "$claude_dst/$name" "$codex_dst/$name"; do
+        for dst in "$claude_dst/$name" "$codex_dst/$name" "$cursor_dst/$name"; do
             # 自作 skill (実ディレクトリ、または dotfiles を指す symlink) は保護。
             # 上書きしていいのは「存在しない」or「既に ~/.agents/skills/ を指す」場合のみ。
             if [[ -L "$dst" ]]; then

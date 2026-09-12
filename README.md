@@ -87,8 +87,9 @@ $EDITOR .env
    - **Gemini CLI** (`bun install -g @google/gemini-cli`)
    - **Cursor CLI** (`cursor-agent`、公式 curl インストーラ)
      - `~/.local/share/cursor-agent/versions/<ver>/` に展開され `~/.local/bin/{cursor-agent,agent}` から参照される
-     - 認証・設定・skills（`~/.cursor/`）は dotfiles 管理外。新マシンでは `cursor-agent login` を実行する
+     - 認証（`~/.cursor/` 配下の資格情報）は dotfiles 管理外。新マシンでは `cursor-agent login` を実行する
      - サブエージェント定義は `~/.cursor/agents/` に加えて `~/.claude/agents/` も読まれるため、`.claude/agents/` の定義がそのまま共用される
+     - skills も互換で `~/.claude/skills/` が読まれるが、Cloud Agents の同期対象は `~/.cursor/skills/` のみのため、install 時に自作スキルと外部 agent-skills を `~/.cursor/skills/<name>` にも symlink する
    - **Fugu** (Sakana AI の Codex 設定バンドル、公式 install スクリプト)
      - `~/.env` から `SAKANA_API_KEY` を拾えれば非対話でインストール、無ければ warn してスキップ
      - `~/.codex/skills/.system/` を経由して `codex-fugu` ランチャと設定バンドルを配置

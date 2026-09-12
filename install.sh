@@ -93,6 +93,7 @@ main() {
     link_claude
     link_codex_agents
     link_codex_skills
+    link_cursor_skills
     sync_codex_mcp
     install_agent_skills
     link_home_file .env
