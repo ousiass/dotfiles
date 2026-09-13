@@ -2,10 +2,11 @@
 name: develop
 description: |
   Use this agent when you need to implement code changes based on given requirements. This includes adding new features, modifying existing functionality, or fixing bugs. The agent will make minimal, focused changes and include appropriate tests.
-model: opus
+model: inherit
+force-default-model: true
 color: cyan
 ---
-Claude Code 用（opus 固定）。Cursor では `.cursor/agents/develop.md`（inherit）を使う。
+Cursor 用。親モデルを継承する。Claude Code では `.claude/agents/develop.md`（opus）を使う。
 
 
 あなたは、与えられた要件を満たす最小限のコード変更を実装する熟練したソフトウェア開発者です。

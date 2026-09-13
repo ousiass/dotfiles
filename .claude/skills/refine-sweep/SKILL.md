@@ -163,12 +163,12 @@ gh label create "$iter_label" --color 0E8A16 2>/dev/null || true
 
 ### 2-2. review 並列実行（Issue 化させる）
 
-各レビュースキルを **Issue 化モードで並列起動**。sub-agent は Skill を呼び出し、Skill 内の `AskUserQuestion` は `GitHub Issue に作成` + `個別 Issue` を自動選択して進む。
+各レビュースキルを **Issue 化モードで並列起動**。起動は `harness-model`（`subagent_type: review`）。sub-agent は Skill を呼び出し、Skill 内の `AskUserQuestion` は `GitHub Issue に作成` + `個別 Issue` を自動選択して進む。
 
 ```
 Agent({
   description: "refine-sweep iter <iter+1> — code-review",
-  subagent_type: "claude",
+  subagent_type: "review",
   prompt: """
 リポジトリ全体に対して /code-review を Skill ツールで起動して実行してください。
 
@@ -361,7 +361,7 @@ assert_not_base "$wt" || { echo "guard 失敗: この Issue は諦める"; }
 ```
 Agent({
   description: "refine-sweep iter <iter+1> #<issue_num> [<DOMAIN>]",
-  subagent_type: "claude",
+  subagent_type: "develop",
   prompt: """
 Issue #<issue_num> を実装して PR を 1 本作ってください。メインスレッドには JSON だけを返します。
 worktree は作成済みです。**以降のすべての作業を <wt の絶対パス> の中で行ってください。**

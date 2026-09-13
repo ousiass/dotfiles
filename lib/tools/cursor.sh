@@ -7,10 +7,13 @@ install_cursor() {
 install_cursor_cli() {
     if command -v cursor-agent >/dev/null 2>&1; then
         log "Cursor CLI は既にインストール済み ($(cursor_cli_version || echo unknown))"
-        return
+    else
+        log "Cursor CLI をインストール"
+        cursor_cli_run_installer || warn "Cursor CLI のインストールに失敗"
     fi
-    log "Cursor CLI をインストール"
-    cursor_cli_run_installer || warn "Cursor CLI のインストールに失敗"
+    link_cursor_skills
+    link_cursor_agents
+    link_cursor_rules
 }
 
 # 公式インストーラは ~/.local/share/cursor-agent/versions/<ver>/ に展開し、
@@ -34,6 +37,9 @@ update_cursor() {
     update_cursor_cli "$@"
 }
 update_cursor_cli() {
+    link_cursor_skills
+    link_cursor_agents
+    link_cursor_rules
     if ! command -v cursor-agent >/dev/null 2>&1; then
         warn "cursor-agent が無いため update をスキップ"
         return
@@ -90,6 +96,65 @@ link_cursor_skills() {
             fi
         elif [[ -e "$dst" ]]; then
             warn "$dst は既存ディレクトリと衝突するため link をスキップ"
+            continue
+        fi
+        make_symlink "$dst" "$src" >/dev/null || true
+    done
+}
+
+# ------------------------------------------------------------------
+# ~/dotfiles/.cursor/agents/* を ~/.cursor/agents/ に symlink
+# ------------------------------------------------------------------
+# Claude Code の ~/.claude/agents は opus 固定。Cursor は inherit。
+link_cursor_agents() {
+    local src_root="$DOTFILES_DIR/.cursor/agents"
+    local dst_root="$HOME/.cursor/agents"
+
+    [[ -d "$src_root" ]] || { warn "$src_root が無いため Cursor agents リンクをスキップ"; return; }
+    mkdir -p "$dst_root"
+
+    local src name dst current
+    for src in "$src_root"/*.md; do
+        [[ -f "$src" ]] || continue
+        name="$(basename "$src")"
+        dst="$dst_root/$name"
+        if [[ -L "$dst" ]]; then
+            current="$(readlink "$dst")"
+            if [[ "$current" != "$src" ]]; then
+                warn "$dst は既存リンク ($current) と衝突するため link をスキップ"
+                continue
+            fi
+        elif [[ -e "$dst" ]]; then
+            warn "$dst は既存ファイルと衝突するため link をスキップ"
+            continue
+        fi
+        make_symlink "$dst" "$src" >/dev/null || true
+    done
+}
+
+# ------------------------------------------------------------------
+# ~/dotfiles/.cursor/rules/* を ~/.cursor/rules/ に symlink
+# ------------------------------------------------------------------
+link_cursor_rules() {
+    local src_root="$DOTFILES_DIR/.cursor/rules"
+    local dst_root="$HOME/.cursor/rules"
+
+    [[ -d "$src_root" ]] || { warn "$src_root が無いため Cursor rules リンクをスキップ"; return; }
+    mkdir -p "$dst_root"
+
+    local src name dst current
+    for src in "$src_root"/*.mdc "$src_root"/*.md; do
+        [[ -f "$src" ]] || continue
+        name="$(basename "$src")"
+        dst="$dst_root/$name"
+        if [[ -L "$dst" ]]; then
+            current="$(readlink "$dst")"
+            if [[ "$current" != "$src" ]]; then
+                warn "$dst は既存リンク ($current) と衝突するため link をスキップ"
+                continue
+            fi
+        elif [[ -e "$dst" ]]; then
+            warn "$dst は既存ファイルと衝突するため link をスキップ"
             continue
         fi
         make_symlink "$dst" "$src" >/dev/null || true

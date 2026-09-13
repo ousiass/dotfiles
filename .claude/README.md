@@ -101,6 +101,7 @@ graph TD
 |--------|------|
 | `/skill-creator` | Anthropic公式ガイドに基づく高品質なスキル作成。プログレッシブディスクロージャ・トークン最適化対応 |
 | `/skill-reviewer` | 既存スキルを公式ガイド基準で監査し、改善点を提示 |
+| `harness-model` | サブエージェントのモデル方針（Claude Code=Opus、Cursor=親継承）。他スキルから参照 |
 
 ## エージェント (`agents/`)
 
@@ -108,8 +109,8 @@ Task ツールの `subagent_type` で指定して使うカスタムエージェ�
 
 | エージェント | 概要 |
 |-------------|------|
-| `develop` | 最小限のコード変更を実装する開発者エージェント |
-| `review` | 読み取り専用でコード変更をレビューするエージェント |
+| `develop` | 最小限のコード変更を実装する。Claude Code は opus、Cursor は `.cursor/agents` で親継承 |
+| `review` | 読み取り専用レビュー。モデル方針は `develop` と同じ |
 
 ## ツール (`tools/`)
 

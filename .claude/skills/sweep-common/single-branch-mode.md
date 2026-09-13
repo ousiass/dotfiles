@@ -113,7 +113,7 @@ worktree <worktree_path> のブランチ <work_branch> が統合ブランチ <in
 ### S-2-0. 統合研磨（必須）
 
 統合ブランチに積んだ全差分を **まとめて 1 回だけ** 研磨する。作業単位ごとに研磨しないのはこのため。
-メインスレッドはコードに触らないので `Agent` ツール（`subagent_type: claude`）に丸投げする。
+メインスレッドはコードに触らないので `Agent` ツール（`subagent_type: develop`。`harness-model` に従う）に丸投げする。
 
 ```
 統合ブランチ <int_branch> に積まれた差分をまとめて研磨してください。メインスレッドには JSON だけを返します。

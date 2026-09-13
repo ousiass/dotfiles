@@ -1,0 +1,6 @@
+---
+description: サブエージェントは親モデルを継承する
+alwaysApply: true
+---
+
+サブエージェントを起動するとき `model` は渡さない（親を継承）。`claude` / opus / sonnet / gpt スラッグは禁止。種別は `develop` か `review`。`subagent_type: claude` は使わない。詳細は `harness-model` スキル。

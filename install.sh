@@ -94,6 +94,8 @@ main() {
     link_codex_agents
     link_codex_skills
     link_cursor_skills
+    link_cursor_agents
+    link_cursor_rules
     sync_codex_mcp
     install_agent_skills
     link_home_file .env

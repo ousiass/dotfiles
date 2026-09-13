@@ -44,7 +44,7 @@ review → 修正 → 再 review を回し、**リポジトリ全体**をレビ�
 
 ## フェーズ2: review → 修正ループ
 
-各反復で `Agent(subagent_type=claude)` を**レビュースキルごとに並列起動**。**メインスレッドはコードに触れない**。
+各反復でレビュースキルごとに並列サブエージェントを起動する。起動は `harness-model` に従う（`subagent_type: review`。`claude` は使わない。Cursor では `model` を渡さない）。**メインスレッドはコードに触れない**。
 
 ### 2-1. レビュー集約（並列）
 
@@ -53,7 +53,7 @@ review → 修正 → 再 review を回し、**リポジトリ全体**をレビ�
 ```
 Agent({
   description: "refine iter <iter+1> — code-review",
-  subagent_type: "claude",
+  subagent_type: "review",
   prompt: """
 リポジトリ全体に対して /code-review を Skill ツールで起動して実行。
 出力先を聞かれたら「コンソール出力」を選び、Issue は作成しないこと。
@@ -132,7 +132,7 @@ agent を起動する**前に**メインスレッドで `prev_head=$(git rev-par
 ```
 Agent({
   description: "refine iteration <iter+1> fix",
-  subagent_type: "claude",
+  subagent_type: "develop",
   prompt: """
 PR #<n>（branch: <branch>）の以下の指摘を修正してください:
 
@@ -147,7 +147,7 @@ MINOR (excess minor が <minor - max_minor> 件あるので優先度高いもの
 
 手順:
 1. `git checkout <branch>` で切り替え
-2. develop エージェント (Agent(develop)) で順番に修正
+2. 指摘を順に修正する（この agent 自身が develop）
 3. テストが必要なら追加（リグレッションテストは必須）
 4. `git push` で修正コミットを push
 5. 最終メッセージ JSON: {"fixed_critical": N, "fixed_major": N, "fixed_minor": N, "commit": "<sha>"}

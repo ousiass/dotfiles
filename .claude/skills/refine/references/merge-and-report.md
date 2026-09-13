@@ -42,7 +42,7 @@ while true; do
     if (( respawn >= 2 )); then status="ci_gave_up"; merge_failure="$failed"; break; fi
     respawn=$((respawn+1))
     gh pr comment "$pr_number" --body "$skill_name: マージ前 CI 失敗を検知（attempt ${respawn}/3、checks: $failed）。修正 agent を再起動します。"
-    # フェーズ2-4 と同じ fix プロンプトで Agent(claude) 起動
+    # フェーズ2-4 と同じ fix プロンプトで Agent(develop) 起動
     # CI 修正に限り、ワークフロー/設定ファイル等の差分外変更を許可する
     continue
   fi

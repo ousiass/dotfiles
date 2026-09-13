@@ -161,7 +161,7 @@ gh issue list --state open --search "label:split-from" \
 
 `bug` ラベル付き、または `split-from:` ラベル付き（既に分割された子）の Issue は**分割判定だけスキップし、スコープ / 依存の解析は行う**。
 
-`Agent(subagent_type=claude, model=sonnet)` で起動する。**モデルは `sonnet` を明示する** — 本文と関連仕様書を読んで JSON を返すだけで、コード生成も CI 突破も伴わない。**同時起動は最大 5 件**（`--parallel` とは独立の固定上限）。6 件以上あれば 5 件ずつのウェーブに分け、各ウェーブが揃ってから次を出す。
+`Agent(subagent_type=review, model=sonnet)` で起動する。**Claude Code では `sonnet` を明示する**（JSON 返すだけなので opus は不要）。**Cursor では `model` を付けない**（`harness-model`）。**同時起動は最大 5 件**（`--parallel` とは独立の固定上限）。6 件以上あれば 5 件ずつのウェーブに分け、各ウェーブが揃ってから次を出す。
 
 ```
 Issue #<n> を解析して JSON 1行だけを返してください。実装は一切しないこと。
@@ -332,7 +332,7 @@ head -n20 "$SWEEP_DIR/queue.txt"   # 候補を眺める。1 行 = 1 バッチ
 
 `Agent` ツールを以下の指定で呼ぶ:
 
-- `subagent_type`: `claude`
+- `subagent_type`: `develop`（起動は `harness-model`。`claude` は使わない。Cursor では `model` を渡さない）
 - `description`: `"Batch #<a>[,#<b>…] implementation"`
 - `prompt`: 下記の**統一プロンプト**（バッチ件数 1 件でも同じものを使う）
 

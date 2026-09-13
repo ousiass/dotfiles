@@ -13,6 +13,10 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── claude-mcp/        
 │   └── mcp.json        # Claude Code MCP 設定（${VAR} で env 参照、~/.mcp.json はこれへのシンボリックリンク）
 ├── .claude/            # → ~/.claude（CLAUDE.md, agents/, skills/, settings.json 等）
+│                       # skills/ は ~/.cursor/skills/<name> にも symlink され Cursor CLI/IDE と共用
+├── .cursor/
+│   ├── agents/         # → ~/.cursor/agents（model: inherit。Claude 側は .claude/agents の opus）
+│   └── rules/          # → ~/.cursor/rules（サブエージェントは親モデル継承）
 ├── .codex/
 │   ├── AGENTS.md       # → ~/.codex/AGENTS.md（Codex グローバル指示、言語設定等）
 │   └── skills/         # 各サブディレクトリが ~/.codex/skills/<name> に symlink される Codex 用 skill 群
@@ -88,8 +92,8 @@ $EDITOR .env
    - **Cursor CLI** (`cursor-agent`、公式 curl インストーラ)
      - `~/.local/share/cursor-agent/versions/<ver>/` に展開され `~/.local/bin/{cursor-agent,agent}` から参照される
      - 認証（`~/.cursor/` 配下の資格情報）は dotfiles 管理外。新マシンでは `cursor-agent login` を実行する
-     - サブエージェント定義は `~/.cursor/agents/` に加えて `~/.claude/agents/` も読まれるため、`.claude/agents/` の定義がそのまま共用される
      - skills も互換で `~/.claude/skills/` が読まれるが、Cloud Agents の同期対象は `~/.cursor/skills/` のみのため、install 時に自作スキルと外部 agent-skills を `~/.cursor/skills/<name>` にも symlink する
+     - サブエージェントは Claude Code 用 `.claude/agents/`（`model: opus`）と Cursor 用 `.cursor/agents/`（`model: inherit`）を分け、install で `~/.cursor/agents/` にリンクする。モデル方針は `harness-model` スキル
    - **Fugu** (Sakana AI の Codex 設定バンドル、公式 install スクリプト)
      - `~/.env` から `SAKANA_API_KEY` を拾えれば非対話でインストール、無ければ warn してスキップ
      - `~/.codex/skills/.system/` を経由して `codex-fugu` ランチャと設定バンドルを配置
@@ -97,7 +101,7 @@ $EDITOR .env
      - `~/dotfiles/herdr/config.toml` を `~/.config/herdr/config.toml` に symlink し、prefix を `ctrl+s` 等 tmux と統一
 8. 各ツールのバイナリパスを `fish/conf.d/paths.fish` と `shell/paths.sh` で追加
 9. 既存の `~/.config/{nvim,tmux,fish,gh-dash}`, `~/.claude`, `~/.mcp.json`, `~/.env` を `*.bak.<日付>` にバックアップ
-10. dotfiles を該当パスにシンボリックリンク（`~/.env` → `~/dotfiles/.env`、`~/.mcp.json` → `~/dotfiles/claude-mcp/mcp.json`、`~/dotfiles/.codex/AGENTS.md` → `~/.codex/AGENTS.md`、`~/dotfiles/.codex/skills/<name>` → `~/.codex/skills/<name>` 等）
+10. dotfiles を該当パスにシンボリックリンク（`~/.env` → `~/dotfiles/.env`、`~/.mcp.json` → `~/dotfiles/claude-mcp/mcp.json`、`~/dotfiles/.codex/AGENTS.md` → `~/.codex/AGENTS.md`、`~/dotfiles/.codex/skills/<name>` → `~/.codex/skills/<name>`、`~/dotfiles/.claude/skills/<name>` → `~/.cursor/skills/<name>` 等）
 11. `~/.claude` のランタイムデータ（履歴・セッション等）をバックアップから dotfiles 側に移行（既存は上書きしない）
 12. `~/dotfiles/claude-mcp/mcp.json` の MCP サーバー定義を `codex mcp add` で `~/.codex/config.toml` に同期（Claude と Codex で同じ MCP を共有。`${VAR}` 形式の env は Codex の親プロセス env 継承に任せる）
 13. fisher（fish プラグインマネージャ）をインストール → `fish_plugins` の内容を反映
