@@ -1,5 +1,16 @@
 > 注: このファイルは `~/dotfiles` リポジトリ全体（fish / nvim / tmux / install scripts / `.claude/` 配下のスキル類すべて）の変更履歴です。
 
+## [v0.12.0] - 2026-09-13
+
+Cursor CLI を install パイプラインに載せ、Claude 用スキルを Cursor からも使えるようにしつつ、サブエージェントのモデルだけハーネスで分けたリリース。Claude Code では従来どおり Opus、Cursor では親モデル（Grok / Composer）を継承して Other Models 枠を食わない。
+
+### ✨ New Features / 新機能
+
+- Add Cursor CLI to install.sh / `cursor-agent` の導入・更新を `install.sh` / `update.sh` / `reset-tools.sh` に追加し、fish の PATH にも載せる
+- Link Claude skills into ~/.cursor/skills / 自作スキルと外部 agent-skills を `~/.cursor/skills/<name>` にも symlink し、Cursor CLI / IDE と Cloud Agents の同期対象から見えるようにする
+- Split subagent models by harness / `harness-model` スキルと `.cursor/agents`（`model: inherit`）を追加。Claude Code の `.claude/agents` は `opus` のまま、sweep / refine の `subagent_type: claude` を `review` / `develop` に置き換える
+- Detect missing Issue assignee in impl verification gate / `verify-scope.sh` が GitHub Issue の assignee 漏れを検知するようにし、`impl` / `issue-sweep` / `refine-sweep` のゲートに載せる
+
 ## [v0.11.0] - 2026-09-06
 
 E2E テストと品質監査のスキル群（`e2e-turbo` / `e2e-record` / `test-audit` / `kuuhaku`）を追加し、あわせて sweep 系スキルの共有 reference を `sweep-common/` に切り出して実行時に無言で失われていたガードを塞いだリリース。sweep 側の修正は「シェル変数が Bash 呼び出しをまたいで持ち越される」という誤った前提が根にあり、ベースブランチ直コミット防止のガードが常に素通りしていた。
