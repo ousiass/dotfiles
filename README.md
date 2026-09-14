@@ -8,6 +8,7 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ~/dotfiles/
 ├── install.sh          # セットアップスクリプト（idempotent）
 ├── reset-tools.sh      # 言語ツール/AI CLI を一括リセットするスクリプト
+├── cleanup.sh          # キャッシュ類を掃除するスクリプト（make clean から呼ばれる）
 ├── .env.example        # .env のテンプレート
 ├── .env                # 実体（gitignore 済、~/.env はこれへのシンボリックリンク）
 ├── claude-mcp/        
@@ -192,6 +193,48 @@ bash ~/dotfiles/reset-tools.sh
 - `CLAUDECODE=1` / `CODEX_THREAD_ID` / `CURSOR_AGENT` を検出して各エージェントのセッション中は自動的に拒否
 - 削除対象: uv / bun (codex/gemini 含む) / Codex CLI standalone package / rustup / fnm + Node / Go / Claude Code / Cursor CLI
 - 削除しないもの: fish/tmux/neovim/git, ~/.env, ~/.claude のデータ, ~/.cursor のデータ, シンボリックリンク
+
+## ディスク掃除
+
+開発ツールのキャッシュは放置すると数百GB規模まで育ち、ディスク I/O を圧迫して端末全体が重くなる。
+`cleanup.sh` は「消しても再生成されるもの」だけを掃除する。成果物や永続データには触らない。
+
+```bash
+cd ~/dotfiles
+make diag          # 現状を表示するだけ（何も消さない）
+make clean         # ユーザー権限でできる掃除
+make clean-system  # sudo が要る掃除（journal / snap / fstrim）
+```
+
+個別に実行する場合は `./cleanup.sh go docker` のようにターゲットを並べる。
+
+### 掃除の対象
+
+| ターゲット | 内容 |
+| --- | --- |
+| `go` | go-build キャッシュ。サイズが閾値を超えたときだけ全消し |
+| `uv` / `pip` / `goimports` | 各パッケージ・ツールのキャッシュ |
+| `docker` | 未使用イメージとビルドキャッシュ。**volume は残す** |
+| `claude` | Claude Code の subagents ログのうち古いものを退避。会話履歴 (`*.jsonl`) には触らない |
+| `fish` | 終了済みセッションが残した `_tide_prompt_` と `fish_variables` の残骸 |
+
+go-build を毎回消すと次のビルドが常にやり直しになるため、閾値を超えたときだけ全消しする。
+docker の volume は DB などの永続データが入るので対象外にしている（消すときは `docker volume prune` を手で実行する）。
+fish の掃除が要るのは、tide が非同期プロンプト用に作る `_tide_prompt_<PID>` が、tmux や SSH の切断で fish が強制終了されると消えずに残るため。fish のユニバーサル変数は単一ファイルで、1つ書き換えるたびに全体を書き直すので、溜まると打鍵のたびに数百 KB の I/O が走って端末が重くなる。
+
+### 環境変数
+
+| 変数 | 既定値 | 説明 |
+| --- | --- | --- |
+| `GO_CACHE_LIMIT_GB` | `30` | go-build がこのサイズ (GB) を超えたときだけ全消しする |
+| `CLAUDE_ARCHIVE_DAYS` | `7` | subagents ログをこの日数より古ければ退避する |
+| `ARCHIVE_DIR` | HDD 上の `claude-subagents-archive` | subagents ログの退避先。親ディレクトリが無ければ退避をスキップする |
+
+### 運用の目安
+
+- 端末が重いと感じたらまず `make diag`。`io` の `some` が数十 % なら I/O が詰まっている
+- ルート使用率が 70% を超えると SSD の書き込み性能が落ちやすいので `make clean` で空きを作る
+- 月 1 回ほど `make clean-system` を回す。fstrim が空きブロックを SSD に通知して書き込み性能が戻る
 
 ## 注意
 
