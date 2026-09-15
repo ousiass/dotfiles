@@ -9,6 +9,7 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── install.sh          # セットアップスクリプト（idempotent）
 ├── reset-tools.sh      # 言語ツール/AI CLI を一括リセットするスクリプト
 ├── cleanup.sh          # キャッシュ類を掃除するスクリプト（make clean から呼ばれる）
+├── runner-host-setup.sh # GitHub Actions self-hosted runner ホストのセットアップ（make runner-setup から呼ばれる）
 ├── .env.example        # .env のテンプレート
 ├── .env                # 実体（gitignore 済、~/.env はこれへのシンボリックリンク）
 ├── claude-mcp/        
@@ -235,6 +236,30 @@ fish の掃除が要るのは、tide が非同期プロンプト用に作る `_t
 - 端末が重いと感じたらまず `make diag`。`io` の `some` が数十 % なら I/O が詰まっている
 - ルート使用率が 70% を超えると SSD の書き込み性能が落ちやすいので `make clean` で空きを作る
 - 月 1 回ほど `make clean-system` を回す。fstrim が空きブロックを SSD に通知して書き込み性能が戻る
+
+## GitHub Actions self-hosted runner
+
+self-hosted runner を動かすホストで、ジョブ実行の前提（パスワード不要 sudo / Docker / Buildx / docker グループ / C コンパイラ）を整えて runner を systemd サービスとして起動する。対象は Linux + systemd の apt 系ディストリビューション。
+
+先に runner の登録（`config.sh`）を済ませておく。
+
+```bash
+cd ~/actions-runner
+./config.sh --url https://github.com/<org> --token <TOKEN>
+
+cd ~/dotfiles
+make runner-setup
+```
+
+runner のユーザーとディレクトリは変数で上書きできる。既定は sudo を呼び出したユーザーと、そのホーム配下の `actions-runner`。
+
+```bash
+make runner-setup RUNNER_USER=ci-runner RUNNER_DIR=/opt/runners/foo
+```
+
+何度実行しても同じ結果になる（idempotent）。ラベル（`linux` / `x64`）と runner group の対象リポジトリはスクリプトからは検証できないため、実行後の案内に従って手動で確認する。とくに `NOPASSWD: ALL` を入れる以上、runner group を「選択したリポジトリ」に限定し public リポジトリへ提供しないことが、fork PR 経由で第三者のコードがこのホストで走るのを防ぐ唯一の層になる。
+
+`runner-host-setup.sh` は [ousiassllc/actions-runner-setup-base](https://github.com/ousiassllc/actions-runner-setup-base) から取り込んだコピー。詳細な背景（何が欠けるとどのエラーが出るか等）は上流の README を参照。上流を更新したらこのファイルも追従させる。
 
 ## 注意
 

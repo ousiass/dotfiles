@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help pull install update reset fugu clean clean-system diag
+.PHONY: help pull install update reset fugu runner-setup clean clean-system diag
 
 help: ## このヘルプを表示
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -19,6 +19,9 @@ reset: ## ツールを一括削除して install.sh で再インストール（�
 
 fugu: ## Fugu だけ単独でインストール（~/.env の SAKANA_API_KEY を使う）
 	./install.sh fugu
+
+runner-setup: ## GitHub Actions self-hosted runner ホストをセットアップ（sudo 必須。RUNNER_USER / RUNNER_DIR で上書き可）
+	sudo env RUNNER_USER="$(RUNNER_USER)" RUNNER_DIR="$(RUNNER_DIR)" bash ./runner-host-setup.sh
 
 clean: ## キャッシュ類を掃除（消しても再生成されるものだけ）
 	./cleanup.sh
