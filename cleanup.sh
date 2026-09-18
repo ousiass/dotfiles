@@ -191,6 +191,8 @@ clean_fish() {
 }
 
 # sudo が要るもの。ログの整理と、SSD へ空きブロックを通知して書き込み性能を戻す。
+# fstrim は OS 標準の fstrim.timer が root 権限で週次実行しているので、ここの呼び出しは
+# 「待たずに今すぐ通知したい」とき用。定期実行のために sudoers を書く必要はない。
 clean_system() {
     log "journal ログを 500MB に縮小します"
     sudo journalctl --vacuum-size=500M || warn "journalctl --vacuum-size が失敗しました"
