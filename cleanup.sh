@@ -18,6 +18,7 @@
 #   GO_CACHE_LIMIT_GB    go-build がこのサイズを超えたときだけ全消し (既定: 30)
 #   CLAUDE_ARCHIVE_DAYS  subagents ログをこの日数より古ければ退避 (既定: 7)
 #   ARCHIVE_DIR          subagents ログの退避先。親が無ければ退避はスキップ
+#   GO_TMP_AGE_DAYS      $TMPDIR に残った go-build の残骸をこの日数で消す (既定: 1)
 
 set -uo pipefail
 
@@ -34,6 +35,7 @@ LOG_TAG=cleanup
 GO_CACHE_LIMIT_GB="${GO_CACHE_LIMIT_GB:-30}"
 CLAUDE_ARCHIVE_DAYS="${CLAUDE_ARCHIVE_DAYS:-7}"
 ARCHIVE_DIR="${ARCHIVE_DIR:-/mnt/fd016e4c-2b01-40a5-b133-f1f1164cecf3/claude-subagents-archive}"
+GO_TMP_AGE_DAYS="${GO_TMP_AGE_DAYS:-1}"
 
 # --- ヘルパー ---------------------------------------------------------------
 
@@ -70,6 +72,26 @@ clean_go() {
     else
         log "go-build: ${size}GB (閾値 ${GO_CACHE_LIMIT_GB}GB) → 残します"
     fi
+}
+
+# Go はコンパイル中の一時ファイルを $TMPDIR/go-build<乱数>/ に置く。GOCACHE とは
+# 別物で、正常終了時は go 自身が消すため、残っているものはビルドが kill された跡。
+# 放っておくと数GB単位で溜まる。使用中のものを巻き込まないよう、更新が止まって
+# GO_TMP_AGE_DAYS 日たったものだけを消す (ビルドは分単位で終わるので十分に安全)。
+clean_gotmp() {
+    local tmp="${TMPDIR:-/tmp}"
+    [[ -d "$tmp" ]] || return
+
+    # -mtime は日数を切り捨てるので +1 が「48時間超」になってしまう。
+    # 指定どおりの時間で切りたいので -mmin を使う。
+    local dirs=()
+    mapfile -t dirs < <(find -H "$tmp" -mindepth 1 -maxdepth 1 -type d \
+        -name 'go-build*' -mmin "+$(( GO_TMP_AGE_DAYS * 1440 ))" 2>/dev/null)
+    (( ${#dirs[@]} )) || { log "go-build の一時ディレクトリ: 残骸なし"; return; }
+
+    local size; size="$(du -shcD "${dirs[@]}" 2>/dev/null | tail -1 | cut -f1)"
+    log "go-build の一時ディレクトリ ${#dirs[@]}個 (${size:-?}) を削除します"
+    rm -rf -- "${dirs[@]}" || warn "go-build の一時ディレクトリの削除に失敗しました"
 }
 
 clean_uv() {
@@ -223,6 +245,7 @@ diag() {
 
 clean_all() {
     clean_go
+    clean_gotmp
     clean_uv
     clean_pip
     clean_goimports

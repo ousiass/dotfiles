@@ -22,6 +22,13 @@ check_eq() {
     if [[ "$want" == "$got" ]]; then ok "$name"; else ng "$name (期待 $want / 実際 $got)"; fi
 }
 
+# $2 に yes/no で「そのディレクトリが残っていてほしいか」を書く。
+check_dir() {
+    local name="$1" want="$2" got=no
+    [[ -d "$3" ]] && got=yes
+    check_eq "$name" "$want" "$got"
+}
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
@@ -47,5 +54,23 @@ if [[ -f "$tmp/archive/subagents/proj/subagents/old.jsonl" ]]; then
 else
     ng "clean_claude: シンボリックリンク越しに退避できる (退避されなかった)"
 fi
+
+# --- clean_gotmp が「古い残骸だけ」を消すこと --------------------------------
+# go は正常終了時に $TMPDIR/go-build* を自分で消す。残っているのは kill された
+# ビルドの跡なので消してよいが、実行中のビルドを巻き込んではいけない。
+gotmp="$tmp/gotmp"
+mkdir -p "$gotmp/go-build-old" "$gotmp/go-build-30h" "$gotmp/go-build-new" "$gotmp/keepme"
+truncate -s 10M "$gotmp/go-build-old/a"
+touch -d '2 days ago' "$gotmp/go-build-old"
+# 30時間前。find の -mtime は日数を切り捨てるため +1 だと 48時間超しか消えない。
+# GO_TMP_AGE_DAYS=1 と書いたら 24時間で消えること。
+touch -d '30 hours ago' "$gotmp/go-build-30h"
+
+TMPDIR="$gotmp" GO_TMP_AGE_DAYS=1 clean_gotmp >/dev/null 2>&1
+
+check_dir "clean_gotmp: 古い残骸を消す"           no  "$gotmp/go-build-old"
+check_dir "clean_gotmp: 24時間を過ぎたら消す"      no  "$gotmp/go-build-30h"
+check_dir "clean_gotmp: 新しいものは残す"         yes "$gotmp/go-build-new"
+check_dir "clean_gotmp: go-build 以外は触らない"  yes "$gotmp/keepme"
 
 exit "$fail"
