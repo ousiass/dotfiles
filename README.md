@@ -255,7 +255,9 @@ systemctl --user disable --now dotfiles-cleanup.timer # やめる
 
 - 端末が重いと感じたらまず `make diag`。`io` の `some` が数十 % なら I/O が詰まっている
 - ルート使用率が 70% を超えると SSD の書き込み性能が落ちやすいので `make clean` で空きを作る
-- 月 1 回ほど `make clean-system` を回す。fstrim が空きブロックを SSD に通知して書き込み性能が戻る
+- `fstrim` は手動で回さなくてよい。OS 標準の `fstrim.timer`（root 権限のシステムタイマー）が週次で流している。`systemctl list-timers fstrim.timer` で前回・次回の実行時刻を確認できる
+- fstrim の対象は `/etc/fstab` と現在のマウント情報から決まる。ドライブを増やしたら fstab に書いておけば自動で対象に入る（NVMe を足した直後の実行は fstab 追記より前だったため、その回だけ対象外になっていた）
+- `make clean-system` は journal と snap を縮める。こちらは自動化していないので月 1 回ほど回す。同梱の fstrim は「今すぐ通知したい」ときの手段で、通常は週次タイマーに任せてよい
 - `go` はコンパイル中の一時ファイルを `$TMPDIR/go-build*` に置く。GOCACHE とは別物で、ビルドが kill されると消えずに残る（実際に 42 個 4.8GB 溜まっていた）。`make clean` が 1 日以上放置されたものだけを消す
 - キャッシュを別ドライブへ逃がしている場合、`~/.cache/go-build` などがシンボリックリンクになる。`du` と `find` は既定で引数のリンクを辿らないため `du -D` / `find -H` を使っている（`make test` が回帰を見張る）
 
