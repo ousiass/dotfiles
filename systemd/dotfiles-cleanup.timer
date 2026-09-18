@@ -1,0 +1,13 @@
+[Unit]
+Description=週次で dotfiles のキャッシュ掃除を実行
+Documentation=https://github.com/ousiass/dotfiles
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00
+# マシンが止まっていて実行を逃した分は、次回起動後に追いつく。
+Persistent=true
+# 他のホストと同時に走らないようランダムに遅らせる。
+RandomizedDelaySec=30m
+
+[Install]
+WantedBy=timers.target
