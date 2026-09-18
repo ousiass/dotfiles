@@ -249,12 +249,14 @@ systemctl --user disable --now dotfiles-cleanup.timer # やめる
 | `GO_CACHE_LIMIT_GB` | `30` | go-build がこのサイズ (GB) を超えたときだけ全消しする |
 | `CLAUDE_ARCHIVE_DAYS` | `7` | subagents ログをこの日数より古ければ退避する |
 | `ARCHIVE_DIR` | HDD 上の `claude-subagents-archive` | subagents ログの退避先。親ディレクトリが無ければ退避をスキップする |
+| `GO_TMP_AGE_DAYS` | `1` | `$TMPDIR` に残った go-build の残骸をこの日数を過ぎたら消す |
 
 ### 運用の目安
 
 - 端末が重いと感じたらまず `make diag`。`io` の `some` が数十 % なら I/O が詰まっている
 - ルート使用率が 70% を超えると SSD の書き込み性能が落ちやすいので `make clean` で空きを作る
 - 月 1 回ほど `make clean-system` を回す。fstrim が空きブロックを SSD に通知して書き込み性能が戻る
+- `go` はコンパイル中の一時ファイルを `$TMPDIR/go-build*` に置く。GOCACHE とは別物で、ビルドが kill されると消えずに残る（実際に 42 個 4.8GB 溜まっていた）。`make clean` が 1 日以上放置されたものだけを消す
 - キャッシュを別ドライブへ逃がしている場合、`~/.cache/go-build` などがシンボリックリンクになる。`du` と `find` は既定で引数のリンクを辿らないため `du -D` / `find -H` を使っている（`make test` が回帰を見張る）
 
 ## GitHub Actions self-hosted runner
