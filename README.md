@@ -26,6 +26,8 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── tmux/               # → ~/.config/tmux
 ├── gh-dash/            # → ~/.config/gh-dash (GitHub Dashboard CLI)
 ├── herdr/              # → ~/.config/herdr (エージェント向けターミナルマルチプレクサ、tmux 準拠 keybinding)
+├── systemd/            # → ~/.config/systemd/user（週次の自動掃除 timer / service）
+├── tests/              # cleanup.sh の回帰テスト（make test）
 └── fish/               # → ~/.config/fish
     ├── config.fish
     ├── fish_plugins
@@ -205,6 +207,7 @@ cd ~/dotfiles
 make diag          # 現状を表示するだけ（何も消さない）
 make clean         # ユーザー権限でできる掃除
 make clean-system  # sudo が要る掃除（journal / snap / fstrim）
+make clean-timer   # 週次の自動掃除を systemd timer に登録（sudo 不要、初回だけ）
 ```
 
 個別に実行する場合は `./cleanup.sh go docker` のようにターゲットを並べる。
@@ -223,6 +226,22 @@ go-build を毎回消すと次のビルドが常にやり直しになるため�
 docker の volume は DB などの永続データが入るので対象外にしている（消すときは `docker volume prune` を手で実行する）。
 fish の掃除が要るのは、tide が非同期プロンプト用に作る `_tide_prompt_<PID>` が、tmux や SSH の切断で fish が強制終了されると消えずに残るため。fish のユニバーサル変数は単一ファイルで、1つ書き換えるたびに全体を書き直すので、溜まると打鍵のたびに数百 KB の I/O が走って端末が重くなる。
 
+### 定期実行
+
+`make clean-timer` で systemd の user timer に登録すると、毎週日曜 4:00 に `cleanup.sh` が走る。
+sudo は要らず、ログイン中でなくても動く（`loginctl enable-linger` 済みの場合）。
+
+```bash
+make clean-timer                                   # 登録（初回だけ）
+systemctl --user list-timers dotfiles-cleanup.timer  # 次回実行の確認
+journalctl --user -u dotfiles-cleanup.service       # 実行結果の確認
+systemctl --user disable --now dotfiles-cleanup.timer # やめる
+```
+
+掃除が他の作業を邪魔しないよう、service 側で `Nice=10` と `IOSchedulingClass=idle` を指定している。
+マシンが止まっていて実行を逃した分は `Persistent=true` により次の起動後に追いつく。
+閾値は service の `Environment=` で上書きする（既定では go-build を 300GB に設定している）。
+
 ### 環境変数
 
 | 変数 | 既定値 | 説明 |
@@ -236,6 +255,7 @@ fish の掃除が要るのは、tide が非同期プロンプト用に作る `_t
 - 端末が重いと感じたらまず `make diag`。`io` の `some` が数十 % なら I/O が詰まっている
 - ルート使用率が 70% を超えると SSD の書き込み性能が落ちやすいので `make clean` で空きを作る
 - 月 1 回ほど `make clean-system` を回す。fstrim が空きブロックを SSD に通知して書き込み性能が戻る
+- キャッシュを別ドライブへ逃がしている場合、`~/.cache/go-build` などがシンボリックリンクになる。`du` と `find` は既定で引数のリンクを辿らないため `du -D` / `find -H` を使っている（`make test` が回帰を見張る）
 
 ## GitHub Actions self-hosted runner
 

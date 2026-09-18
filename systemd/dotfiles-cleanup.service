@@ -1,0 +1,13 @@
+[Unit]
+Description=dotfiles のキャッシュ掃除 (cleanup.sh)
+Documentation=https://github.com/ousiass/dotfiles
+
+[Service]
+Type=oneshot
+# go-build は NVMe (/mnt/nvme) にあるので、日常のビルド速度を優先して
+# 閾値は高めに取る。これを超えたときだけ全消しする。
+Environment=GO_CACHE_LIMIT_GB=300
+ExecStart=%h/dotfiles/cleanup.sh
+# 掃除が他の作業を邪魔しないよう、CPU と I/O の優先度を下げる。
+Nice=10
+IOSchedulingClass=idle

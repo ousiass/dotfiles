@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help pull install update reset fugu runner-setup clean clean-system diag
+.PHONY: help pull install update reset fugu runner-setup clean clean-system clean-timer diag test
 
 help: ## このヘルプを表示
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -31,3 +31,14 @@ clean-system: ## sudo が必要な掃除（journal / snap / fstrim）
 
 diag: ## 容量と I/O の現状を表示（何も消さない）
 	./cleanup.sh diag
+
+clean-timer: ## 週次の自動掃除を systemd timer に登録（sudo 不要）
+	@mkdir -p $(HOME)/.config/systemd/user
+	@ln -sf $(CURDIR)/systemd/dotfiles-cleanup.service $(HOME)/.config/systemd/user/
+	@ln -sf $(CURDIR)/systemd/dotfiles-cleanup.timer $(HOME)/.config/systemd/user/
+	systemctl --user daemon-reload
+	systemctl --user enable --now dotfiles-cleanup.timer
+	@systemctl --user list-timers dotfiles-cleanup.timer --no-pager
+
+test: ## cleanup.sh の回帰テストを実行
+	./tests/cleanup_test.sh
