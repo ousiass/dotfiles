@@ -41,7 +41,8 @@ ARCHIVE_DIR="${ARCHIVE_DIR:-/mnt/fd016e4c-2b01-40a5-b133-f1f1164cecf3/claude-sub
 dir_size_gb() {
     local d="$1"
     [[ -d "$d" ]] || { echo "0.0"; return; }
-    du -sb "$d" 2>/dev/null | awk '{printf "%.1f", $1/1073741824}'
+    # -D: 引数のシンボリックリンクだけ辿る (キャッシュを NVMe へ逃がしてあるため)
+    du -sbD "$d" 2>/dev/null | awk '{printf "%.1f", $1/1073741824}'
 }
 
 # $1 >= $2 を小数で比較する（bc に依存しない）。
@@ -104,6 +105,8 @@ clean_docker() {
 # Claude Code の subagents ログはファイル数が万単位まで増え、起動時のスキャンを
 # 遅くする。会話履歴そのもの (*.jsonl) には触らず、古い subagents だけ退避する。
 clean_claude() {
+    # projects は NVMe への シンボリックリンクのことがある。find は既定で
+    # 引数のリンクを辿らないので -H が要る (無いと黙って 0 件になる)。
     local projects="$HOME/.claude/projects"
     [[ -d "$projects" ]] || { warn "$projects が無いのでスキップ"; return; }
 
@@ -114,7 +117,7 @@ clean_claude() {
     fi
 
     local count
-    count="$(find "$projects" -type f -path '*/subagents/*' -mtime "+$CLAUDE_ARCHIVE_DAYS" 2>/dev/null | wc -l)"
+    count="$(find -H "$projects" -type f -path '*/subagents/*' -mtime "+$CLAUDE_ARCHIVE_DAYS" 2>/dev/null | wc -l)"
     if [[ "$count" -eq 0 ]]; then
         log "subagents: ${CLAUDE_ARCHIVE_DAYS}日より古いログはありません"
         return
@@ -128,7 +131,7 @@ clean_claude() {
         || { warn "subagents の退避に失敗しました"; return; }
 
     # 中身を移したあとに残る空ディレクトリを片付ける。
-    find "$projects" -mindepth 2 -type d -empty -delete 2>/dev/null
+    find -H "$projects" -mindepth 2 -type d -empty -delete 2>/dev/null
     log "subagents の退避が完了しました"
 }
 
@@ -207,13 +210,13 @@ diag() {
 
     echo
     log "キャッシュの大きいもの"
-    du -sh "$HOME/.cache"/* 2>/dev/null | sort -rh | head -8
+    du -shD "$HOME/.cache"/* 2>/dev/null | sort -rh | head -8
 
     echo
     log "Claude Code の履歴"
     printf '  %s ファイル / %s\n' \
-        "$(find "$HOME/.claude/projects" -type f 2>/dev/null | wc -l)" \
-        "$(du -sh "$HOME/.claude/projects" 2>/dev/null | cut -f1)"
+        "$(find -H "$HOME/.claude/projects" -type f 2>/dev/null | wc -l)" \
+        "$(du -shD "$HOME/.claude/projects" 2>/dev/null | cut -f1)"
 }
 
 # --- エントリポイント -------------------------------------------------------
@@ -255,4 +258,7 @@ main() {
     df -h / | tail -1
 }
 
-main "$@"
+# テストから source したときは main を走らせない。
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

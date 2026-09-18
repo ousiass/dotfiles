@@ -21,7 +21,8 @@ shell-snapshots/
 statsig/
 tasks/
 todos/
-projects/
+projects
+projects.old
 telemetry/
 
 # ランタイム状態
