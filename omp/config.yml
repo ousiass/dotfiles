@@ -1,45 +1,12 @@
-# omp (oh-my-pi) 設定
-#
-# ~/dotfiles/omp/config.yml → ~/.omp/agent/config.yml に symlink される。
-# キー名は `omp config list` が表示するドット区切りキーと対応する
-# （表示上の [appearance] 等はグループ見出しで、キーの一部ではない）。
-# 既定値と同じものは書かず、変更するものだけを置く。
-
-# ------------------------------------------------------------------
-# モデルロール
-# ------------------------------------------------------------------
-# omp は認証済みプロバイダのモデルしか選べず、モデル ID は認証後に
-# `omp models` で確定する（未認証のプロバイダは ls にも find にも出ない）。
-# そのため既定はあえて空のままにし、認証してから実 ID を書く。
-#
-# Anthropic / OpenAI Codex / Cursor / GitHub Copilot はサブスクのまま入れる
-# （README の auth タグが `oauth` = プロバイダのアカウントでサインイン）:
-#   omp        → セッション内で /login
-#   omp setup  → オンボーディングで認証とデフォルトモデルを設定
-#
-# モデル ID と effort は omp のカタログ（~/.omp/agent/models.db）で実在を確認済み。
-# 未認証だと `omp models` の一覧には出ないため、追加・変更時はカタログ側で確認する。
 modelRoles:
-  # 主セッション：最終判断・統合
   default: anthropic/claude-sonnet-5:high
-
-  # 探索・大量サブエージェント群
   smol: openai/gpt-6-luna:medium
   tiny: openai/gpt-6-luna:medium
   commit: openai/gpt-6-luna:medium
-
-  # 汎用の実装サブエージェント
   task: anthropic/claude-sonnet-5:high
-
-  # 難しいレビュー・設計
   slow: anthropic/claude-opus-5:high
   plan: anthropic/claude-opus-5:high
   advisor: anthropic/claude-opus-5:high
-
-# エージェント → ロールの割り当て。
-# 実在する bundled エージェントは reviewer / scout / security-reviewer / sonic / task の 5 つ。
-# ここに無い名前を書いても解決されず黙って無視されるため、存在するものだけを並べる。
-# develop / review は omp/agents/ に置いた自前定義で、frontmatter 側で @task / @slow を指定済み。
 task:
   agentModelOverrides:
     scout: "@smol"
@@ -47,26 +14,9 @@ task:
     task: "@task"
     reviewer: "@slow"
     security-reviewer: "@slow"
-
-# ------------------------------------------------------------------
-# 振る舞い
-# ------------------------------------------------------------------
 tools:
-  # omp の既定は yolo（全ツール呼び出しを自動承認）。
-  # 書き込み・実行系だけ確認を挟む write に落とす。
   approvalMode: write
-
-# ------------------------------------------------------------------
-# 見た目
-# ------------------------------------------------------------------
-# tide が Nerd Font アイコンを使っている環境なので nerd を選ぶ（既定は unicode）。
 symbolPreset: nerd
-
-# ------------------------------------------------------------------
-# スキル
-# ------------------------------------------------------------------
-# omp は探索元ごとにトグルを持つ。~/.claude/skills（自作スキル）は既定 off
-# なので有効化する。~/.agents/skills（外部 agent-skills）は既定 on のため触らない。
-# 呼び出しは /skill:<name>。
 skills:
   enableClaudeUser: true
+setupVersion: 2
