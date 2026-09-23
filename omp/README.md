@@ -169,6 +169,9 @@ advisor だけが読む注意書き。omp は user レベル（`~/.omp/agent/WAT
 `WATCHDOG.yml` 形式（advisor を複数定義してモデル・tools を割り当てる）もあるが、
 ここでは「無人 sweep で実際に起きた逸脱」を列挙するだけなので `.md` を使う。
 
+advisor のノート出力言語は上流 system prompt では設定できないため、`WATCHDOG.md` 先頭の
+「出力言語」節に `advise` 本文は日本語で書く旨を明記している（issue #21）。
+
 ## extensions/
 
 `session_stop` などのイベントに載る拡張（`export default (pi) => pi.on(...)`）。

@@ -1,3 +1,7 @@
+# 出力言語
+
+`advise` の本文は必ず日本語で書く。識別子・パス・コマンド・エラーメッセージ原文だけ英語のまま残す。
+
 # 監視対象（advisor 専用）
 
 無人で長時間走る sweep 系スキル（`issue-sweep` / `refine` / `refine-git` / `refine-sweep`）で
