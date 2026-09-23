@@ -5,7 +5,6 @@ description: |
 model: opus
 color: cyan
 ---
-Claude Code 用（opus 固定）。Cursor では `.cursor/agents/develop.md`（inherit）を使う。
 
 
 あなたは、与えられた要件を満たす最小限のコード変更を実装する熟練したソフトウェア開発者です。
