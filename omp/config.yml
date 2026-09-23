@@ -17,15 +17,16 @@
 #   omp        → セッション内で /login
 #   omp setup  → オンボーディングで認証とデフォルトモデルを設定
 #
-# 認証後に `omp models` で実 ID を検証すること（未認証だと ls にも find にも出ない）。
+# モデル ID と effort は omp のカタログ（~/.omp/agent/models.db）で実在を確認済み。
+# 未認証だと `omp models` の一覧には出ないため、追加・変更時はカタログ側で確認する。
 modelRoles:
   # 主セッション：最終判断・統合
   default: anthropic/claude-sonnet-5:high
 
   # 探索・大量サブエージェント群
-  smol: openai/gpt-5.6-luna:medium
-  tiny: openai/gpt-5.6-luna:low
-  commit: openai/gpt-5.6-luna:low
+  smol: openai/gpt-6-luna:medium
+  tiny: openai/gpt-6-luna:low
+  commit: openai/gpt-6-luna:low
 
   # 汎用の実装サブエージェント
   task: anthropic/claude-sonnet-5:high
