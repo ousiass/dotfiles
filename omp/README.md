@@ -108,12 +108,19 @@ omp は `~/.claude/skills`（自作スキル）を**既定では読まない**�
 
 常時適用のユーザールール。omp は `RULES.md` を sticky user rule として扱い、`alwaysApply: true` を強制する。
 
-**omp の rules プロバイダに `claude` は存在せず、`~/.claude/CLAUDE.md` は読まれない**
-（skills と MCP は Claude Code の資産を継承するが、rules だけは継承されない）。
-そのため `.claude/CLAUDE.md` と同じ方針をここに置く。内容は原本と揃え、差分は次の 2 点だけにする:
+**user レベルの `~/.claude/CLAUDE.md` は読まれない。** claude の rules プロバイダ自体は存在し、
+プロジェクト側の `.claude/CLAUDE.md` とリポジトリ直下の `CLAUDE.md` は読む（v18.2.11 で実測。
+隔離した HOME で user レベルだけが無視されることを対照実験で確認した）。user レベルが対象外なので、
+`.claude/CLAUDE.md` と同じ方針をここに置く。内容は原本と揃え、差分は次の 2 点だけにする:
 
 - `AskUserQuestion` → `ask`（omp のツール名）
 - 自由入力の指定方法（omp の `ask` に `allowFreeText` は無い）
+
+**このリポジトリ自身では二重に載る。** `~/.claude` が `dotfiles/.claude` への symlink なので、
+`~/dotfiles` 内で omp を起動すると `.claude/CLAUDE.md` が**プロジェクトルール**として読まれ、
+RULES.md と並んで有効になる（`AskUserQuestion` と `ask` が両方指示される）。
+プロバイダ単位で切る設定は無く、`--no-rules` は全ルールを落とすので使えない。
+dotfiles 以外のリポジトリでは起きないため、現状は許容している。
 
 ## WATCHDOG.md
 
