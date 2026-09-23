@@ -1,11 +1,11 @@
 ---
 name: issue-sweep
-description: 複数のオープン Issue をキュー化し、Stop Hook と連動して端から自律的に実装・PR マージまで進める。
+description: 複数のオープン Issue をキュー化し、停止ガードと連動して端から自律的に実装・PR マージまで進める。
 ---
 
 # issue-sweep
 
-複数の GitHub Issue を端から自律的に連続実装するスキル。`.sweep/queue.txt` にキューを書き出し、Stop Hook (`hooks/check-issue-queue.sh`) と連動してキューが空になるまで Claude が停止できないようにする。
+複数の GitHub Issue を端から自律的に連続実装するスキル。`.sweep/queue.txt` にキューを書き出し、**停止ガード**と連動してキューが空になるまでセッションが停止できないようにする。
 
 ## 引数
 
@@ -31,8 +31,10 @@ description: 複数のオープン Issue をキュー化し、Stop Hook と連�
 
 - `gh` CLI が認証済み
 - **GNU coreutils**（`date -d` / `timeout` を使う）。macOS では `brew install coreutils` で `gdate` / `gtimeout` を PATH に置く
-- `.claude/hooks/check-issue-queue.sh` と `.claude/hooks/check-sweep-state.sh` が実行可能
-- `settings.json` の Stop / SessionStart Hook が有効
+- **停止ガードが有効**（キュー残がある間セッションの停止をブロックする仕組み。ハーネスごとに実体が違う）
+  - omp: `~/.omp/agent/extensions/sweep-stop-guard.ts`（`session_stop` イベント。dotfiles の `omp/extensions/` を `link_omp` がリンクする）
+  - Claude Code: `.claude/hooks/check-issue-queue.sh` / `check-sweep-state.sh` が実行可能で、`settings.json` の Stop / SessionStart Hook が有効
+  - **停止ガードが無い環境でも sweep は成立する**。その場合は待ちのたびに単一の bash 呼び出しで `sleep 60` を実行し、ターンを終えずに自力で継続する（下の「2-8. 待機」を厳守する）
 - ベースブランチは**フェーズ P-0 でユーザーに確認して確定する**（`../sweep-common/branch-preflight.md`）。起動時の HEAD がどこであっても、それを推測でベースに採用しない
 
 **`.sweep/` の場所（最初に必ず設定する）:** worktree 内で走るサブスキルと同じファイルを見るため、**常にメインリポジトリ側**を指す:
@@ -42,7 +44,8 @@ SWEEP_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(git rev-parse --path-format=absolu
 mkdir -p "$SWEEP_DIR"
 ```
 
-以降 `.sweep/...` と書かれた箇所はすべて `$SWEEP_DIR/...` を指す。Stop Hook も同じパスを見る。
+以降 `.sweep/...` と書かれた箇所はすべて `$SWEEP_DIR/...` を指す。停止ガードも同じパスを見る。
+`CLAUDE_PROJECT_DIR` は Claude Code が設定する変数で、omp には相当する変数が無い（omp では未設定のまま git 側の判定にフォールバックする）。
 
 **Bash ツールは呼び出しごとに新しいシェル**で、変数も関数も持ち越されない。`$base_branch` / `$int_branch` / `assert_not_base` は **P-0-0 が生成する `$SWEEP_DIR/prelude.sh` から毎回読み直す**（`../sweep-common/branch-preflight.md`）。それらを使う bash スニペットはすべて次の 2 行で始める:
 
@@ -53,7 +56,7 @@ source "$SWEEP_DIR/prelude.sh"
 
 ## 状態管理 `.sweep/state.json`
 
-sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` の間（lock が新鮮な限り）停止をブロックする。**「キューが空っぽいから終わった」と推定で `phase=terminal` にしてはならない**。terminal 化前にキュー残数 = 0 と spinoff 検出済みを必ず確認する。
+sweep 系スキル共通の進行状態ファイル。停止ガードは `phase != "terminal"` の間（lock が新鮮な限り）停止をブロックする。**「キューが空っぽいから終わった」と推定で `phase=terminal` にしてはならない**。terminal 化前にキュー残数 = 0 と spinoff 検出済みを必ず確認する。
 
 **このファイルは sweep が所有する。** worktree 内で走る `refine-git` 等は `refine/references/common-setup.md` 手順4 の所有権ガードで書き込みを控えるので、sweep 実行中に横から terminal 化されることはない。
 
@@ -76,7 +79,7 @@ sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-st
 }
 ```
 
-**監査証跡は `$SWEEP_DIR/metrics.jsonl` 一本。** state.json に metrics の行番号を写す `evidence` 配列と、null 固定だった `last_counts` は廃止した（Stop Hook は `phase` と lock の鮮度だけで判定しており、evidence は表示にしか使っていなかった）。
+**監査証跡は `$SWEEP_DIR/metrics.jsonl` 一本。** state.json に metrics の行番号を写す `evidence` 配列と、null 固定だった `last_counts` は廃止した（停止ガードは `phase` と lock の鮮度だけで判定しており、evidence は表示にしか使っていなかった）。
 
 **更新タイミング:**
 - フェーズ0/1 でキュー構築完了後に `phase=iterating, queue_total, queue_remaining=queue_total, processed_count=0, ...` で初期化
@@ -304,7 +307,7 @@ gh pr list --search "head:sweep/" --state all --limit 100 \
     }]'
 ```
 
-fast-forward できない場合は警告だけ出して続行する。Stop Hook がキューに残行がある限り停止をブロックするので途中で止まらず流し続ける。
+fast-forward できない場合は警告だけ出して続行する。停止ガードがキューに残行がある限り停止をブロックするので途中で止まらず流し続ける。
 
 **PR ごと / バッチごとに `gh` を叩かない。** 以前は冪等性チェックをバッチ単位で、状態観測を PR 単位で叩いていて、ラウンドあたりのコール数が in-flight 本数に比例していた。ブランチ名は sweep が決めているので、1 回の一覧取得で全部引ける。
 
@@ -415,7 +418,7 @@ gh pr comment "$pr" --body "sweep: CI が 3 回連続で失敗（checks: $failed
 sweep_notify "Manual intervention needed" "PR #${pr}: CI 3回連続失敗 ($failed_checks)" ":rotating_light:"
 ```
 
-諦めた PR は **その PR だけ** in-flight から外し、metrics に `ci_gave_up` を記録して**キューからも該当行を削除する**（残すと Stop Hook が永久に停止をブロックする）。他の in-flight の処理は続行する。
+諦めた PR は **その PR だけ** in-flight から外し、metrics に `ci_gave_up` を記録して**キューからも該当行を削除する**（残すと停止ガードが永久に停止をブロックする）。他の in-flight の処理は続行する。
 
 **CI fix 起動プロンプト**（バッチでも PR は 1 本なのでそのまま使える）:
 
@@ -500,16 +503,16 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
   - `gh issue comment <n> --body "sweep: 実装失敗（$failure）。2 回試行して通らなかったため手動対応が必要です。"`
   - `sweep_notify "Agent failed" "Issue #${n}: $failure" ":x:"`
   - metrics に `status: agent_failed` を記録
-  - **キューから該当行を削除する**（残すと Stop Hook が永久に停止をブロックし、sweep が終われない）
+  - **キューから該当行を削除する**（残すと停止ガードが永久に停止をブロックし、sweep が終われない）
   - **他のバッチの処理は続行する。1 バッチの失敗で sweep 全体を止めない**
 
 #### 2-8. 待機
 
 このラウンドで何も進捗がなく（マージ 0 件・新規起動 0 件）、in-flight が残っている場合のみ `sleep 60` してから 2-0 に戻る。進捗があった場合は待たずに次のラウンドへ進む（スロットが空いたなら即補充したい）。
 
-**待機は必ず `sleep 60` を実行して行う。「待機。」と言ってターンを終えてはならない。** Stop Hook は停止を押し戻すので、ターンを終える待ち方をすると 2〜3 秒間隔で「待機。」→ ブロック → 「待機。」を繰り返し、1 往復ごとにモデルのターンを 1 回消費する（実測で 1 セッション 1 万往復、トランスクリプトの 10% がフック文言で埋まった）。
+**待機は必ず `sleep 60` を実行して行う。「待機。」と言ってターンを終えてはならない。** 停止ガードは停止を押し戻すので、ターンを終える待ち方をすると 2〜3 秒間隔で「待機。」→ ブロック → 「待機。」を繰り返し、1 往復ごとにモデルのターンを 1 回消費する（実測で 1 セッション 1 万往復、トランスクリプトの 10% がフック文言で埋まった）。
 
-待機中のメインは `sleep` + `gh` / `jq` のみで「思考」しないので context は増えず、Stop Hook がキューを見るので止まらない。
+待機中のメインは `sleep` + `gh` / `jq` のみで「思考」しないので context は増えず、停止ガードがキューを見るので止まらない。
 
 ## 禁止行動
 
@@ -537,7 +540,7 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 - **1 本の PR の CI 失敗で他の in-flight を止める / 1 バッチの失敗で sweep 全体を止める**（諦めるのはその 1 本だけ）
 - **CI 失敗を検知せず待機を継続する**（無限待機の原因）
 - **シェル変数（`$base_branch` / `$int_branch` / カウンタ類）が次の Bash 呼び出しまで残ると仮定する**（毎回新しいシェル。prelude を source し、カウンタは state.json から読む）
-- **やることが無いときにターンを終えて待つ**（Stop Hook に押し戻されるたびにモデルのターンを 1 回消費する。待つときは 1 つの bash コマンドの中で `sleep 60` を挟む）
+- **やることが無いときにターンを終えて待つ**（停止ガードに押し戻されるたびにモデルのターンを 1 回消費する。待つときは 1 つの bash コマンドの中で `sleep 60` を挟む）
 
 **agent への委譲**
 
@@ -551,7 +554,7 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 - **失敗で打ち切るときに terminal 化とレポート生成をスキップする**（`phase=iterating` のまま放置すると記録が何も残らない）
 - **`max_rounds` のデフォルトを自己判断で 1 より大きくする**（増やすのはユーザーが明示指定した時だけ）
 - **重要度フィルタで落ちた spinoff（`spinoff_deferred`）をレポートに書かずに捨てる**
-- **ユーザーに確認を取って止まる**（「spinoff も追跡しますか？」「次の round に進みますか？」「並列度はいくつに？」。すべてデフォルトで進める。Stop Hook が押し戻す）
+- **ユーザーに確認を取って止まる**（「spinoff も追跡しますか？」「次の round に進みますか？」「並列度はいくつに？」。すべてデフォルトで進める。停止ガードが押し戻す）
 
 **single-pr モード**
 

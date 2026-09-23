@@ -76,6 +76,16 @@ jq -nc --arg parent "<親Issue番号>" --arg type "<bug|feat|chore|refactor|docs
 
 **ここでは Issue を作らない**（`/spinoff-issue` を呼ばない）。起票はフェーズ3 で 1 回だけまとめて行う。「記憶から落ちる／PR 本文の列挙で代替する」事故はファイルに残すことで防げるので、その場で起票する必要はない。**append 自体を後回しにするのは従来どおり禁止**（サブステップ末尾・スコープ末尾で思い出してまとめて書くのは不可）。フェーズ1で取得した親 Issue 番号は必ず `parent` に入れ、親なし（テキスト起動）の場合のみ空文字にする。`.sweep/` は作業ファイル置き場なのでコミットに含めない。
 
+## スクリプトの場所
+
+`scripts/` はハーネスごとに別の場所へ配置される（omp は `~/.omp/agent/skills/`、Claude Code は
+`~/.claude/skills/`。どちらも dotfiles 実体への symlink）。**各 bash 呼び出しは新しいシェル**なので、
+スクリプトを使うスニペットは毎回この 1 行で始める:
+
+```bash
+for c in ~/.omp/agent/skills/impl/scripts/verify-scope.sh ~/.claude/skills/impl/scripts/verify-scope.sh; do [ -x "$c" ] && VERIFY_SCOPE="$c" && break; done
+```
+
 ## フェーズ1: 要件分析とスコープ分割
 
 1. 引数から要件を取得する
@@ -85,7 +95,7 @@ jq -nc --arg parent "<親Issue番号>" --arg type "<bug|feat|chore|refactor|docs
    - テキスト: そのまま要件として扱う
    - 引数なし: ユーザーにヒアリング
 2. **repo プロファイルを取得する**（仕様は `references/repo-profile.md`）
-   - `~/.claude/skills/impl/scripts/verify-scope.sh --profile-path` でパスを得る
+   - `"$VERIFY_SCOPE" --profile-path` でパスを得る（`$VERIFY_SCOPE` は上の「スクリプトの場所」で解決する）
    - 存在し、かつ破棄条件（同 reference 参照）に当たらなければ**そのまま使い、探索を一切行わない**
    - 無い / 古い場合のみ生成する（test / lint / format コマンド、仕様書パス、テスト配置規約、パッケージマネージャ）
 3. 仕様書を確認する
@@ -110,7 +120,7 @@ jq -nc --arg parent "<親Issue番号>" --arg type "<bug|feat|chore|refactor|docs
 
 ## フェーズ2: 実装サイクル（各スコープで繰り返し）
 
-**各スコープ開始時に `TaskUpdate` で該当タスクを `in_progress` にする。**
+**各スコープ開始時に `todo` で該当タスクを `in_progress` にする。**
 
 #### 2-1: Plan
 - `Plan` エージェントで実装計画を立てる
@@ -146,7 +156,7 @@ jq -nc --arg parent "<親Issue番号>" --arg type "<bug|feat|chore|refactor|docs
 - **コミット前に必ず実行する。スキップ不可。**
 
 ```bash
-~/.claude/skills/impl/scripts/verify-scope.sh --type <このスコープの type> [--issue <Issue番号>]
+"$VERIFY_SCOPE" --type <このスコープの type> [--issue <Issue番号>]
 ```
 
 - 検査するのは 5 点: 追加行の未実装パターン / `fix` 型の回帰テスト有無 / **Issue の assignee**（着手宣言） / テスト exit code / lint exit code
@@ -161,8 +171,8 @@ jq -nc --arg parent "<親Issue番号>" --arg type "<bug|feat|chore|refactor|docs
 #### 2-7: Commit（必須）
 - **各スコープ完了時に必ずコミットする。スキップ不可。**
 - **2-6 が exit 0 で終わっていることが前提**
-- コミットメッセージは CLAUDE.md の規約に従う
-- **コミット後に `TaskUpdate` で該当タスクを `completed` にする**
+- コミットメッセージは常時適用ルール（omp: `RULES.md` / Claude Code: `CLAUDE.md`）の規約に従う
+- **コミット後に `todo` で該当タスクを `completed` にする**
 
 ## フェーズ3: 完了確認とPR作成
 
@@ -182,7 +192,7 @@ jq -nc --arg parent "<親Issue番号>" --arg type "<bug|feat|chore|refactor|docs
 - 各スコープは独立して実装・テスト可能な単位にする
 - **各スコープ完了時に必ずコミットする。** コミットせずに次へ進まない
 - レビュー指摘はすべての重大度（🔴🟠🟡🟢）で修正する
-- todo/TaskUpdate で進捗を管理する
+- `todo` で進捗を管理する
 - **フェーズ宣言**: 各サブステップ（2-1〜2-7）の開始時に `▶ 2-X 開始: <名称>`、完了時に `✓ 2-X 完了` を1行表示する。これによりサイレントスキップを防ぐ
 - 2-6 は結果も 1 行で表示する（`✓ 2-6 完了: FAIL 0 / WARN 1`）
 - **セルフチェック**: 各フェーズ完了前に本 SKILL.md の該当セクションを再読し、未実施手順がないか確認してから次フェーズへ進む
