@@ -1,54 +1,10 @@
 {
-  "alwaysThinkingEnabled": true,
-  "enabledPlugins": {
-    "gopls-lsp@claude-plugins-official": true
-  },
   "env": {
     "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
     "OTEL_LOG_TOOL_DETAILS": "1",
     "OTEL_LOG_USER_PROMPTS": "1"
   },
-  "feedbackSurveyState": {
-    "lastShownTime": 1753948122944
-  },
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "command": "gh issue list --state open --json number,title,labels --limit 20 2>/dev/null || true",
-            "type": "command"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "command": "bash '/home/ousiass/.claude/hooks/herdr-agent-state.sh' session",
-            "timeout": 10,
-            "type": "command"
-          }
-        ],
-        "matcher": "*"
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "command": "$HOME/.claude/hooks/check-issue-queue.sh",
-            "type": "command"
-          },
-          {
-            "command": "$HOME/.claude/hooks/check-sweep-state.sh",
-            "type": "command"
-          }
-        ]
-      }
-    ]
-  },
   "includeCoAuthoredBy": false,
-  "language": "日本語",
   "permissions": {
     "allow": [
       "Bash(npm list:*)",
@@ -131,8 +87,53 @@
     ],
     "defaultMode": "bypassPermissions"
   },
-  "skipAutoPermissionPrompt": true,
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "gh issue list --state open --json number,title,labels --limit 20 2>/dev/null || true"
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/home/ousiass/.claude/hooks/herdr-agent-state.sh' session",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/check-issue-queue.sh"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/check-sweep-state.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "gopls-lsp@claude-plugins-official": true
+  },
+  "language": "日本語",
+  "alwaysThinkingEnabled": true,
+  "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark-daltonized",
-  "tui": "fullscreen"
+  "skipAutoPermissionPrompt": true,
+  "feedbackSurveyState": {
+    "lastShownTime": 1753948122944
+  },
+  "model": "opus[1m]"
 }
