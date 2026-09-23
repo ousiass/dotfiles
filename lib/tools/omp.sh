@@ -46,7 +46,13 @@ link_omp() {
     # 常時適用のユーザールール（Claude Code の CLAUDE.md 相当）。
     # omp の rules プロバイダに claude は無く、~/.claude/CLAUDE.md は読まれない。
     make_symlink "$dst_dir/RULES.md" "$DOTFILES_DIR/omp/RULES.md" >/dev/null || true
+    # advisor だけが読む注意書き。user レベルの WATCHDOG.md として拾われる。
+    make_symlink "$dst_dir/WATCHDOG.md" "$DOTFILES_DIR/omp/WATCHDOG.md" >/dev/null || true
     make_symlink "$dst_dir/agents" "$DOTFILES_DIR/omp/agents" >/dev/null || true
+    # session_stop 等のイベントに載る拡張。omp は settings.json の hooks.Stop を
+    # 解釈しないため、sweep の停止ガードはここで供給する。
+    [[ -d "$DOTFILES_DIR/omp/extensions" ]] \
+        && make_symlink "$dst_dir/extensions" "$DOTFILES_DIR/omp/extensions" >/dev/null || true
     # omp native provider (priority 100) は claude provider (80) より優先されるので、
     # ここに置いた同名スキルが ~/.claude/skills 版を上書きする。無ければ Claude 版にフォールバック。
     [[ -d "$DOTFILES_DIR/omp/skills" ]] \
