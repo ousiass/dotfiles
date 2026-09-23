@@ -96,6 +96,29 @@ sweep でどのロールがどれだけ使われたかを目視できるよう�
 ここに無い名前を書いても解決されず黙って無視されるので、存在するものだけを並べる。
 `develop` / `review` は `agents/` の自前定義で、frontmatter 側が `@task` / `@slow` を指定している。
 
+`sonic`（「Low-reasoning agent for strictly mechanical updates or data collection only」）は
+**どのスキルからも呼ばれていなかった空き枠**だったため、`@commit`（luna）に割り当てて
+commit メッセージ / PR タイトルの下書き専用に使う（`impl` 2-7 / `issue-sweep` 2-2 手順3。
+`../sweep-common/commit-draft.md` 参照）。`scout` は `issue-sweep` フェーズ1-2a のトリアージに使う
+（read-only なので Issue 作成を伴う分割実行はできない。分割は 1-2b で `review` が行う）。
+
+### 表示ノイズ抑制
+
+issue-sweep など並列セッション中、メイン画面の表示量を抑えるための設定。`Ctrl+O`（ツール出力の
+折りたたみ）はセッション操作のみで永続化する設定は upstream に無いため対象外。
+
+| キー | 値 | 意図 |
+|---|---|---|
+| `hideThinkingBlock` | `true` | thinking ブロックを表示しない |
+| `textVerbosity` | `low` | OpenAI Responses / Codex transport 向けの応答簡潔化。**anthropic（default/task/plan/advisor/slow）には効かない** — 効くのは `smol`/`tiny`/`commit`（luna）経由の呼び出しだけ |
+| `display.pinnedAgents` | `collapsed` | 常時ライブ表示せず、数行 + expander に留める（`off` にすると完全に隠せるが、sweep 中の生存確認ができなくなるため既定の `collapsed` を明示的に固定） |
+| `statusLine.preset` | `nerd`（変更なし） | tide の Nerd Font アイコン表示（下記）を優先し、`minimal`/`compact` には変更しない。両立しない単一 enum のため、アイコン表示とノイズ低減はトレードオフになる |
+| `advisor.enabled` | `true`（変更なし） | ノイズの主因は advisor ではなく thinking ブロック / pinnedAgents / ツールカードの表示量。うるさいときは `advisor.immuneTurns`（既定 3）を上げる、またはセッション単位で advisor を一時的に切る運用で対応し、既定の ON は変えない |
+
+`omp config set` の書き込み先は `~/.omp/agent/config.yml`。dotfiles 側は `omp/config.yml` を
+`link_omp` が symlink するので、上記キーの直接編集はこのファイルに対して行う
+（「なぜ設定の意図をここに書くか」を参照）。
+
 ### symbolPreset: nerd
 
 tide が Nerd Font アイコンを使う環境のため（既定は `unicode`）。

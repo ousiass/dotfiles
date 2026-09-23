@@ -13,7 +13,7 @@ task:
   enableLsp: true
   agentModelOverrides:
     scout: "@smol"
-    sonic: "@smol"
+    sonic: "@commit"
     task: "@task"
     reviewer: "@task"
     security-reviewer: "@task"
@@ -45,6 +45,10 @@ providers:
 symbolPreset: nerd
 statusLine:
   preset: nerd
+display:
+  pinnedAgents: collapsed
+hideThinkingBlock: true
+textVerbosity: low
 skills:
   enableClaudeUser: true
 setupVersion: 2

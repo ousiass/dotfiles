@@ -157,32 +157,64 @@ gh issue list --state open --search "label:split-from" \
 - 子を持たない `#<n>` はそれ自身をキューに残す
 - これにより `/issue-sweep #100`（5 子持ちのフェーズ Issue）で「そのフェーズの 5 件だけ」を端から処理できる
 
-### 1-2. Issue 解析（1 Issue = 1 agent = 1 パス）
+### 1-2a. Issue トリアージ（scout / `@smol`、1 Issue = 1 agent = 1 パス）
 
 **Issue 本文の読み取りはここだけ。** 以前は「依存・並列禁止の判定」「`issue-split-auto` の分割判定」「バッチ編成のスコープ読み取り」で同じ本文を 3 回読んでいた。1 回の解析でまとめて返させる。
 
-`bug` ラベル付き、または `split-from:` ラベル付き（既に分割された子）の Issue は**分割判定だけスキップし、スコープ / 依存の解析は行う**。
+全 Issue を対象に、機械的に読み取れる情報（依存・並列可否・分割の一次判定）を安いモデルで抜く。
+分割の**実行**（`/issue-split-auto` の起票）はここでは行わない — `scout` は read-only で Issue 作成が
+できないため、分割が必要そうな Issue だけ 1-2b（`review`）に渡す。
 
-`task(agent=review)` で起動する（`harness-model`）。**同時起動は最大 5 件**（`--parallel` とは独立の固定上限）。6 件以上あれば 5 件ずつのウェーブに分け、各ウェーブが揃ってから次を出す。
+`task(agent=scout)` で起動する（`harness-model`）。**同時起動は最大 5 件**（`--parallel` とは独立の固定上限）。6 件以上あれば 5 件ずつのウェーブに分け、各ウェーブが揃ってから次を出す。
+
+```
+Issue #<n> を解析して JSON 1行だけを返してください。実装・Issue の作成や変更は一切しないこと。
+読み取り専用の分類だけ行う。
+
+本文とラベルから以下を読み取る:
+- `scope`: 「## スコープ」「## 影響範囲」「## ファイル」等から読み取れる対象ファイル /
+  ディレクトリのパス集合。読み取れなければ空配列
+- `depends_on`: 「依存: #N」「blocked by #N」「Depends on #N」「Closes/Fixes #N」の番号
+- `serial_only`: 次のいずれかに該当すれば true
+  - `serial-only` / `no-parallel` / `isolated` ラベル
+  - 本文に「並列禁止」「sequential only」「do not parallelize」等の明示記述
+  - `migration` / `schema-change` / `breaking-change` ラベル
+  - 本文に DB マイグレーション・依存パッケージのメジャー更新・設定ファイル
+    （CI / Lint / package.json 等）変更が含まれる旨の記述
+- `priority`: `priority:p0` / `p1` 等のラベルがあればその値
+- `needs_split_review`: 一次判定でよい（**誤検知は許容** — 最終判断は 1-2b が行う）
+  - `bug` ラベル、または `split-from:` ラベル（既に分割された子）が付いている → 常に false
+  - 本文が単一の機能・コンポーネントに閉じていて、スコープの混在を示す記述がない → false
+  - それ以外（複数コンポーネントへの言及、「まとめて」「and」等スコープ混在を示す記述、
+    判断がつかない場合を含む）→ true
+
+返す JSON:
+{"issue": <n>, "scope": ["apps/web/foo/"], "depends_on": [12], "serial_only": false, "priority": "p1", "needs_split_review": false}
+
+失敗時: {"issue": <n>, "error": "<1行で原因>"}
+
+返答ルール: 上記 JSON 以外を最終メッセージに含めない。
+```
+
+`error` が返った Issue は `needs_split_review: true` とみなし 1-2b に回す（安いモデルの誤判定・
+失敗で分割漏れが起きないよう安全側に倒す）。
+
+### 1-2b. 分割判定・実行（review / `@task`、`needs_split_review: true` の Issue のみ）
+
+1-2a で `needs_split_review: true` と判定された Issue だけを対象にする（`bug` / `split-from:`
+ラベル付きは対象外のまま）。対象が 0 件ならこのステップ自体を実行しない。
+
+`task(agent=review)` で起動する（`harness-model`）。**同時起動は最大 5 件**。6 件以上あれば
+5 件ずつのウェーブに分ける。
 
 ```
 Issue #<n> を解析して JSON 1行だけを返してください。実装は一切しないこと。
 
-1. 分割判定（`bug` / `split-from:` ラベルが付いている場合はこの手順をスキップ）:
-   `/issue-split-auto #<n>` を Skill ツールで実行し、スコープが混在していれば子 Issue に分割する。
+1. `/issue-split-auto #<n>` を Skill ツールで実行し、スコープが混在していれば子 Issue に分割する。
    **文字数や H2 数のような表層メトリクスで事前に判断しない** — 短くてもスコープが混在している
    ことはあるし、長くても単一機能で分割不要なことはある。本文と関連仕様書を実際に読んで判定する。
 2. 分割後の各 Issue（分割しなかった場合は #<n> 自身）について、本文から以下を読み取る:
-   - `scope`: 「## スコープ」「## 影響範囲」「## ファイル」等から読み取れる対象ファイル /
-     ディレクトリのパス集合。読み取れなければ空配列
-   - `depends_on`: 「依存: #N」「blocked by #N」「Depends on #N」「Closes/Fixes #N」の番号
-   - `serial_only`: 次のいずれかに該当すれば true
-     - `serial-only` / `no-parallel` / `isolated` ラベル
-     - 本文に「並列禁止」「sequential only」「do not parallelize」等の明示記述
-     - `migration` / `schema-change` / `breaking-change` ラベル
-     - 本文に DB マイグレーション・依存パッケージのメジャー更新・設定ファイル
-       （CI / Lint / package.json 等）変更が含まれる旨の記述
-   - `priority`: `priority:p0` / `p1` 等のラベルがあればその値
+   - `scope` / `depends_on` / `serial_only` / `priority`（定義は 1-2a と同じ）
 
 返す JSON（分割しなかった場合は units が 1 要素）:
 {"parent": <n>, "split": <true|false>, "units": [{"issue": <n>, "scope": ["apps/web/foo/"], "depends_on": [12], "serial_only": false, "priority": "p1"}]}
@@ -194,9 +226,20 @@ Issue #<n> を解析して JSON 1行だけを返してください。実装は�
 
 `error` が返った Issue は分割せず単独バッチとして扱い、`scope` は空・`serial_only` は false とみなす（解析失敗で sweep を止めない）。
 
+### 1-2c. 結果の合流
+
+1-2a で `needs_split_review: false` だった Issue は、review を経由せずそのまま
+`{"parent": <n>, "split": false, "units": [{"issue": <n>, "scope": ..., "depends_on": ..., "serial_only": ..., "priority": ...}]}`
+として扱う。1-2b の出力とあわせて、1-3 が使う `units` の集合を作る。
+
+**フォールバック:** 1-2a の `scope` / `depends_on` / `serial_only` が誤っていても、1-3 のバッチ編成は
+既存の保守的なルール（scope 不明は同 parent の兄弟に寄せる、なければ単独バッチ）で吸収する。
+誤判定が起きても develop の実装自体は通常どおり進む（バッチの粒度が理想よりずれるだけで、
+実装不能にはならない）。
+
 ### 1-3. バッチ編成
 
-1-2 が返した `units` を材料に、**メインスレッドは本文を読まずに**組を作る。バッチは **1 worktree / 1 ブランチ / 1 PR** で処理し、まとめてマージする:
+1-2a〜1-2c が返した `units` を材料に、**メインスレッドは本文を読まずに**組を作る。バッチは **1 worktree / 1 ブランチ / 1 PR** で処理し、まとめてマージする:
 
 - **`scope` が重なる unit、または同一 parent の兄弟は同じバッチにまとめる**（同じ worktree で順に実装するので conflict しない）
 - **`scope` が disjoint な unit は別のバッチにする**
@@ -365,7 +408,8 @@ Issue #<a>[, #<b>, #<c>] を **1 つの worktree にまとめて** 処理して�
    **wt 版（/impl-wt, /bug-fix-wt）は使わない**（worktree は 1 で作成済み。wt 版を呼ぶと二重に作られる）。
    各サブスキルのその他の禁止行動（テスト省略・サイレントスキップ・スコープ外発見の未 issue 化）は厳守。
 3. 全 Issue の実装が終わったら push し、`gh pr create --base <base_branch>` で **PR を 1 本だけ** 作る:
-   - タイトルに全 Issue 番号を含める
+   - タイトルに全 Issue 番号を含める。下書きは `../sweep-common/commit-draft.md` の契約で
+     `sonic`（`@commit`）に委譲する（`harness-model`。エラー時は自分でその規約に従って書く）
    - 本文に対象 Issue を全件列挙し、各 Issue でやったことを 1 行ずつ書く
    - `gh pr edit <PR番号> --add-issue <各 Issue URL>` で全件リンクする（Closes は使わない）
 4. `/refine-git --no-merge --skip-minor --max-iter 2` を Skill ツールで起動して研磨する。

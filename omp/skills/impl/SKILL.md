@@ -171,7 +171,9 @@ for c in ~/.omp/agent/skills/impl/scripts/verify-scope.sh ~/.claude/skills/impl/
 #### 2-7: Commit（必須）
 - **各スコープ完了時に必ずコミットする。スキップ不可。**
 - **2-6 が exit 0 で終わっていることが前提**
-- コミットメッセージは常時適用ルール（omp: `RULES.md` / Claude Code: `CLAUDE.md`）の規約に従う
+- コミットメッセージは常時適用ルール（omp: `RULES.md` / Claude Code: `CLAUDE.md`）の規約に従う。
+  下書きは `../sweep-common/commit-draft.md` の契約で `sonic`（`@commit`）に委譲する
+  （`harness-model`。エラー時は自分でその規約に従って書くフォールバックを使う）
 - **コミット後に `todo` で該当タスクを `completed` にする**
 
 ## フェーズ3: 完了確認とPR作成
@@ -180,6 +182,8 @@ for c in ~/.omp/agent/skills/impl/scripts/verify-scope.sh ~/.claude/skills/impl/
 2. 全体テストを実行
 3. **スコープ外発見の一括 issue 化**: `${SWEEP_DIR:-.sweep}/spinoff-draft.jsonl` が存在し空でなければ `/spinoff-issue --batch <そのパス>` を **1 回だけ** 呼んで一括起票し、完了後に draft を削除する。加えて draft に未記載の発見が残っていないかを明示的に確認・宣言する（残っていれば append してから起票する）。PR 本文や最終報告に「発見だが未 issue 化」を書くのは禁止
 4. `gh pr create --base <ベースブランチ>` でPRを作成
+   - **タイトルは `../sweep-common/commit-draft.md` の契約で `sonic`（`@commit`）に下書きさせる**
+     （`harness-model`。エラー時は自分でその規約に従って書く）
    - **`--no-pr` 指定時はこの手順をスキップ**して commit + push までで返す（複数 Issue を 1 ブランチに積む呼び出し元用）。最終報告に「PR 未作成（呼び出し元に委譲）」と明記する。**`--no-pr` が無いのにスキップするのは禁止**
    - **ベースブランチはフェーズ1で記録した開始時のブランチを指定する。`main` や `master` にフォールバックしないこと。**
    - 不明な場合は `git log --oneline --graph HEAD...main` 等で分岐元を確認する
