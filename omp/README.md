@@ -111,16 +111,21 @@ omp は `~/.claude/skills`（自作スキル）を**既定では読まない**�
 **user レベルの `~/.claude/CLAUDE.md` は読まれない。** claude の rules プロバイダ自体は存在し、
 プロジェクト側の `.claude/CLAUDE.md` とリポジトリ直下の `CLAUDE.md` は読む（v18.2.11 で実測。
 隔離した HOME で user レベルだけが無視されることを対照実験で確認した）。user レベルが対象外なので、
-`.claude/CLAUDE.md` と同じ方針をここに置く。内容は原本と揃え、差分は次の 2 点だけにする:
+`.claude/CLAUDE.md` と同じ方針をここに置く。
 
-- `AskUserQuestion` → `ask`（omp のツール名）
-- 自由入力の指定方法（omp の `ask` に `allowFreeText` は無い）
+**内容は原本と完全に一致させる（差分は H1 見出しだけ）。** `~/.claude` が `dotfiles/.claude` への
+symlink なので、`~/dotfiles` 内で omp を起動すると `.claude/CLAUDE.md` が**プロジェクトルール**として
+読まれ、user レベルの RULES.md と並んで有効になる（片方がもう片方を抑止することはない。
+両方ロードされることを実測で確認済み）。ここで文言が割れていると「`AskUserQuestion` で聞け」と
+「`ask` で聞け」が同時に指示される。rules をプロバイダ単位で切る設定は無く、`--no-rules` は
+全ルールを落とすので使えない。
 
-**このリポジトリ自身では二重に載る。** `~/.claude` が `dotfiles/.claude` への symlink なので、
-`~/dotfiles` 内で omp を起動すると `.claude/CLAUDE.md` が**プロジェクトルール**として読まれ、
-RULES.md と並んで有効になる（`AskUserQuestion` と `ask` が両方指示される）。
-プロバイダ単位で切る設定は無く、`--no-rules` は全ルールを落とすので使えない。
-dotfiles 以外のリポジトリでは起きないため、現状は許容している。
+そのため**ツール名はどちらか一方に決め打ちせず、両ハーネスを併記する**:
+
+- 選択式の確認ツール: Claude Code は `AskUserQuestion` / omp は `ask`
+- 自由入力: Claude Code は `allowFreeText: true` または「Other」選択肢 / omp は自由入力を促す選択肢
+
+この書き方なら、どちらのハーネスが両ファイルを同時に読んでも矛盾しない。
 
 ## WATCHDOG.md
 
