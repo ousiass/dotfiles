@@ -37,10 +37,6 @@
 ここに無い名前を書いても解決されず黙って無視されるので、存在するものだけを並べる。
 `develop` / `review` は `agents/` の自前定義で、frontmatter 側が `@task` / `@slow` を指定している。
 
-### tools.approvalMode: write
-
-omp の既定は `yolo`（全ツール呼び出しを自動承認）。書き込み・実行系だけ確認を挟む。
-
 ### symbolPreset: nerd
 
 tide が Nerd Font アイコンを使う環境のため（既定は `unicode`）。

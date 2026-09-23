@@ -14,8 +14,6 @@ task:
     task: "@task"
     reviewer: "@slow"
     security-reviewer: "@slow"
-tools:
-  approvalMode: write
 symbolPreset: nerd
 skills:
   enableClaudeUser: true
