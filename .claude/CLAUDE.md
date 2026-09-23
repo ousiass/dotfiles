@@ -1,4 +1,4 @@
-# Claude Instructions
+# Instructions
 
 ## Complexity & readability
 - Do not increase complexity without a clear reason.

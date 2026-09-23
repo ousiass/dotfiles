@@ -43,9 +43,9 @@ link_omp() {
     make_symlink "$dst_dir/mcp.json" "$DOTFILES_DIR/claude-mcp/mcp.json" >/dev/null || true
     # omp は .claude/agents を意図的にスキップする（frontmatter 契約が違う）ため、
     # omp 用のサブエージェント定義を専用ディレクトリごとリンクする。
-    # 常時適用のユーザールール（Claude Code の CLAUDE.md 相当）。
-    # omp の rules プロバイダに claude は無く、~/.claude/CLAUDE.md は読まれない。
-    make_symlink "$dst_dir/RULES.md" "$DOTFILES_DIR/omp/RULES.md" >/dev/null || true
+    # 常時適用のユーザールール。omp は user レベルの ~/.claude/CLAUDE.md を読まないため、
+    # Claude Code と同じ実体を RULES.md という名前でリンクする（内容の二重管理をしない）。
+    make_symlink "$dst_dir/RULES.md" "$DOTFILES_DIR/.claude/CLAUDE.md" >/dev/null || true
     # advisor だけが読む注意書き。user レベルの WATCHDOG.md として拾われる。
     make_symlink "$dst_dir/WATCHDOG.md" "$DOTFILES_DIR/omp/WATCHDOG.md" >/dev/null || true
     make_symlink "$dst_dir/agents" "$DOTFILES_DIR/omp/agents" >/dev/null || true
