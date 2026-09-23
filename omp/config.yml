@@ -25,8 +25,8 @@ modelRoles:
 
   # 探索・大量サブエージェント群
   smol: openai/gpt-6-luna:medium
-  tiny: openai/gpt-6-luna:low
-  commit: openai/gpt-6-luna:low
+  tiny: openai/gpt-6-luna:medium
+  commit: openai/gpt-6-luna:medium
 
   # 汎用の実装サブエージェント
   task: anthropic/claude-sonnet-5:high
