@@ -55,6 +55,7 @@ main() {
     update_gemini_cli
     update_cursor_cli
     update_herdr
+    update_omp
 
     update_lazygit
     update_gh

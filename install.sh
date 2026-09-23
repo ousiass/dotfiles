@@ -73,6 +73,7 @@ main() {
     install_gemini_cli
     install_cursor_cli
     install_herdr
+    install_omp
 
     install_lazygit
     install_gh
@@ -90,6 +91,7 @@ main() {
     link_config fish
     link_config gh-dash
     link_config herdr
+    link_omp
     link_claude
     link_codex_agents
     link_codex_skills

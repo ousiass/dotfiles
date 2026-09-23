@@ -103,6 +103,33 @@ $EDITOR .env
      - `~/.codex/skills/.system/` を経由して `codex-fugu` ランチャと設定バンドルを配置
    - **herdr** (エージェント向けターミナルマルチプレクサ、公式 curl インストーラ)
      - `~/dotfiles/herdr/config.toml` を `~/.config/herdr/config.toml` に symlink し、prefix を `ctrl+s` 等 tmux と統一
+   - **omp** (oh-my-pi、LSP/DAP を内蔵したコーディングエージェント CLI、公式 curl インストーラに `--binary`)
+     - prebuilt バイナリを `~/.local/bin/omp` に配置（約 248MB）
+     - bun -g 経由は避ける: keytar / onnxruntime-node の postinstall が bun にブロックされ、
+       Apple Silicon で Rosetta 版 bun があると x86_64 バイナリが生成される（起動が遅く AVX 警告）
+     - インストーラは再実行で最新版に入れ替わるため、update も同じ経路を使う
+     - fish 補完は `fish/completions/omp.fish`（`omp completions fish` の生成物）
+     - 設定は `~/dotfiles/omp/config.yml` → `~/.omp/agent/config.yml` に symlink（`link_omp`）。
+       同じディレクトリの `agent.db`（セッション・認証）はマシン依存なので管理外
+     - 既定から変えているのは 3 つ: `tools.approvalMode`（yolo → write）/ `symbolPreset`（unicode → nerd）/
+       `skills.enableClaudeUser`（false → true。omp は `~/.claude/skills` を既定で読まないため、自作スキルを有効化）
+     - MCP は `~/.omp/agent/mcp.json` → `~/dotfiles/claude-mcp/mcp.json` に symlink し、Claude / Codex と定義を共有する。
+       omp は `~/.mcp.json`（ホーム直下）を探索しないため明示的なリンクが要る（`~/.claude.json` は自動で継承される）
+     - `~/.agents/skills` の外部 agent-skills と `CLAUDE.md` / `AGENTS.md` 等のルールは設定なしで読まれる
+     - サブエージェントは `omp/agents/`（develop / review）→ `~/.omp/agent/agents/`。
+       omp は `.claude/agents` を意図的にスキップする（frontmatter 契約が別物）ため専用の実体を置く。
+       モデルは定義側に書かず `modelRoles` の `@task` / `@slow` で解決する
+     - スキルは `omp/skills/`（sweep / impl 系と、そこから呼ばれるレビュー・生成系 26 個）→ `~/.omp/agent/skills/`。
+       `sweep-common` は `SKILL.md` を持たない共有リファレンスでスキルとしては登録されないが、
+       各スキルから `../sweep-common/<file>` の相対パスで参照されるため同じ階層に置く
+       omp の native provider (priority 100) が claude provider (80) より優先されるため同名を上書きし、
+       未移植のスキルは `~/.claude/skills` 版にフォールバックする
+     - omp 版への書き換え規則: `Agent(subagent_type=X, model=Y)` → `task(agent=X)`（モデルは書かない）、
+       `AskUserQuestion` → `ask`、`TaskCreate` → `todo`、ハーネス分岐（`harness-model` 参照）は削除
+     - 未移植スキルを omp で呼ぶと Claude Code 前提の記述が残っている点に注意（`.codex/skills` と同じ二重管理）
+     - モデルは認証済みプロバイダのみ選べる（未認証は `omp models` に出ない）ため `modelRoles` は未設定のまま。
+       Anthropic / OpenAI Codex / Cursor / Copilot は `oauth` = サブスクのままサインインできる。
+       `omp` 内で `/login` するか `omp setup` を回し、`omp models` で ID を確認してから `modelRoles` に書く
 8. 各ツールのバイナリパスを `fish/conf.d/paths.fish` と `shell/paths.sh` で追加
 9. 既存の `~/.config/{nvim,tmux,fish,gh-dash}`, `~/.claude`, `~/.mcp.json`, `~/.env` を `*.bak.<日付>` にバックアップ
 10. dotfiles を該当パスにシンボリックリンク（`~/.env` → `~/dotfiles/.env`、`~/.mcp.json` → `~/dotfiles/claude-mcp/mcp.json`、`~/dotfiles/.codex/AGENTS.md` → `~/.codex/AGENTS.md`、`~/dotfiles/.codex/skills/<name>` → `~/.codex/skills/<name>`、`~/dotfiles/.claude/skills/<name>` → `~/.cursor/skills/<name>` 等）

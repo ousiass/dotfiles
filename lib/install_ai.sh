@@ -15,3 +15,5 @@
 . "$DOTFILES_DIR/lib/tools/fugu.sh"
 # shellcheck source=lib/tools/herdr.sh
 . "$DOTFILES_DIR/lib/tools/herdr.sh"
+# shellcheck source=lib/tools/omp.sh
+. "$DOTFILES_DIR/lib/tools/omp.sh"
