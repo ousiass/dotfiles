@@ -19,7 +19,32 @@ task:
     security-reviewer: "@task"
 advisor:
   enabled: true
+retry:
+  fallbackChains:
+    default:
+      - cursor/claude-sonnet-5-high
+      - google/gemini-3.1-pro-preview
+    task:
+      - cursor/claude-sonnet-5-high
+      - google/gemini-3.1-pro-preview
+    advisor:
+      - cursor/claude-sonnet-5-high
+    smol:
+      - google/gemini-3.5-flash
+      - cursor/claude-sonnet-5-low
+    tiny:
+      - google/gemini-3.5-flash
+      - cursor/claude-sonnet-5-low
+    commit:
+      - google/gemini-3.5-flash
+      - cursor/claude-sonnet-5-low
+    slow: []
+providers:
+  maxInFlightRequests:
+    anthropic: 3
 symbolPreset: nerd
+statusLine:
+  preset: nerd
 skills:
   enableClaudeUser: true
 setupVersion: 2
