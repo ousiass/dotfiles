@@ -34,6 +34,11 @@ opus は `slow` だけに限定する。レビュー（`reviewer` / `security-re
 sweep が何度も並列起動するため、ここを opus にすると消費が跳ねる。sonnet で回し、
 行き詰まったときに `--slow` や `/model` で opus に切り替える。
 
+`issue-sweep` だけ例外的に自動昇格がある: 同じバッチの実装が 1 回失敗して**同一バッチの 2 回目**を
+再投入するとき、`develop` ではなく `develop-slow`（`@slow`）に上げる（`budget_exhausted` の
+resume は対象外。詳細は `skills/harness-model/SKILL.md`、issue #22）。それ以外の経路（本線
+`default`/`task`、Advisor、並列 review）は自動昇格しない。
+
 モデル ID と effort は `~/.omp/agent/models.db`（omp のカタログ）で実在を確認する。
 `omp models` は**認証済みプロバイダしか表示しない**ため、未認証のものはカタログ側を見る。
 
@@ -105,7 +110,8 @@ worktree を残して resume できるようにする側の対応は `omp/skills
 
 実在する bundled エージェントは `reviewer` / `scout` / `security-reviewer` / `sonic` / `task` の 5 つ。
 ここに無い名前を書いても解決されず黙って無視されるので、存在するものだけを並べる。
-`develop` / `review` は `agents/` の自前定義で、frontmatter 側が `@task` / `@slow` を指定している。
+`develop` / `develop-slow` / `review` は `agents/` の自前定義。frontmatter 側が `develop`→`@task`、
+`develop-slow`→`@slow`（issue-sweep のバッチ 2 回目再試行専用）、`review`→`@task` を指定している。
 
 `sonic`（「Low-reasoning agent for strictly mechanical updates or data collection only」）は
 **どのスキルからも呼ばれていなかった空き枠**だったため、`@commit`（luna）に割り当てて

@@ -261,7 +261,7 @@ Issue #<n> を解析して JSON 1行だけを返してください。実装は�
 27
 ```
 
-同時に `$SWEEP_DIR/attempts.json` を `{}` で初期化する（バッチごとの試行回数。2-7 で使う）。**行の削除は `grep -vxF` の完全一致で行うので、queue.txt の行に試行回数などを混ぜてはならない。**
+同時に `$SWEEP_DIR/attempts.json` を `{}` で初期化する（バッチごとの試行回数と直近失敗が budget_exhausted だったかのフラグ。2-2 の agent 選択と 2-7 の記録で使う）。**行の削除は `grep -vxF` の完全一致で行うので、queue.txt の行に試行回数などを混ぜてはならない。**
 
 ### 1-5. ユーザーへの提示
 
@@ -375,11 +375,23 @@ head -n20 "$SWEEP_DIR/queue.txt"   # 候補を眺める。1 行 = 1 バッチ
 
 #### 2-2. 実装 agent の起動
 
+起動前に、このバッチの前回試行状態から使用エージェントを決める（`harness-model` の develop → develop-slow 昇格ルール）:
+
+```bash
+attempts_n=$(jq -r --arg b "$batch_line" '(.[$b] // {}).n // 0' "$SWEEP_DIR/attempts.json")
+budget_last=$(jq -r --arg b "$batch_line" '(.[$b] // {}).budget_last // false' "$SWEEP_DIR/attempts.json")
+if [[ "$attempts_n" -ge 1 && "$budget_last" != "true" ]]; then
+  develop_agent="develop-slow"   # 同じバッチの2回目（agent_failed後の再投入）だけ昇格
+else
+  develop_agent="develop"        # 1回目、または budget_exhausted からの resume
+fi
+```
+
 `task` ツールを以下の指定で呼ぶ:
 
-- `agent`: `develop`（起動は `harness-model`）
+- `agent`: `$develop_agent`（起動は `harness-model`。通常は `develop`、上記条件のときだけ `develop-slow`）
 - `description`: `"Batch #<a>[,#<b>…] implementation"`
-- `prompt`: 下記の**統一プロンプト**（バッチ件数 1 件でも同じものを使う）
+- `prompt`: 下記の**統一プロンプト**（バッチ件数 1 件でも同じものを使う。エージェントが変わってもプロンプトは同一）
 
 **worktree は必ず sweep 側が 1 つ作る。** 以前は「1 件なら wt 版スキルに worktree ごと任せ、2 件以上なら sweep が作る」と分岐していたため起動プロンプトが 2 本に分裂し、「誰が worktree を作ったか分からない」ので before/after のスナップショット差分を取る必要が生じていた。常に sweep が作れば両方消える。
 
@@ -463,7 +475,7 @@ Issue #<a>[, #<b>, #<c>] を **1 つの worktree にまとめて** 処理して�
 |---|---|
 | `merged == true` | 2-4（Issue close）→ 2-5（キュー削除）→ 2-6（worktree 掃除）→ in-flight から外す |
 | `state == "CLOSED" ∧ merged == false` | 手動 close。`ci_respawns == 0` なら 2-2 で再起動（2-1 の冪等性チェックが既存 PR を拾う）。1 回以上なら諦めて `sweep_notify "Manual intervention needed"`、in-flight から外し metrics に `manual_close` を記録してキューから該当行を消す |
-| `failed_checks` が空でない ∧ `waiting == 0` | CI 確定失敗。`ci_respawns >= 2` なら諦め（下記）。それ未満なら `ci_respawns += 1`、`gh pr comment` で attempt を記録し、**下記の CI fix プロンプトで agent を起動**して `stage=fixing` にする |
+| `failed_checks` が空でない ∧ `waiting == 0` | CI 確定失敗。`ci_respawns >= 2` なら諦め（下記）。それ未満なら、増分前の `ci_respawns` が `0` なら `develop`、`1` なら `develop-slow`（2 回目の修正投入。`harness-model` の昇格ルール）で**下記の CI fix プロンプトを実行する agent を起動**し、`ci_respawns += 1`、`gh pr comment` で attempt を記録して `stage=fixing` にする |
 | `checks_total == 0 ∧ zero_check_rounds < 2` | **まだマージしない。** PR 作成直後で check が登録されていないだけかもしれない。`zero_check_rounds += 1` して次ラウンドへ。**2 ラウンド連続で 0 件**なら「CI を持たないリポジトリ」と判定して下行のマージに進む |
 | `waiting == 0 ∧ failed_checks 空 ∧ state == "OPEN" ∧ (checks_total >= 1 ∨ zero_check_rounds >= 2)` | `gh pr merge <PR> --merge --delete-branch` を実行。成功なら次ラウンドで `merged` を検知。失敗なら `sweep_notify "merge failed"` して in-flight から外しユーザー報告に回す |
 | **一覧に PR が見つからない** | 取りこぼし。`gh pr view <PR> --json state,mergedAt,statusCheckRollup` を **その PR だけ** 1 回叩いて判定し直す。それでも見つからなければ `sweep_notify "PR lost"` して in-flight から外し、metrics に `pr_lost` を記録してキュー行を削除する |
@@ -478,7 +490,7 @@ sweep_notify "Manual intervention needed" "PR #${pr}: CI 3回連続失敗 ($fail
 
 諦めた PR は **その PR だけ** in-flight から外し、metrics に `ci_gave_up` を記録して**キューからも該当行を削除する**（残すと停止ガードが永久に停止をブロックする）。他の in-flight の処理は続行する。
 
-**CI fix 起動プロンプト**（バッチでも PR は 1 本なのでそのまま使える）:
+**CI fix 起動プロンプト**（バッチでも PR は 1 本なのでそのまま使える。起動エージェントは上表の通り `develop`（初回）/ `develop-slow`（2 回目、`harness-model` 参照）で、プロンプト自体はどちらでも同じ）:
 
 ```
 PR #<PR番号>（branch: <branch>）の CI で以下の check が失敗しました:
@@ -564,12 +576,13 @@ agent が `failure` を返した場合に加え、**`task` の応答が期待し
 または上記の parse 失敗だった場合は `is_budget_failure=true` とする（正確な原因が分からなくても
 安全側＝worktree を残す側に倒してよい。2-6 の進捗チェックが実質的な安全網になる）。
 
-**セッションをまたいで数えられる場所**に試行回数を記録する。メモリ上のカウンタだとセッションを張り直したときに同じバッチを無限に再試行する:
+**セッションをまたいで数えられる場所**に試行回数を記録する。メモリ上のカウンタだとセッションを張り直したときに同じバッチを無限に再試行する。`budget_last` は次回 2-2 の develop-slow 昇格判定に使うフラグで、`is_budget_failure` の値をそのまま入れる:
 
 ```bash
-attempts=$(jq -r --arg b "$batch_line" '.[$b] // 0' "$SWEEP_DIR/attempts.json")
+attempts=$(jq -r --arg b "$batch_line" '(.[$b] // {}).n // 0' "$SWEEP_DIR/attempts.json")
 attempts=$((attempts + 1))
-jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
+jq --arg b "$batch_line" --argjson n "$attempts" --argjson budget "$is_budget_failure" \
+   '.[$b] = {n: $n, budget_last: $budget}' \
    "$SWEEP_DIR/attempts.json" > "$SWEEP_DIR/attempts.tmp" \
    && mv "$SWEEP_DIR/attempts.tmp" "$SWEEP_DIR/attempts.json"
 ```
