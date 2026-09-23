@@ -112,7 +112,7 @@ $EDITOR .env
      - 設定は `~/dotfiles/omp/config.yml` → `~/.omp/agent/config.yml` に symlink（`link_omp`）。
      - 各設定の意図は `omp/README.md` に置く（omp は設定書き込み時に config.yml を再シリアライズしコメントを落とすため）
        同じディレクトリの `agent.db`（セッション・認証）はマシン依存なので管理外
-     - 既定から変えているのは 2 つ: `symbolPreset`（unicode → nerd）/
+     - 既定から変えているのは 3 つ: `symbolPreset`（unicode → nerd）/ `task.showResolvedModelBadge`（解決モデルの可視化）/
        `skills.enableClaudeUser`（false → true。omp は `~/.claude/skills` を既定で読まないため、自作スキルを有効化）
      - `tools.approvalMode` は既定の `yolo` のまま。`write` にすると `bash` のたびに確認が入り、常用にも sweep にも耐えない
      - MCP は `~/.omp/agent/mcp.json` → `~/dotfiles/claude-mcp/mcp.json` に symlink し、Claude / Codex と定義を共有する。

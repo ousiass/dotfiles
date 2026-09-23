@@ -31,6 +31,12 @@
 モデル ID と effort は `~/.omp/agent/models.db`（omp のカタログ）で実在を確認する。
 `omp models` は**認証済みプロバイダしか表示しない**ため、未認証のものはカタログ側を見る。
 
+### task.showResolvedModelBadge: true
+
+サブエージェントが実際に解決したモデルをバッジ表示する（既定 `false`）。
+ロール経由の間接指定（`scout` → `@smol` → 実モデル）は意図どおり解決されたか分かりにくいので、
+sweep でどのロールがどれだけ使われたかを目視できるようにしておく。
+
 ### task.agentModelOverrides
 
 実在する bundled エージェントは `reviewer` / `scout` / `security-reviewer` / `sonic` / `task` の 5 つ。

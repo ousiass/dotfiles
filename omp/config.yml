@@ -8,6 +8,7 @@ modelRoles:
   plan: anthropic/claude-opus-5:high
   advisor: anthropic/claude-opus-5:high
 task:
+  showResolvedModelBadge: true
   agentModelOverrides:
     scout: "@smol"
     sonic: "@smol"
