@@ -1,12 +1,13 @@
 modelRoles:
   default: anthropic/claude-sonnet-5:high
+  task: anthropic/claude-sonnet-5:high
+  slow: anthropic/claude-opus-5:high
+  plan: anthropic/claude-sonnet-5:high
+  advisor: anthropic/claude-sonnet-5:high
   smol: openai-codex/gpt-6-luna:medium
   tiny: openai-codex/gpt-6-luna:medium
   commit: openai-codex/gpt-6-luna:medium
-  task: anthropic/claude-sonnet-5:high
-  slow: anthropic/claude-opus-5:high
-  plan: anthropic/claude-opus-5:high
-  advisor: anthropic/claude-opus-5:high
+  vision: anthropic/claude-sonnet-5:high
 task:
   showResolvedModelBadge: true
   enableLsp: true
@@ -14,8 +15,10 @@ task:
     scout: "@smol"
     sonic: "@smol"
     task: "@task"
-    reviewer: "@slow"
-    security-reviewer: "@slow"
+    reviewer: "@task"
+    security-reviewer: "@task"
+advisor:
+  enabled: true
 symbolPreset: nerd
 skills:
   enableClaudeUser: true

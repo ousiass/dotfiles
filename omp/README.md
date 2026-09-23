@@ -22,15 +22,27 @@
 
 | ロール | 割り当て | 意図 |
 |---|---|---|
-| `default` | `claude-sonnet-5:high` | 主セッション。最終判断と統合 |
-| `smol` | `gpt-6-luna:medium` | 探索・大量サブエージェントの fan-out |
-| `tiny` | `gpt-6-luna:medium` | セッションタイトル・メモリ・auto thinking の難易度分類。分類が後段の判断に響くので low にしない |
-| `commit` | `gpt-6-luna:medium` | コミットメッセージと changelog。`<type>: <日本語説明>` の規約を守らせるため low にしない |
-| `task` | `claude-sonnet-5:high` | 汎用の実装サブエージェント |
-| `slow` / `plan` / `advisor` | `claude-opus-5:high` | 難しいレビュー・設計 |
+| `default` / `task` | `claude-sonnet-5:high` | 主セッションと実装サブエージェント |
+| `plan` / `advisor` | `claude-sonnet-5:high` | 設計と受動レビュー。常時動くので opus は使わない |
+| `slow` | `claude-opus-5:high` | **難問を突破するときだけ**。通常の経路からは呼ばれない |
+| `smol` / `tiny` / `commit` | `gpt-6-luna:medium` | 探索の fan-out・タイトル/メモリ・コミットメッセージ |
+| `vision` | `claude-sonnet-5:high` | 画像。未設定だと default に落ちるので明示する |
+
+opus は `slow` だけに限定する。レビュー（`reviewer` / `security-reviewer` / 自前の `review`）は
+sweep が何度も並列起動するため、ここを opus にすると消費が跳ねる。sonnet で回し、
+行き詰まったときに `--slow` や `/model` で opus に切り替える。
 
 モデル ID と effort は `~/.omp/agent/models.db`（omp のカタログ）で実在を確認する。
 `omp models` は**認証済みプロバイダしか表示しない**ため、未認証のものはカタログ側を見る。
+
+### advisor.enabled: true
+
+毎ターンの差分を別コンテキスト・別モデルでレビューし、気づきを注入する。
+approvalMode が `yolo` で人間のゲートが無いぶん、暴走を止める役として置く。
+
+コストは限定的で、受け取るのは前回からの**差分のみ**、サブエージェントには既定で付かない
+（sweep でレビューを並列起動しても advisor は主セッションの 1 本だけ）。
+`advisor.immuneTurns`（既定 3）が割り込み頻度を抑える。
 
 ### task.showResolvedModelBadge: true
 

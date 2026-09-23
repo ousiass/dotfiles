@@ -2,7 +2,7 @@
 name: review
 description: Use this agent when you need to review code changes based on specific requirements. It checks the deltas from the perspectives of requirement conformance, scope, and quality, identifies defects and risks, and suggests necessary fixes.
 model:
-  - "@slow"
+  - "@task"
 thinkingLevel: auto
 tools:
   - read
