@@ -387,17 +387,31 @@ head -n20 "$SWEEP_DIR/queue.txt"   # 候補を眺める。1 行 = 1 バッチ
 Issue #<a>[, #<b>, #<c>] を **1 つの worktree にまとめて** 処理してください。メインスレッドには JSON だけを返します。
 
 手順:
-1. worktree を 1 つ作る（以降のすべての作業をこのディレクトリ内で行う）:
-   git worktree add <repo>-sweep-<a> -b sweep/issues-<a>[-<b>-<c>] <base_branch>
+1. worktree を用意する（**前回試行が budget切れ等で残した worktree があれば再利用する**。無ければ新規作成する。以降のすべての作業をこのディレクトリ内で行う）:
+   wt_path="$(git rev-parse --show-toplevel)-sweep-<a>"
+   branch="sweep/issues-<a>[-<b>-<c>]"
+   if git worktree list --porcelain | grep -qxF "worktree $wt_path"; then
+     cd "$wt_path"   # 再利用
+   elif git show-ref --verify --quiet "refs/heads/$branch"; then
+     git worktree add "$wt_path" "$branch"   # worktree だけ消えてブランチが残っていた場合
+     cd "$wt_path"
+   else
+     git worktree add "$wt_path" -b "$branch" <base_branch>
+     cd "$wt_path"
+   fi
 
-   作成に成功したら、作業を始める前に**必ず**確認する:
-   cd <repo>-sweep-<a>
+   作成/再利用いずれでも、作業を始める前に**必ず**確認する:
    cur=$(git rev-parse --abbrev-ref HEAD)
    [[ "$cur" != "<base_branch>" && "$cur" != "main" && "$cur" != "develop" ]] || exit 2
 
    worktree の作成に失敗した場合、**メインリポジトリで代わりに作業してはならない**。
    {"issues": [...], "failure": "worktree 作成に失敗: <理由>"} を返して即座に終了する。
    最初の `git commit` の前にも同じ確認をもう一度行う。
+
+   **再利用した場合**: `git log <base_branch>..HEAD --oneline` と `git status --porcelain` を見て
+   どの Issue まで終わっているかを確認してから、続きの Issue だけ着手する（完了済み Issue を
+   重複実装しない）。未コミットの変更は内容を確認し、壊れていなければ活かして続行し、
+   壊れていれば `git checkout -- .` / `git clean -fd` で破棄してその Issue からやり直す。
 2. 各 Issue を **依存順に** 1 件ずつ処理する。Issue ごとに `gh issue view <n> --json labels` でラベルを見てスキルを選ぶ。
    **`--auto --no-pr` を必ず付ける**:
    - bug → `/bug-fix #<n> --auto --no-pr`
@@ -439,7 +453,7 @@ Issue #<a>[, #<b>, #<c>] を **1 つの worktree にまとめて** 処理して�
   `--issue <n>` を渡し、検証ゲート（`verify-scope.sh`）の assignee 検査を必ず通す。
 ```
 
-返答 JSON の `worktree` を in-flight テーブルに記録する（2-6 の掃除で使う）。
+返答 JSON の `worktree` を in-flight テーブルに記録する（見つからない場合は規約どおり `<repo>-sweep-<a>` を使う。2-6 の掃除・2-7 の resume 判定で使う）。
 
 #### 2-3. 判定と実行（メインスレッド）
 
@@ -521,18 +535,36 @@ jq --arg status "$final_status" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 
 #### 2-6. worktree 掃除
 
-agent が返した JSON の `worktree` パスをそのまま消す。sweep が作らせた 1 つだけなので探索は不要:
+**成功（マージ完了）と、進捗の無い失敗だけ無条件に消す。** budget 切れ / force-stop / クラッシュ等で
+コミット済み or 未コミットの進捗が残っている worktree は消さない（2-2 手順1 が次回起動時に再利用する）。
 
-```bash
-git worktree remove --force "$wt_path" 2>/dev/null || true
-```
-
-- agent が `failure` を返した場合も**必ず**消す（同じバッチの再起動時に worktree 名が衝突する）
-- 成功してマージ完了した場合、remote branch は `--delete-branch` で処理済みなので local worktree だけ消す
+- `merged == true`（2-3 の該当行から呼ばれる）: 無条件に消す。remote branch は `--delete-branch` で
+  処理済みなので local worktree だけでよい:
+  ```bash
+  git worktree remove --force "$wt_path" 2>/dev/null || true
+  ```
+- agent が `failure` を返した場合（2-7 から呼ばれる）: **進捗があるかどうかで分岐する**:
+  ```bash
+  if git -C "$wt_path" rev-parse --git-dir >/dev/null 2>&1 \
+     && [[ -z "$(git -C "$wt_path" log "${base_branch}..HEAD" --oneline 2>/dev/null)" ]] \
+     && [[ -z "$(git -C "$wt_path" status --porcelain 2>/dev/null)" ]]; then
+    # base から進んでいない = 失っても損は無い → 消す（次回起動時の名前衝突を避ける）
+    git worktree remove --force "$wt_path" 2>/dev/null || true
+  fi
+  # 進捗がある場合は何もしない。2-2 が次回起動時に再利用する
+  ```
 
 #### 2-7. バッチ失敗時（試行回数の永続化）
 
-agent が `failure` を返したら、**セッションをまたいで数えられる場所**に試行回数を記録する。メモリ上のカウンタだとセッションを張り直したときに同じバッチを無限に再試行する:
+agent が `failure` を返した場合に加え、**`task` の応答が期待した JSON として parse できなかった場合**
+（`task.softRequestBudget` / その 1.5x での強制停止、クラッシュ等で打ち切られたときに起こりうる）も
+同じ失敗扱いにする。後者は `failure="task response unparseable (possible request budget exhaustion / forced-stop)"` として扱う。
+
+**budget切れ判定**: `failure` の文言に `budget` / `予算` / `forced` / `yield` のいずれかを含む場合、
+または上記の parse 失敗だった場合は `is_budget_failure=true` とする（正確な原因が分からなくても
+安全側＝worktree を残す側に倒してよい。2-6 の進捗チェックが実質的な安全網になる）。
+
+**セッションをまたいで数えられる場所**に試行回数を記録する。メモリ上のカウンタだとセッションを張り直したときに同じバッチを無限に再試行する:
 
 ```bash
 attempts=$(jq -r --arg b "$batch_line" '.[$b] // 0' "$SWEEP_DIR/attempts.json")
@@ -542,11 +574,16 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
    && mv "$SWEEP_DIR/attempts.tmp" "$SWEEP_DIR/attempts.json"
 ```
 
-- `attempts < 2` → in-flight から外してキューに残す（次のラウンドの 2-1 で再度起動される）
+worktree の掃除は上記 2-6（失敗時分岐）に従う。
+
+- `attempts < 2` → in-flight から外してキューに残す（次のラウンドの 2-1 で再度起動される）。
+  worktree を残した場合、次回の 2-2 手順1 が自動的に同じ worktree / ブランチを再利用して続きから着手する
 - `attempts >= 2` → **そのバッチを諦める**:
-  - `gh issue comment <n> --body "sweep: 実装失敗（$failure）。2 回試行して通らなかったため手動対応が必要です。"`
+  - `gh issue comment <n> --body "sweep: 実装失敗（$failure）。2 回試行して通らなかったため手動対応が必要です。${wt_path:+ 途中経過は ${wt_path}（branch: ${branch}）に残しています。}"`
   - `sweep_notify "Agent failed" "Issue #${n}: $failure" ":x:"`
-  - metrics に `status: agent_failed` を記録
+  - metrics に記録する。**`is_budget_failure=true` のときは `status: budget_exhausted`、それ以外は `status: agent_failed`**
+    （「アカウント枠切れ」＝サブスクリプション枠の枯渇ではなく、サブエージェント 1 本の `task.softRequestBudget`
+    超過であることが後から区別できるようにする）。worktree を残した場合は `worktree` フィールドにパスも記録する
   - **キューから該当行を削除する**（残すと停止ガードが永久に停止をブロックし、sweep が終われない）
   - **他のバッチの処理は続行する。1 バッチの失敗で sweep 全体を止めない**
 
@@ -627,9 +664,14 @@ jq --arg b "$batch_line" --argjson n "$attempts" '.[$b] = $n' \
 {"ts":"<ISO8601>","issues":[12,13,14],"skills":["impl","impl","bug-fix"],"duration_sec":2140,"agent_attempts":1,"ci_respawns":0,"pr_number":129,"pr_url":"https://...","status":"merged"}
 {"ts":"<ISO8601>","issues":[51],"skills":["bug-fix"],"duration_sec":1820,"agent_attempts":3,"ci_respawns":2,"pr_number":131,"pr_url":"https://...","status":"ci_gave_up","failed_checks":"unit-tests,lint"}
 {"ts":"<ISO8601>","issues":[53],"skills":[],"duration_sec":12,"agent_attempts":1,"ci_respawns":0,"pr_number":null,"pr_url":null,"status":"agent_failed","failure":"<理由>","failed_issue":53}
+{"ts":"<ISO8601>","issues":[61],"skills":[],"duration_sec":905,"agent_attempts":2,"ci_respawns":0,"pr_number":null,"pr_url":null,"status":"budget_exhausted","failure":"task response unparseable (possible request budget exhaustion / forced-stop)","failed_issue":61,"worktree":"/path/to/repo-sweep-61"}
 ```
 
-**status 値:** `merged` / `ci_gave_up` / `agent_failed` / `aborted` / `manual_close` / `pr_lost` / `branch_guard`
+**status 値:** `merged` / `ci_gave_up` / `agent_failed` / `budget_exhausted` / `aborted` / `manual_close` / `pr_lost` / `branch_guard`
+
+`budget_exhausted` は `agent_failed` の一種で、2-7 の budget切れ判定（`is_budget_failure`）が true だったバッチに使う。
+「アカウント枠切れ」ではなく `task.softRequestBudget` 超過であることが集計・レポートから区別できる。
+`worktree` フィールドは 2-6 の判定で消さずに残した場合だけ書く（無ければ省略）。
 
 **実装:** 2-2 の起動時に `start_ts=$(date +%s)` を in-flight テーブルに記録し、2-4 / 2-7 の直前で:
 
@@ -646,9 +688,13 @@ jq -nc \
   --argjson pr "$pr_number" \
   --arg url "$pr_url" \
   --arg status "$status" \
-  '{ts:$ts,issues:$issues,skills:$skills,duration_sec:$dur,agent_attempts:$att,ci_respawns:$resp,pr_number:$pr,pr_url:$url,status:$status}' \
+  --arg wt "${wt_path_preserved:-}" \
+  '{ts:$ts,issues:$issues,skills:$skills,duration_sec:$dur,agent_attempts:$att,ci_respawns:$resp,pr_number:$pr,pr_url:$url,status:$status}
+   + (if $wt == "" then {} else {worktree:$wt} end)' \
   >> "$SWEEP_DIR/metrics.jsonl"
 ```
+
+`$wt_path_preserved` は 2-6 の判定で worktree を消さなかった場合だけ絶対パスをセットする（消した／元々成功で不要な場合は空のまま）。
 
 集計クエリは `references/metrics-queries.md`（フェーズ3-1 で使う）。ファイルは `.gitignore` 対象。
 
@@ -721,7 +767,10 @@ mapfile -t spinoff_deferred < <(echo "$spinoff_json" | jq -r '.[] | select(.high
 1. 処理した Issue 番号と PR URL の一覧を表でまとめる（**全 round 通算**）
 2. **`$SWEEP_DIR/metrics.jsonl` の今回 sweep 分から所要時間・失敗内訳を集計してユーザーに表示**
 3. キューファイルが空（`wc -l < "$SWEEP_DIR/queue.txt"` が 0）であることを確認
-4. `git worktree prune` で残存 worktree を全削除
+4. `git worktree prune` で（ディレクトリが既に無くなっている）残存 worktree の参照だけ掃除する。
+   進捗が残っていて 2-6 が意図的に消さなかった worktree はディレクトリが実在するので消えない
+   （5 のレポートが「Preserved worktrees」として列挙する。中身を確認してから手動で
+   `git worktree remove --force <path>` するか PR を出す）
 4b. **state.json を terminal 化**:
    ```bash
    # フェーズ3 到達時点で queue_remaining が 0 でなければ manual_intervention 扱い
@@ -768,8 +817,16 @@ total_dur=$(( $(date +%s) - $(date -d "$sweep_start_iso" +%s) ))
   echo "## Failures & Manual Intervention"
   jq -r --arg since "$sweep_start_iso" \
     'select(.ts >= $since and ((.source // "") | startswith("refine") | not) and .status != "merged") |
-     "- **\(.issues | map("#\(.)") | join(", "))** (\(.status))\(if .failed_issue then " — 転んだのは #\(.failed_issue)" else "" end): \(.failure // .failed_checks // "-") — PR \(.pr_url // "n/a")"' \
+     "- **\(.issues | map("#\(.)") | join(", "))** (\(.status))\(if .failed_issue then " — 転んだのは #\(.failed_issue)" else "" end): \(.failure // .failed_checks // "-") — PR \(.pr_url // "n/a")\(if .worktree then " — worktree: \(.worktree)" else "" end)"' \
     "$SWEEP_DIR/metrics.jsonl"
+  preserved=$(jq -r --arg since "$sweep_start_iso" \
+    'select(.ts >= $since and .worktree != null) | .worktree' \
+    "$SWEEP_DIR/metrics.jsonl")
+  if [[ -n "$preserved" ]]; then
+    echo
+    echo "## Preserved worktrees（budget切れ等で resume 用に残した進捗）"
+    echo "$preserved" | while read -r wt; do echo "- $wt"; done
+  fi
   if [[ -f "$SWEEP_DIR/refine-metrics.jsonl" ]]; then
     echo
     echo "## Recent refine runs（直近 24h）"

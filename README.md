@@ -48,6 +48,8 @@ GEMINI_API_KEY=xxxxx
 OPENAI_API_KEY=xxxxx
 SAKANA_API_KEY=xxxxx   # 未設定なら install.sh の Fugu インストールはスキップされる
 SUPABASE_ACCESS_TOKEN=xxxxx
+TYPESAFE_API_KEY=xxxxx # 未設定なら omp の omp-jev-compaction プラグインはスキップ（従来どおり圧縮なしで動作）
+OMP_JEV_PROVIDER=typesafe
 
 # 非secret も同様にここに
 EDITOR=nvim
@@ -114,7 +116,7 @@ $EDITOR .env
      - 常時適用のルールは `.claude/CLAUDE.md` → `~/.omp/agent/RULES.md`。omp は user レベルの
        `~/.claude/CLAUDE.md` を読まないため入り口だけ別に要るが、実体は 1 ファイルに統合している
        同じディレクトリの `agent.db`（セッション・認証）はマシン依存なので管理外
-     - 既定から変えているのは 4 つ: `symbolPreset`（unicode → nerd）/ `task.showResolvedModelBadge`（解決モデルの可視化）/ `task.enableLsp`（サブエージェントでも LSP）/
+     - 既定から変えているのは 5 つ: `symbolPreset`（unicode → nerd）/ `task.showResolvedModelBadge`（解決モデルの可視化）/ `task.enableLsp`（サブエージェントでも LSP）/ `task.softRequestBudget`（200 → 400。sweep 系長寿命サブエージェントの予算切れ対策）/
        `skills.enableClaudeUser`（false → true。omp は `~/.claude/skills` を既定で読まないため、自作スキルを有効化）
      - `tools.approvalMode` は既定の `yolo` のまま。`write` にすると `bash` のたびに確認が入り、常用にも sweep にも耐えない
      - MCP は `~/.omp/agent/mcp.json` → `~/dotfiles/claude-mcp/mcp.json` に symlink し、Claude / Codex と定義を共有する。
@@ -134,6 +136,9 @@ $EDITOR .env
      - モデルは認証済みプロバイダのみ選べる（未認証は `omp models` に出ない）ため `modelRoles` は未設定のまま。
        Anthropic / OpenAI Codex / Cursor / Copilot は `oauth` = サブスクのままサインインできる。
        `omp` 内で `/login` するか `omp setup` を回し、`omp models` で ID を確認してから `modelRoles` に書く
+     - **プラグイン（TypeSafe Jev context compaction、手動導入）**: `TYPESAFE_API_KEY` を `~/.env` に
+       置いてあれば `omp plugin install jerryfane/omp-jev-compaction` で導入できる（install.sh には
+       組み込まない。導入・段階運用・ガード設定の詳細は `omp/README.md` 参照）
 8. 各ツールのバイナリパスを `fish/conf.d/paths.fish` と `shell/paths.sh` で追加
 9. 既存の `~/.config/{nvim,tmux,fish,gh-dash}`, `~/.claude`, `~/.mcp.json`, `~/.env` を `*.bak.<日付>` にバックアップ
 10. dotfiles を該当パスにシンボリックリンク（`~/.env` → `~/dotfiles/.env`、`~/.mcp.json` → `~/dotfiles/claude-mcp/mcp.json`、`~/dotfiles/.codex/AGENTS.md` → `~/.codex/AGENTS.md`、`~/dotfiles/.codex/skills/<name>` → `~/.codex/skills/<name>`、`~/dotfiles/.claude/skills/<name>` → `~/.cursor/skills/<name>` 等）

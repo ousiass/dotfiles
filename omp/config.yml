@@ -11,6 +11,7 @@ modelRoles:
 task:
   showResolvedModelBadge: true
   enableLsp: true
+  softRequestBudget: 400
   agentModelOverrides:
     scout: "@smol"
     sonic: "@commit"

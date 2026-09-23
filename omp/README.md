@@ -90,6 +90,17 @@ sweep でどのロールがどれだけ使われたかを目視できるよう�
 `review` エージェントの tools に `lsp` を入れているため、これが false だと診断を見られない。
 言語サーバー自体は omp が cwd の root marker とバイナリの有無で自動検出する（設定不要）。
 
+### task.softRequestBudget: 400
+
+サブエージェント 1 本あたりのリクエスト上限（既定 `200`、1.5x ≈ 300 で強制停止）。
+`issue-sweep` / `impl` のような長寿命の実装サブエージェントは、rename のような広範囲な変更で
+既定値に当たって「予算切れ」で強制停止することがあった（例: backend rename が `go build/vet` まで
+通っていたのに、force-stop 後の worktree 掃除で成果が消えた）。**グローバル常時 `0`（無効化）にはしない**
+（放置並列の暴走ガードを残す）。`400` は sweep での実測に基づく暫定値で、当たる頻度が高ければ上げる。
+
+worktree を残して resume できるようにする側の対応は `omp/skills/issue-sweep/SKILL.md` の
+2-2（worktree 再利用）/ 2-6（進捗があれば消さない）/ 2-7（budget切れ判定）を参照（issue #19）。
+
 ### task.agentModelOverrides
 
 実在する bundled エージェントは `reviewer` / `scout` / `security-reviewer` / `sonic` / `task` の 5 つ。
@@ -192,3 +203,63 @@ Claude Code 版からの書き換え規則:
 
 `sweep-common` は `SKILL.md` を持たない共有リファレンスでスキルとしては登録されないが、
 各スキルから `../sweep-common/<file>` の相対パスで参照されるため同じ階層に置く。
+
+## plugins（omp 管理下、dotfiles には実体を置かない）
+
+`omp plugin install <pkg>` はユーザーの `~/.omp/agent/config.yml` を直接書き換える（前述の
+「なぜ設定の意図をここに書くか」と同じ理由でコメントは残らない）。dotfiles 側に対応する設定ファイルは
+置かず、導入手順とガードだけをここに書く。`install.sh` にも組み込まない（アカウント固有のキーが要る
+手動導入ステップのため、`/login` / `omp setup` と同じ扱い）。
+
+### jerryfane/omp-jev-compaction（TypeSafe Jev context compaction）
+
+要約ではなく「もう要らない」と判定した**ツール結果だけ**を落として実効コンテキストを薄くするプラグイン。
+落ちた中身は `~/.omp/jev-spill/<hash>.txt` に残り、エージェントは `read` で回収できる（issue #20）。
+
+**秘密情報は Sakana と同じ経路に乗せる（専用の `.env` は増やさない）**:
+
+1. `~/.env`（または `$DOTFILES_DIR/.env`）に `TYPESAFE_API_KEY=...` と `OMP_JEV_PROVIDER=typesafe` を書く
+   （プレースホルダは `.env.example`）
+2. fish 起動時に `fish/conf.d/secrets.fish` が読んで `set -gx` する。プラグインは環境変数の
+   `TYPESAFE_API_KEY` を読むだけなので、fish 経由の起動なら追加のローダは不要
+3. fish を通らない起動経路（systemd / 生 bash 等）は今のところ無い。将来 omp を fish 外から叩く経路が
+   増えたら、Fugu の `load_fugu_env`（`lib/tools/codex.sh`）と同じパターンで `$DOTFILES_DIR/.env` を
+   source する
+4. インストール: `omp plugin install jerryfane/omp-jev-compaction`（キー未設定でもプラグイン側が
+   フォールバックし、圧縮せず従来どおり動く。Fugu と同様 warn／スキップで落とさない設計）
+
+**推奨初期設定**（`~/.env`）:
+
+```bash
+TYPESAFE_API_KEY=...
+OMP_JEV_PROVIDER=typesafe
+# OMP_JEV_ALLOW_DROPPING_CALLS は書かない（既定 off のままにする）
+```
+
+| 変数 | 既定 | メモ |
+|---|---|---|
+| `TYPESAFE_API_KEY` | — | **必須**（TypeSafe 経路）。`~/.env` に置く |
+| `OMP_JEV_PROVIDER` | auto | `typesafe` を明示 |
+| `OMP_JEV_CONTEXT` | on | `0` で continuous 削減オフ |
+| `OMP_JEV_ALLOW_DROPPING_CALLS` | off | **オフのまま**。`1` にしない |
+| `OMP_JEV_SPILL` | on | `0` は非推奨（spill が無いと回収できず削減が恒久ロスになる） |
+
+**段階導入。** 一気に全ロールへは入れない。まず `issue-sweep` / 長い `impl` から効かせ、1〜2 バッチ
+観察して問題なければ全体へ広げる。スコープを絞る手段は 2 つ:
+
+- 特定ディレクトリだけ: `.omp/hooks/pre/jev.ts` をそのプロジェクトに置く
+- セッション単位: 普段は `~/.env` で `OMP_JEV_CONTEXT=0`（オフ）にしておき、sweep を起動する
+  シェルだけ `OMP_JEV_CONTEXT=1 issue-sweep ...` のように上書きする
+
+効きが悪ければ即オフ: `OMP_JEV_CONTEXT=0` または `omp plugin disable omp-jev-compaction`。
+
+**検証**（fish 起動後）:
+
+```bash
+echo $TYPESAFE_API_KEY   # 埋まっていること（値はチャットに出さない）
+omp plugin list
+grep "jev context" ~/.omp/logs/omp.$(date +%F).*.log | tail -3
+```
+
+**やらないこと**: OpenRouter 常用、`OMP_JEV_ALLOW_DROPPING_CALLS=1`、`task.softRequestBudget`
+（issue #19 の範囲）への言及の混在、会話が TypeSafe に送られることの社内ポリシー確定（必要なら別 Issue）。
