@@ -190,6 +190,7 @@ $EDITOR .env
 | `fugu` / `f` | `codex-fugu --dangerously-bypass-approvals-and-sandbox` |
 | `fc` | `codex-fugu --dangerously-bypass-approvals-and-sandbox resume --last` |
 | `cu` | `cursor-agent -f` |
+| `o` | `omp`（`tools.approvalMode: yolo` が既定なのでバイパスフラグ不要） |
 | `h` | `herdr` |
 
 `codex-fugu` は内部で `codex -p fugu "$@"` を `exec` するので、`fugu` でも codex 本体の bypass フラグがそのまま効く。`fc` は Codex CLI の `resume --last` で直近セッションを再開する。

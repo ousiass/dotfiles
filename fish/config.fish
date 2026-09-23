@@ -19,6 +19,7 @@ if status is-interactive
     alias f='codex-fugu --dangerously-bypass-approvals-and-sandbox'
     alias fc='codex-fugu --dangerously-bypass-approvals-and-sandbox resume --last'
     alias cu='cursor-agent -f'
+    alias o='omp'
 end
 
 # bun
