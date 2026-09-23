@@ -37,6 +37,12 @@
 ロール経由の間接指定（`scout` → `@smol` → 実モデル）は意図どおり解決されたか分かりにくいので、
 sweep でどのロールがどれだけ使われたかを目視できるようにしておく。
 
+### task.enableLsp: true
+
+サブエージェントから LSP を使えるようにする（既定 `false`）。
+`review` エージェントの tools に `lsp` を入れているため、これが false だと診断を見られない。
+言語サーバー自体は omp が cwd の root marker とバイナリの有無で自動検出する（設定不要）。
+
 ### task.agentModelOverrides
 
 実在する bundled エージェントは `reviewer` / `scout` / `security-reviewer` / `sonic` / `task` の 5 つ。
