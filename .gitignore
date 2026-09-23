@@ -36,6 +36,7 @@ fish/completions/tide.fish
 # ローカル設定
 .claude/settings.local.json
 .claude/policy-limits.json
+.claude/policy-limits.json.stamp.json
 
 # セッション・キャッシュ・一時データ
 .claude/sessions/
@@ -55,6 +56,12 @@ fish/completions/tide.fish
 .claude/projects/
 .claude/telemetry/
 .claude/mcp-needs-auth-cache.json
+# Claude Code が実体を管理する領域（install で再生成される）
+.claude/plugins/
+.claude/skills/synced/
+.claude/feedback/
+# 各種スクリプトが退避するバックアップ
+*.bak
 
 # ランタイム状態
 .claude/backups/
