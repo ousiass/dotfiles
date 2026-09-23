@@ -160,7 +160,7 @@ gh issue list --state open --search "label:split-from" \
 
 `bug` ラベル付き、または `split-from:` ラベル付き（既に分割された子）の Issue は**分割判定だけスキップし、スコープ / 依存の解析は行う**。
 
-`task(agent=review)` で起動する。モデルは `modelRoles` が解決するので指定しない。**同時起動は最大 5 件**（`--parallel` とは独立の固定上限）。6 件以上あれば 5 件ずつのウェーブに分け、各ウェーブが揃ってから次を出す。
+`task(agent=review)` で起動する（`harness-model`）。**同時起動は最大 5 件**（`--parallel` とは独立の固定上限）。6 件以上あれば 5 件ずつのウェーブに分け、各ウェーブが揃ってから次を出す。
 
 ```
 Issue #<n> を解析して JSON 1行だけを返してください。実装は一切しないこと。
@@ -331,7 +331,7 @@ head -n20 "$SWEEP_DIR/queue.txt"   # 候補を眺める。1 行 = 1 バッチ
 
 `task` ツールを以下の指定で呼ぶ:
 
-- `agent`: `develop`（モデルは `modelRoles` が解決するので指定しない）
+- `agent`: `develop`（起動は `harness-model`）
 - `description`: `"Batch #<a>[,#<b>…] implementation"`
 - `prompt`: 下記の**統一プロンプト**（バッチ件数 1 件でも同じものを使う）
 

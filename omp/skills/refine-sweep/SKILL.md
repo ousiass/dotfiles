@@ -162,7 +162,7 @@ gh label create "$iter_label" --color 0E8A16 2>/dev/null || true
 
 ### 2-2. review 並列実行（Issue 化させる）
 
-各レビュースキルを **Issue 化モードで並列起動**。起動は `task(agent=review)`（モデルは `modelRoles` が解決するので指定しない）。sub-agent は Skill を呼び出し、Skill 内の `ask` は `GitHub Issue に作成` + `個別 Issue` を自動選択して進む。
+各レビュースキルを **Issue 化モードで並列起動**。起動は `harness-model`（`agent: review`）。sub-agent は Skill を呼び出し、Skill 内の `ask` は `GitHub Issue に作成` + `個別 Issue` を自動選択して進む。
 
 ```
 Agent({
