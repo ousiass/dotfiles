@@ -11,7 +11,10 @@ install_brew() {
         return
     fi
     log "Homebrew をインストール"
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    # NONINTERACTIVE=1: 「Press RETURN/ENTER to continue」の確認待ちを飛ばす。
+    # 付けないと install.sh 全体が Homebrew の入力待ちで止まる。
+    # 管理者権限自体は必須なので、sudo パスワードは 1 回だけ聞かれる。
+    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     # 現在のセッションで brew を使えるようにする
     if [[ -d /opt/homebrew ]]; then
         eval "$(/opt/homebrew/bin/brew shellenv)"
