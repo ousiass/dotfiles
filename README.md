@@ -179,7 +179,7 @@ $EDITOR .env
 
 ## Fish エイリアス（AI CLI 一発起動）
 
-`fish/config.fish` に登録済み。Permission / sandbox バイパスを付けた状態でワンコマンド起動できる:
+`fish/config.fish` に登録済み。AI CLI はワンコマンドで起動でき、Claude Code / Codex 系は Permission / sandbox バイパスも付ける（`o` / `h` は対象外 — 前者は `config.yml` の `approvalMode: yolo` 既定、後者はそもそも承認プロンプトの無いツール）:
 
 | エイリアス | 展開 |
 |---|---|
