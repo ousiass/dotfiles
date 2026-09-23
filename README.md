@@ -110,6 +110,7 @@ $EDITOR .env
      - インストーラは再実行で最新版に入れ替わるため、update も同じ経路を使う
      - fish 補完は `fish/completions/omp.fish`（`omp completions fish` の生成物）
      - 設定は `~/dotfiles/omp/config.yml` → `~/.omp/agent/config.yml` に symlink（`link_omp`）。
+     - 各設定の意図は `omp/README.md` に置く（omp は設定書き込み時に config.yml を再シリアライズしコメントを落とすため）
        同じディレクトリの `agent.db`（セッション・認証）はマシン依存なので管理外
      - 既定から変えているのは 3 つ: `tools.approvalMode`（yolo → write）/ `symbolPreset`（unicode → nerd）/
        `skills.enableClaudeUser`（false → true。omp は `~/.claude/skills` を既定で読まないため、自作スキルを有効化）
