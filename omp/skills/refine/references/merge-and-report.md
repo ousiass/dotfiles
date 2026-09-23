@@ -82,7 +82,7 @@ fi
 
 ## 5. state.json を terminal 化
 
-**`OWNS_STATE=false`（呼び出し元の sweep が state.json を所有）のときはこの手順を丸ごとスキップする。** ここで terminal 化すると sweep の Stop Hook のブロックが解除され、キュー途中で静かに終わる。
+**`OWNS_STATE=false`（呼び出し元の sweep が state.json を所有）のときはこの手順を丸ごとスキップする。** ここで terminal 化すると sweep の停止ガードのブロックが解除され、キュー途中で静かに終わる。
 
 ```bash
 if [[ "$OWNS_STATE" == "true" ]]; then

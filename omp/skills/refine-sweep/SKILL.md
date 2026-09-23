@@ -35,9 +35,9 @@ description: 全コードベースを 4-5 観点でレビューし、指摘を I
 
 ## 状態管理 `$SWEEP_DIR/state.json`
 
-sweep 系スキル共通の進行状態ファイル。Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` の間（lock が新鮮な限り）停止をブロックする。**review を再実行せず推定で `phase=terminal` にしてはならない**。terminal 化の直前に最終 review を走らせ、その行が `$SWEEP_DIR/refine-metrics.jsonl` に append されていることを確認する。
+sweep 系スキル共通の進行状態ファイル。停止ガードは `phase != "terminal"` の間（lock が新鮮な限り）停止をブロックする。**review を再実行せず推定で `phase=terminal` にしてはならない**。terminal 化の直前に最終 review を走らせ、その行が `$SWEEP_DIR/refine-metrics.jsonl` に append されていることを確認する。
 
-**監査証跡は `refine-metrics.jsonl` 一本。** state.json に行番号を写す `evidence` 配列と、review の生カウントを重複保持する `last_counts` は廃止した（issue-sweep と同じ判断。Stop Hook は `phase` と lock の鮮度だけで判定しており、どちらも表示にしか使っていなかった）。
+**監査証跡は `refine-metrics.jsonl` 一本。** state.json に行番号を写す `evidence` 配列と、review の生カウントを重複保持する `last_counts` は廃止した（issue-sweep と同じ判断。停止ガードは `phase` と lock の鮮度だけで判定しており、どちらも表示にしか使っていなかった）。
 
 **スキーマ:**
 ```json
@@ -424,7 +424,7 @@ git worktree remove --force "<worktree>" 2>/dev/null || true
 
 #### 2-5-7. 失敗時（stuck 判定）
 
-agent が `failure` を返した / CI を諦めた Issue は、その反復では**諦めてキューから消す**（1 反復 = 1 Issue あたり 1 回の試行。残すと Stop Hook が永久に停止をブロックする）。metrics に `status` を記録し、失敗 Issue 番号を反復ごとのファイルに残す:
+agent が `failure` を返した / CI を諦めた Issue は、その反復では**諦めてキューから消す**（1 反復 = 1 Issue あたり 1 回の試行。残すと停止ガードが永久に停止をブロックする）。metrics に `status` を記録し、失敗 Issue 番号を反復ごとのファイルに残す:
 
 ```bash
 echo "$failed_ids" > "$SWEEP_DIR/failed-iter-${iter}.txt"
@@ -441,7 +441,7 @@ fi
 
 このラウンドで何も進捗がなく（マージ 0 件・新規起動 0 件）、in-flight が残っている場合のみ **1 つの bash コマンドの中で `sleep 60`** してから 2-5-1 に戻る。進捗があった場合は待たずに次のラウンドへ進む。
 
-**「待機。」と言ってターンを終えてはならない**（Stop Hook に押し戻されるたびにモデルのターンを 1 回消費する）。
+**「待機。」と言ってターンを終えてはならない**（停止ガードに押し戻されるたびにモデルのターンを 1 回消費する）。
 
 **キューが空 ∧ in-flight が 0 になったらこの反復は終了**。`closed_count` / `failed_ids` を確定させて下記の fix_ineffective 判定に進む。
 
@@ -555,7 +555,7 @@ elapsed=$(( $(date +%s) - $(date -d "$started_at" +%s) ))
 - **agent プロンプトに埋められないプレースホルダ（`<worktree_path>` 等）を残す**（agent がガードを実行できず、ベースブランチ直コミットの検知が丸ごと落ちる）
 - **review agent に Issue 作成を止めさせる**（旧設計。現在は Issue 化が意図的設計）
 - **`checks_total == 0` を「CI 緑」とみなしてマージする**（PR 作成直後は check が 1 つも登録されていない。2 ラウンド連続 0 件を確認してから CI 無しと判定する）
-- **やることが無いときにターンを終えて待つ**（Stop Hook に押し戻されるたびにモデルのターンを 1 回消費する。待つときは 1 つの bash コマンドの中で `sleep 60` を挟む）
+- **やることが無いときにターンを終えて待つ**（停止ガードに押し戻されるたびにモデルのターンを 1 回消費する。待つときは 1 つの bash コマンドの中で `sleep 60` を挟む）
 
 **反復と終了**
 
@@ -564,7 +564,7 @@ elapsed=$(( $(date +%s) - $(date -d "$started_at" +%s) ))
 - **`phase=terminal` にする前に最終 review を再実行しない**
 - **state.json に `evidence` / `last_counts` を復活させる**（証跡は `refine-metrics.jsonl` 一本。二重管理すると片方だけ更新される）／ レポートに `## Evidence` セクションを書かない
 - **`refine-sweep-stuck` ラベルを勝手に外す**（人手判断が入るまで維持）
-- **ユーザーに確認を取って止まる**（「続けますか」「次の反復に進みますか」「並列度はいくつに？」。すべてデフォルトで進める。Stop Hook が押し戻す）
+- **ユーザーに確認を取って止まる**（「続けますか」「次の反復に進みますか」「並列度はいくつに？」。すべてデフォルトで進める。停止ガードが押し戻す）
 
 **single-pr モード**
 

@@ -4,7 +4,7 @@
 
 ## `.sweep/state.json`
 
-sweep 系スキル共通の進行状態ファイル。**場所は常に `$SWEEP_DIR`（メインリポジトリ側。`common-setup.md` 手順3 参照）**。Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` の間（lock が新鮮な限り）停止をブロックする。**最終反復のレビュー結果を確認せず推定で `phase=terminal` にしてはならない。**
+sweep 系スキル共通の進行状態ファイル。**場所は常に `$SWEEP_DIR`（メインリポジトリ側。`common-setup.md` 手順3 参照）**。停止ガードは `phase != "terminal"` の間（lock が新鮮な限り）停止をブロックする。**最終反復のレビュー結果を確認せず推定で `phase=terminal` にしてはならない。**
 
 `OWNS_STATE=false`（呼び出し元の sweep が state.json を所有している）のときは、このファイルへの書き込みをすべてスキップしてテレメトリのみ追記する（`common-setup.md` 手順4 のガード）。
 
@@ -29,7 +29,7 @@ sweep 系スキル共通の進行状態ファイル。**場所は常に `$SWEEP_
 - 各反復終了時（テレメトリ追記直後）に `iteration += 1`、`last_counts` を最新の review 集計結果で上書き、`updated_at` 更新。`last_counts` は 2-3 の `no_progress` 判定に使うので必ず更新する
 - フェーズ3 で `phase=terminal` と `termination_reason` をセット
 
-**監査証跡は `$SWEEP_DIR/refine-metrics.jsonl` 一本に集約する。** state.json に行番号を写す `evidence` 配列は廃止した（Stop Hook は判定に使っておらず、同じ情報を 3 箇所に持つだけだった）。
+**監査証跡は `$SWEEP_DIR/refine-metrics.jsonl` 一本に集約する。** state.json に行番号を写す `evidence` 配列は廃止した（停止ガードは判定に使っておらず、同じ情報を 3 箇所に持つだけだった）。
 
 ## 反復ごとのテレメトリ追記 + state.json 更新
 

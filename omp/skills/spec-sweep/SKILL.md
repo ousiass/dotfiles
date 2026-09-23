@@ -51,7 +51,7 @@ description: 複数の仕様追加を事前計画で一括ヒアリングし、I
 
 sweep 系共通の進行状態を持つ。`prelude.sh` も `assert_not_base` もここで作る state.json を読む。
 
-**対話フェーズでは lock を書かない。** Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` かつ lock が新鮮な間だけ停止をブロックする。計画ヒアリング中に lock があると、ユーザーへの質問でターンを終えるたびに押し戻されて進めなくなる。
+**対話フェーズでは lock を書かない。** 停止ガードは `phase != "terminal"` かつ lock が新鮮な間だけ停止をブロックする。計画ヒアリング中に lock があると、ユーザーへの質問でターンを終えるたびに押し戻されて進めなくなる。
 
 1. **`$SWEEP_DIR` の確定と多重起動チェック**:
 
@@ -172,12 +172,12 @@ jq --argjson n "<項目数>" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 
 - 当該項目で停止し、`TaskUpdate` で当該タスクの状態を明示
 - 完了済み項目はそのまま残す
-- **ユーザーに聞く前に必ず `phase=terminal` + `termination_reason="manual_intervention"` にして lock を消す**（Stop Hook が押し戻して質問できなくなるため）
+- **ユーザーに聞く前に必ず `phase=terminal` + `termination_reason="manual_intervention"` にして lock を消す**（停止ガードが押し戻して質問できなくなるため）
 - ユーザーに `項目N で失敗 / 完了済み: 1..N-1 / 未着手: N+1..` を報告し、再開可否を確認
 
 ## フェーズ3: 完了報告
 
-**先に terminal 化する**（これを飛ばすと Stop Hook が停止をブロックし続ける）:
+**先に terminal 化する**（これを飛ばすと停止ガードが停止をブロックし続ける）:
 
 ```bash
 jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -204,6 +204,6 @@ rm -f "$SWEEP_DIR/lock"
 - `spec-gen` 本体のロジックは複製せず参照する（`../spec-gen/SKILL.md`）
 - 計画フェーズで集めた `項目名 / 概要 / 影響仕様書 / CTO 確認事項` を渡し、spec-gen 内の追加ヒアリングは最小化
 - コミットメッセージは `<type>: <説明>` 形式（CLAUDE.md 準拠）
-- **対話フェーズ（0〜1）では lock を書かない / 実行フェーズ（2）に入る直前に書く**。ユーザーに質問して止まる区間で lock があると Stop Hook に押し戻される
+- **対話フェーズ（0〜1）では lock を書かない / 実行フェーズ（2）に入る直前に書く**。ユーザーに質問して止まる区間で lock があると停止ガードに押し戻される
 - **終了時・打ち切り時は必ず `phase=terminal` + `rm -f lock`**。放置すると次回起動が「他 sweep 実行中」で弾かれる
 - `git commit` / `git push` で `--no-verify` を使わない

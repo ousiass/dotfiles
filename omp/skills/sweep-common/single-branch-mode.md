@@ -78,7 +78,7 @@ git merge --no-ff --no-edit "$work_branch"
 |---|---|
 | 成功 | `git push origin "$int_branch"` → worktree 掃除 → `git branch -D "$work_branch"` と `git push origin --delete "$work_branch"` → metrics に `status:"integrated"` → Issue close はせずキュー行だけ削除（close は S-3） |
 | 競合 | `git merge --abort` → 下記 rebase agent を **1 回だけ** 起動 → 再 merge |
-| 再 merge も競合 | `git merge --abort` → そのバッチを諦める。Issue にコメント、metrics に `status:"merge_conflict"`、**キュー行を削除**（残すと Stop Hook が永久に停止をブロックする）。他バッチの処理は続行する |
+| 再 merge も競合 | `git merge --abort` → そのバッチを諦める。Issue にコメント、metrics に `status:"merge_conflict"`、**キュー行を削除**（残すと停止ガードが永久に停止をブロックする）。他バッチの処理は続行する |
 
 **rebase agent プロンプト:**
 
@@ -174,7 +174,7 @@ gh pr create --base "$base_branch" --head "$int_branch" --title "<title>" --body
 **最終 PR をマージするのは人であって sweep ではない。** ここでやるのは「CI を緑にして、マージ可能な状態で人に渡す」ことだけ。
 
 **1 つの bash コマンドの中でブロックして待つ。** 「待機。」と言ってターンを終える待ち方をすると、
-Stop Hook に押し戻されるたびにモデルのターンを 1 回消費する:
+停止ガードに押し戻されるたびにモデルのターンを 1 回消費する:
 
 ```bash
 source "$SWEEP_DIR/prelude.sh"
@@ -236,11 +236,11 @@ CI fix agent のプロンプトは通常モードのものをそのまま使う�
 - **S-2-0 の統合研磨を飛ばして最終 PR を出す**（single-pr モードではここが唯一のレビューゲート）
 - **統合研磨の `--base-ref` に統合ブランチを渡す**（差分が空になり `refine-git` が exit 2 で落ちる。渡すのは `origin/$base_branch`）
 - **統合研磨をメイン作業ツリーで直接走らせる**（`$int_branch` を掴んでいるので worktree 作成に失敗する。専用ブランチを切った agent に投げる）
-- **競合したバッチをキューに残したまま次へ進む**（Stop Hook が永久に停止をブロックする。諦めたら必ず消して metrics に残す）
+- **競合したバッチをキューに残したまま次へ進む**（停止ガードが永久に停止をブロックする。諦めたら必ず消して metrics に残す）
 - **最終 PR を sweep がマージする**（`gh pr merge` は single-pr モードでは一切叩かない。マージは必ず人が行う）
 - **CI 結果を確定させる前に `phase=terminal` にする**
 - **最終 PR が未マージなのに Issue を close する**（close はユーザーがマージした後に行う）
-- **CI 待ちをターンを終えて行う**（S-2-2 のブロッキング待機を使う。Stop Hook との往復 1 回 = モデルのターン 1 回）
+- **CI 待ちをターンを終えて行う**（S-2-2 のブロッキング待機を使う。停止ガードとの往復 1 回 = モデルのターン 1 回）
 - **Issue を PR 本文の `Closes #N` で閉じる**（S-3 の明示 close に統一する）
 - **`$int_branch` / `$base_branch` をシェル変数の持ち回りで運ぼうとする**（Bash は毎回新しいシェル。S-0-3 で state.json に書き、以降は `source "$SWEEP_DIR/prelude.sh"` で読む）
 - ベースブランチ / 統合ブランチを途中で変える

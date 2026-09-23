@@ -53,7 +53,7 @@ description: 機能要望とバグ報告を一括ヒアリングし、バグは 
 
 ## フェーズ0: 前提スキャン + lock / state.json の準備
 
-**対話フェーズでは lock を書かない。** Stop Hook (`check-sweep-state.sh`) は `phase != "terminal"` かつ lock が新鮮な間だけ停止をブロックする。ヒアリング中に lock があると、質問でターンを終えるたびに押し戻されて進めなくなる。
+**対話フェーズでは lock を書かない。** 停止ガードは `phase != "terminal"` かつ lock が新鮮な間だけ停止をブロックする。ヒアリング中に lock があると、質問でターンを終えるたびに押し戻されて進めなくなる。
 
 ```bash
 SWEEP_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")}/.sweep"
@@ -165,7 +165,7 @@ jq --argjson n "<項目数>" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
    "$SWEEP_DIR/state.json" > "$SWEEP_DIR/state.json.tmp" && mv "$SWEEP_DIR/state.json.tmp" "$SWEEP_DIR/state.json"
 ```
 
-3-2 の重複 Issue 確認だけは `ask` で止まるため、**その質問の直前に lock を消し、回答後に書き直す**（Stop Hook に押し戻されないようにする）。
+3-2 の重複 Issue 確認だけは `ask` で止まるため、**その質問の直前に lock を消し、回答後に書き直す**（停止ガードに押し戻されないようにする）。
 
 各項目について以下を実行。ベースブランチから始める（項目の冒頭で lock に heartbeat を打つ）。
 
@@ -234,7 +234,7 @@ gh issue create \
 
 ## フェーズ4: 完了報告
 
-**先に terminal 化する**（これを飛ばすと Stop Hook が停止をブロックし続ける）:
+**先に terminal 化する**（これを飛ばすと停止ガードが停止をブロックし続ける）:
 
 ```bash
 jq --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -279,7 +279,7 @@ rm -f "$SWEEP_DIR/lock"
 
 - 当該項目で停止し、`TaskUpdate` でタスクの状態を明示
 - 完了済み項目はそのまま残す
-- **ユーザーに聞く前に必ず `phase=terminal` + `termination_reason="manual_intervention"` にして lock を消す**（Stop Hook が押し戻して質問できなくなるため）
+- **ユーザーに聞く前に必ず `phase=terminal` + `termination_reason="manual_intervention"` にして lock を消す**（停止ガードが押し戻して質問できなくなるため）
 - ユーザーに `項目 N で失敗 / 完了: 1..N-1 / 未着手: N+1..` を報告し、再開可否を確認
 
 ## ルール
@@ -295,6 +295,6 @@ rm -f "$SWEEP_DIR/lock"
 - **作業ブランチを作らずベースブランチ上で仕様書をコミットしない**。ブランチ作成に失敗したらその項目を諦めて人に返す（`git reset` / `git checkout -f` で自動的に直して続行しない）
 - `--single-pr` 指定時は `../sweep-common/single-branch-mode.md` を読んでから進める（差分表だけで手順を推測しない）
 - コミットメッセージは `<type>: <説明>` 形式（CLAUDE.md 準拠）
-- **対話フェーズ（0〜2）では lock を書かない / 実行フェーズ（3）に入る直前に書く**。ユーザーに質問して止まる区間で lock があると Stop Hook に押し戻される
+- **対話フェーズ（0〜2）では lock を書かない / 実行フェーズ（3）に入る直前に書く**。ユーザーに質問して止まる区間で lock があると停止ガードに押し戻される
 - **終了時・打ち切り時は必ず `phase=terminal` + `rm -f lock`**。放置すると次回起動が「他 sweep 実行中」で弾かれる
 - `git commit` / `git push` で `--no-verify` を使わない

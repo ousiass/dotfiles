@@ -26,7 +26,7 @@ max_iter=10      # --max-iter で上書き
 skip_minor=false # --skip-minor で true（refine-git のみ。issue-sweep からは常に true）
 
 # `.sweep/` は **常にメインリポジトリ側** を指す。worktree 内で走っても分裂させない
-# （worktree を消すとテレメトリが消え、Stop Hook が別ファイルを見る事故になる）
+# （worktree を消すとテレメトリが消え、停止ガードが別ファイルを見る事故になる）
 SWEEP_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")}/.sweep"
 mkdir -p "$SWEEP_DIR"
 ```
@@ -35,7 +35,7 @@ mkdir -p "$SWEEP_DIR"
 
 ## 4. `.sweep/state.json` の初期化（**所有権ガード必須**）
 
-`.sweep/` はメインリポジトリ共有なので、`issue-sweep` から呼ばれた場合は **sweep が state.json の所有者**になる。上書きすると sweep の進行状態（`queue_remaining` など）が壊れ、フェーズ3 で `phase=terminal` にした瞬間に **Stop Hook のブロックが解除されて sweep がキュー途中で静かに終わる**。
+`.sweep/` はメインリポジトリ共有なので、`issue-sweep` から呼ばれた場合は **sweep が state.json の所有者**になる。上書きすると sweep の進行状態（`queue_remaining` など）が壊れ、フェーズ3 で `phase=terminal` にした瞬間に **停止ガードのブロックが解除されて sweep がキュー途中で静かに終わる**。
 
 ```bash
 # 既存 state.json が別スキルのもので、かつ未 terminal → sweep が所有中。触らない
@@ -48,7 +48,7 @@ else
 fi
 ```
 
-`OWNS_STATE=false` のときは以下の初期化・更新・terminal 化をすべてスキップし、`$SWEEP_DIR/refine-metrics.jsonl` への追記だけ行う。呼び出し元の sweep が停止制御を握っているので、Stop Hook 対策は不要。
+`OWNS_STATE=false` のときは以下の初期化・更新・terminal 化をすべてスキップし、`$SWEEP_DIR/refine-metrics.jsonl` への追記だけ行う。呼び出し元の sweep が停止制御を握っているので、停止ガード 対策は不要。
 
 `OWNS_STATE=true` のときのみ:
 
