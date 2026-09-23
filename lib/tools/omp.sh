@@ -43,6 +43,9 @@ link_omp() {
     make_symlink "$dst_dir/mcp.json" "$DOTFILES_DIR/claude-mcp/mcp.json" >/dev/null || true
     # omp は .claude/agents を意図的にスキップする（frontmatter 契約が違う）ため、
     # omp 用のサブエージェント定義を専用ディレクトリごとリンクする。
+    # 常時適用のユーザールール（Claude Code の CLAUDE.md 相当）。
+    # omp の rules プロバイダに claude は無く、~/.claude/CLAUDE.md は読まれない。
+    make_symlink "$dst_dir/RULES.md" "$DOTFILES_DIR/omp/RULES.md" >/dev/null || true
     make_symlink "$dst_dir/agents" "$DOTFILES_DIR/omp/agents" >/dev/null || true
     # omp native provider (priority 100) は claude provider (80) より優先されるので、
     # ここに置いた同名スキルが ~/.claude/skills 版を上書きする。無ければ Claude 版にフォールバック。

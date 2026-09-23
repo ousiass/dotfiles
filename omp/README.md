@@ -5,6 +5,7 @@
 | dotfiles | リンク先 |
 |---|---|
 | `omp/config.yml` | `~/.omp/agent/config.yml` |
+| `omp/RULES.md` | `~/.omp/agent/RULES.md` |
 | `omp/agents/` | `~/.omp/agent/agents/` |
 | `omp/skills/` | `~/.omp/agent/skills/` |
 | `claude-mcp/mcp.json` | `~/.omp/agent/mcp.json` |
@@ -56,6 +57,17 @@ tide が Nerd Font アイコンを使う環境のため（既定は `unicode`）
 ### skills.enableClaudeUser: true
 
 omp は `~/.claude/skills`（自作スキル）を**既定では読まない**。`~/.agents/skills`（外部 agent-skills）は既定 on なので触らない。
+
+## RULES.md
+
+常時適用のユーザールール。omp は `RULES.md` を sticky user rule として扱い、`alwaysApply: true` を強制する。
+
+**omp の rules プロバイダに `claude` は存在せず、`~/.claude/CLAUDE.md` は読まれない**
+（skills と MCP は Claude Code の資産を継承するが、rules だけは継承されない）。
+そのため `.claude/CLAUDE.md` と同じ方針をここに置く。内容は原本と揃え、差分は次の 2 点だけにする:
+
+- `AskUserQuestion` → `ask`（omp のツール名）
+- 自由入力の指定方法（omp の `ask` に `allowFreeText` は無い）
 
 ## agents/
 

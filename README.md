@@ -111,6 +111,8 @@ $EDITOR .env
      - fish 補完は `fish/completions/omp.fish`（`omp completions fish` の生成物）
      - 設定は `~/dotfiles/omp/config.yml` → `~/.omp/agent/config.yml` に symlink（`link_omp`）。
      - 各設定の意図は `omp/README.md` に置く（omp は設定書き込み時に config.yml を再シリアライズしコメントを落とすため）
+     - 常時適用のルールは `omp/RULES.md` → `~/.omp/agent/RULES.md`。omp の rules プロバイダに `claude` は無く
+       `~/.claude/CLAUDE.md` は読まれないため、`.claude/CLAUDE.md` と同じ方針を別途置く
        同じディレクトリの `agent.db`（セッション・認証）はマシン依存なので管理外
      - 既定から変えているのは 4 つ: `symbolPreset`（unicode → nerd）/ `task.showResolvedModelBadge`（解決モデルの可視化）/ `task.enableLsp`（サブエージェントでも LSP）/
        `skills.enableClaudeUser`（false → true。omp は `~/.claude/skills` を既定で読まないため、自作スキルを有効化）
