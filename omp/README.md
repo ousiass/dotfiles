@@ -6,7 +6,9 @@
 |---|---|
 | `omp/config.yml` | `~/.omp/agent/config.yml` |
 | `omp/RULES.md` | `~/.omp/agent/RULES.md` |
+| `omp/WATCHDOG.md` | `~/.omp/agent/WATCHDOG.md` |
 | `omp/agents/` | `~/.omp/agent/agents/` |
+| `omp/extensions/` | `~/.omp/agent/extensions/` |
 | `omp/skills/` | `~/.omp/agent/skills/` |
 | `claude-mcp/mcp.json` | `~/.omp/agent/mcp.json` |
 
@@ -43,6 +45,38 @@ approvalMode が `yolo` で人間のゲートが無いぶん、暴走を止め�
 コストは限定的で、受け取るのは前回からの**差分のみ**、サブエージェントには既定で付かない
 （sweep でレビューを並列起動しても advisor は主セッションの 1 本だけ）。
 `advisor.immuneTurns`（既定 3）が割り込み頻度を抑える。
+
+### advisor.syncBacklog: off（既定のまま）
+
+advisor のノートを同期的に割り込ませる閾値。`1` / `3` にすると無人 sweep のブレーキは強くなるが、
+そのたびに本線のターンが止まりスループットが落ちる。`advisor.enabled: true` のノート注入と
+`immuneTurns`（既定 3）で足りているとみて off のままにしている。暴走が実際に起きたら `3` から試す。
+
+### retry.fallbackChains
+
+`retry.modelFallback` は既定 on だが、行き先を書かないと同一プロバイダ内で粘る。
+長時間 sweep では anthropic 側のレート制限が実質の停止要因になるため、**別プロバイダへ逃がす**:
+
+| ロール | 次候補 |
+|---|---|
+| `default` / `task` | `cursor/claude-sonnet-5-high` → `google/gemini-3.1-pro-preview` |
+| `advisor` | `cursor/claude-sonnet-5-high` |
+| `smol` / `tiny` / `commit` | `google/gemini-3.5-flash` → `cursor/claude-sonnet-5-low` |
+| `slow` | `[]`（フォールバックしない） |
+
+`slow` を空にするのは、opus を日常経路へ戻さないため。難問用に明示的に呼ぶときだけ使う。
+キーは**ロール名・モデルセレクタ・`provider/*` ワイルドカード**が使える。未知のモデル名は
+起動時に警告されるので、`omp models`（認証済みのみ）と `models.db` で実在を確認してから書く。
+
+### providers.maxInFlightRequests
+
+`issue-sweep --parallel 5` は実装エージェントを最大 5 本走らせる。anthropic への同時リクエストを
+`3` に絞ってレート制限に当たる頻度を下げる。絞りすぎると sweep 全体が待ちになるので、
+429 が出続けるようなら上げる（実測で調整する値）。
+
+### statusLine.preset: nerd
+
+`symbolPreset: nerd` と揃える（既定は `default`）。
 
 ### task.showResolvedModelBadge: true
 
@@ -81,6 +115,26 @@ omp は `~/.claude/skills`（自作スキル）を**既定では読まない**�
 - `AskUserQuestion` → `ask`（omp のツール名）
 - 自由入力の指定方法（omp の `ask` に `allowFreeText` は無い）
 
+## WATCHDOG.md
+
+advisor だけが読む注意書き。omp は user レベル（`~/.omp/agent/WATCHDOG.md`）とプロジェクト側
+（`./WATCHDOG.md` / `./.omp/WATCHDOG.md`）を探し、内容を「特に注意すること」として advisor に渡す。
+`WATCHDOG.yml` 形式（advisor を複数定義してモデル・tools を割り当てる）もあるが、
+ここでは「無人 sweep で実際に起きた逸脱」を列挙するだけなので `.md` を使う。
+
+## extensions/
+
+`session_stop` などのイベントに載る拡張（`export default (pi) => pi.on(...)`）。
+
+**omp は `settings.json` の `hooks.Stop`（Claude Code のシェル形式 Stop Hook）を解釈しない。**
+`.claude/hooks/pre/` `.claude/hooks/post/` は読むが、これは omp 独自の JS/TS ツールフックで別物。
+そのため sweep の停止ガードは `sweep-stop-guard.ts` として omp ネイティブの `session_stop` に載せている
+（`.sweep/queue.txt` に残があるか `state.json` が `phase != terminal` の間は `decision: "block"` を返す）。
+`decision: "block"` は advisory な継続の上限（8 回）を消費しないので、長い sweep でも打ち止めにならない。
+
+lock の鮮度（heartbeat 2時間）と PID の親子関係で「自分が持ち主の sweep か」を判定するのは
+Claude Code 版フックと同じ。別セッションの sweep や放置された lock では停止を許可する。
+
 ## agents/
 
 omp は `.claude/agents` を意図的にスキップする（frontmatter 契約が別物）ため、専用の実体を置く。
@@ -97,7 +151,7 @@ Claude Code 版からの書き換え規則:
 |---|---|
 | `Agent(subagent_type=X, model=Y)` | `task(agent=X)`（モデルは書かない） |
 | `AskUserQuestion` | `ask` |
-| `TaskCreate` | `todo` |
+| `TaskCreate` / `TaskUpdate` | `todo` |
 | `user-invocable`（frontmatter） | 削除（omp に無い概念） |
 
 `sweep-common` は `SKILL.md` を持たない共有リファレンスでスキルとしては登録されないが、
