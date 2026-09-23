@@ -1,8 +1,8 @@
 modelRoles:
   default: anthropic/claude-sonnet-5:high
-  smol: openai/gpt-6-luna:medium
-  tiny: openai/gpt-6-luna:medium
-  commit: openai/gpt-6-luna:medium
+  smol: openai-codex/gpt-6-luna:medium
+  tiny: openai-codex/gpt-6-luna:medium
+  commit: openai-codex/gpt-6-luna:medium
   task: anthropic/claude-sonnet-5:high
   slow: anthropic/claude-opus-5:high
   plan: anthropic/claude-opus-5:high
