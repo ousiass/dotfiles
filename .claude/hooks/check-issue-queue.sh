@@ -30,6 +30,30 @@ if (( age > STALE_THRESHOLD )); then
   exit 0
 fi
 
+# lock の所有者が自分かを見る。
+# lock は sweep を回しているセッションの PID を持つ。同じリポジトリで別の作業を
+# しているだけのセッションまで止めると、そちらは引き取ることも解除することもできず
+# hook と無限に往復する（引き取れば同じ Issue を二重に実装して PR が衝突する）。
+# hook は sweep セッションの子プロセスとして起動するので、自分の祖先に lock の PID が
+# 居るかどうかで所有者を判定できる。
+lock_pid=$(cut -d: -f1 "$LOCK" 2>/dev/null)
+if [[ "$lock_pid" =~ ^[0-9]+$ ]]; then
+  owner=0
+  p=$$
+  while [[ "$p" -gt 1 ]]; do
+    if [[ "$p" == "$lock_pid" ]]; then
+      owner=1
+      break
+    fi
+    p=$(awk '/^PPid:/ {print $2}' "/proc/$p/status" 2>/dev/null)
+    [[ -n "$p" ]] || break
+  done
+  # 所有者でない かつ lock の PID が生きている → 別セッションの sweep。停止許可
+  if (( owner == 0 )) && kill -0 "$lock_pid" 2>/dev/null; then
+    exit 0
+  fi
+fi
+
 # 鮮度 OK → sweep アクティブ。停止をブロック
 NEXT=$(head -n1 "$QUEUE")
 REMAINING=$(wc -l <"$QUEUE" | tr -d ' ')
