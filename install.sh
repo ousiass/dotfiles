@@ -74,6 +74,7 @@ main() {
     install_cursor_cli
     install_herdr
     install_omp
+    install_omp_jev
 
     install_lazygit
     install_gh

@@ -17,3 +17,5 @@
 . "$DOTFILES_DIR/lib/tools/herdr.sh"
 # shellcheck source=lib/tools/omp.sh
 . "$DOTFILES_DIR/lib/tools/omp.sh"
+# shellcheck source=lib/tools/omp_jev.sh
+. "$DOTFILES_DIR/lib/tools/omp_jev.sh"

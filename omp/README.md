@@ -204,12 +204,12 @@ Claude Code 版からの書き換え規則:
 `sweep-common` は `SKILL.md` を持たない共有リファレンスでスキルとしては登録されないが、
 各スキルから `../sweep-common/<file>` の相対パスで参照されるため同じ階層に置く。
 
-## plugins（omp 管理下、dotfiles には実体を置かない）
+## plugins（`~/.omp/plugins/` 管理下。dotfiles には実体もロックファイルも置かない）
 
-`omp plugin install <pkg>` はユーザーの `~/.omp/agent/config.yml` を直接書き換える（前述の
-「なぜ設定の意図をここに書くか」と同じ理由でコメントは残らない）。dotfiles 側に対応する設定ファイルは
-置かず、導入手順とガードだけをここに書く。`install.sh` にも組み込まない（アカウント固有のキーが要る
-手動導入ステップのため、`/login` / `omp setup` と同じ扱い）。
+`omp plugin install <pkg>` はプラグイン本体を `~/.omp/plugins/node_modules/<name>` に配置し、
+登録情報を `~/.omp/plugins/omp-plugins.lock.json` に書く（**`~/.omp/agent/config.yml` は変更しない**。
+実機で `git diff omp/config.yml` を確認して検証済み）。dotfiles 側に対応する設定ファイルは置かず、
+導入手順とガードだけをここに書く。
 
 ### jerryfane/omp-jev-compaction（TypeSafe Jev context compaction）
 
@@ -222,11 +222,25 @@ Claude Code 版からの書き換え規則:
    （プレースホルダは `.env.example`）
 2. fish 起動時に `fish/conf.d/secrets.fish` が読んで `set -gx` する。プラグインは環境変数の
    `TYPESAFE_API_KEY` を読むだけなので、fish 経由の起動なら追加のローダは不要
-3. fish を通らない起動経路（systemd / 生 bash 等）は今のところ無い。将来 omp を fish 外から叩く経路が
-   増えたら、Fugu の `load_fugu_env`（`lib/tools/codex.sh`）と同じパターンで `$DOTFILES_DIR/.env` を
-   source する
-4. インストール: `omp plugin install jerryfane/omp-jev-compaction`（キー未設定でもプラグイン側が
-   フォールバックし、圧縮せず従来どおり動く。Fugu と同様 warn／スキップで落とさない設計）
+3. **omp のランタイム**（実際にプラグインが動くとき）は fish 経由の起動を前提にする。fish を通らない
+   起動経路（systemd / 生 bash 等）は今のところ無い。将来増えたら、Fugu の `load_fugu_env`
+   （`lib/tools/codex.sh`）と同じパターンで `$DOTFILES_DIR/.env` を source する。
+   **インストール時**（`install.sh` 実行時）は bash 経由で `.env` を直接読む（`lib/tools/omp_jev.sh`
+   の `load_omp_jev_env`。fish を経由しないので別ローダが要る — 下記4番）
+4. インストールは **`install.sh`（`install_omp_jev` / `lib/tools/omp_jev.sh`）に組み込み済み**。
+   `TYPESAFE_API_KEY` が無ければ Fugu と同じく warn してスキップし、圧縮せず従来どおり動く。
+   キーがあれば以下を自動実行する:
+   1. `~/.local/share/omp-plugins/omp-jev-compaction` へ `git clone`（既にあれば `git pull --ff-only`）
+   2. `npm install`（`prepare` フックが `tsc` を実行して `dist/` をビルド）
+   3. `omp plugin install <上記パス>`
+
+   **公式 README の `omp plugin install jerryfane/omp-jev-compaction`（bare `owner/repo`）はこの omp
+   バージョンでは使えない**（実機で `Invalid package name` エラーを確認）。`github:jerryfane/…` に
+   すると名前検証は通るが、omp の github clone 経路は npm の `prepare` ビルドを実行しないため
+   `dist/hook.js: declared extension entry not found on disk` で失敗する。そのため dotfiles 側で
+   clone→build→`omp plugin install <local path>` を自前で行っている。`~/.omp/plugins/node_modules/`
+   配下は `~/.local/share/omp-plugins/omp-jev-compaction` へのシンボリックリンクになるので、
+   このソースディレクトリを消さないこと（`./install.sh omp_jev` で `git pull` + 再ビルドされる）
 
 **推奨初期設定**（`~/.env`）:
 

@@ -136,9 +136,12 @@ $EDITOR .env
      - モデルは認証済みプロバイダのみ選べる（未認証は `omp models` に出ない）ため `modelRoles` は未設定のまま。
        Anthropic / OpenAI Codex / Cursor / Copilot は `oauth` = サブスクのままサインインできる。
        `omp` 内で `/login` するか `omp setup` を回し、`omp models` で ID を確認してから `modelRoles` に書く
-     - **プラグイン（TypeSafe Jev context compaction、手動導入）**: `TYPESAFE_API_KEY` を `~/.env` に
-       置いてあれば `omp plugin install jerryfane/omp-jev-compaction` で導入できる（install.sh には
-       組み込まない。導入・段階運用・ガード設定の詳細は `omp/README.md` 参照）
+     - **プラグイン（TypeSafe Jev context compaction）**: `install_omp_jev`（`lib/tools/omp_jev.sh`）が
+       `install.sh` に組み込み済み。`TYPESAFE_API_KEY` が `~/.env` に無ければ Fugu と同じく warn してスキップする。
+       ある場合は `~/.local/share/omp-plugins/omp-jev-compaction` に clone → `npm install`（`prepare` が
+       ビルド）→ `omp plugin install <path>` まで自動実行する（公式の `omp plugin install jerryfane/omp-jev-compaction`
+       はこの omp バージョンでは `dist/` 未ビルドのため失敗するため自前でビルドする）。プラグイン登録は
+       `~/.omp/plugins/`（machine-local）に書かれ、`omp/config.yml` は変更しない。詳細は `omp/README.md` 参照
 8. 各ツールのバイナリパスを `fish/conf.d/paths.fish` と `shell/paths.sh` で追加
 9. 既存の `~/.config/{nvim,tmux,fish,gh-dash}`, `~/.claude`, `~/.mcp.json`, `~/.env` を `*.bak.<日付>` にバックアップ
 10. dotfiles を該当パスにシンボリックリンク（`~/.env` → `~/dotfiles/.env`、`~/.mcp.json` → `~/dotfiles/claude-mcp/mcp.json`、`~/dotfiles/.codex/AGENTS.md` → `~/.codex/AGENTS.md`、`~/dotfiles/.codex/skills/<name>` → `~/.codex/skills/<name>`、`~/dotfiles/.claude/skills/<name>` → `~/.cursor/skills/<name>` 等）
@@ -162,6 +165,7 @@ $EDITOR .env
 ./install.sh codex_cli
 ./install.sh cursor          # cursor_cli と同じ alias
 ./install.sh fugu gemini_cli # 複数指定可
+./install.sh omp_jev         # omp-jev-compaction プラグインだけ再同期（TYPESAFE_API_KEY 必須）
 ```
 
 未定義の名前を渡すとエラー終了する（誤入力を握りつぶさない）。

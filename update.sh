@@ -56,6 +56,7 @@ main() {
     update_cursor_cli
     update_herdr
     update_omp
+    update_omp_jev
 
     update_lazygit
     update_gh
