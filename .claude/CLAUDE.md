@@ -14,6 +14,7 @@
 
 ## Language
 - User-facing responses must use the same language as the instructions used.
+- 結論・Summary・最終報告は必ず日本語で書く。識別子・パス・コマンド・エラーメッセージ原文だけ英語のまま残す。
 
 ## Asking the user
 - 不明点・前提条件が曖昧な点・複数の妥当な選択肢がある場合は、推測で進めずに選択式の確認ツール（Claude Code: `AskUserQuestion` / omp: `ask`）で確認する。テキストだけで質問しない。
