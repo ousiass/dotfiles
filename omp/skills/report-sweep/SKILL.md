@@ -27,29 +27,29 @@ description: 機能要望とバグ報告を一括ヒアリングし、バグは 
 
 - **テキスト**（例: `/report-sweep ログインまわりのバグと通知機能追加`）: 初期メモとして扱う
 - **引数なし**: 最初からヒアリング開始
-- `--single-pr`: **1 統合ブランチ集約モード**。機能要望ごとに `feat/#N` ブランチを切らず、統合ブランチ 1 本に全仕様書を積み、最後にベースブランチへ PR を 1 本だけ出す
-- `--multi-pr`: 機能要望ごとに `feat/#N` ブランチを切る従来モード
-- `--base <branch>`: ベースブランチ（PR のマージ先）
+- `--bundle`: **1 統合ブランチ集約モード**。機能要望ごとに `feat/#N` ブランチを切らず、統合ブランチ 1 本に全仕様書を積んで push する（**PR は作らない**。レビュー・マージは `/impl` 等の後段の責務）
+- `--per-feature`: 機能要望ごとに `feat/#N` ブランチを切る従来モード（既定）
+- `--base <branch>`: ベースブランチ（機能要望のブランチ分岐元）
 - `--branch <name>`: 統合ブランチ名。デフォルト `sweep/report-sweep-<YYYYmmdd-HHMMSS>`
 - `--abort`: 実行中の sweep を中止し lock を削除して state.json を terminal 化する
 
-**`--single-pr` / `--multi-pr` と `--base` は、指定がなければフェーズ P-0 で `ask` で必ず聞く。推測で決めない。**
+**`--bundle` / `--per-feature` と `--base` は、指定がなければフェーズ P-0 で `ask` で必ず聞く（PR の出し方は聞かない。この sweep は PR を作らない）。推測で決めない。**
 
-## single-pr モード（`--single-pr`）
+## bundle モード（`--bundle`）
 
-有効時は **`../sweep-common/single-branch-mode.md` を読んでから**フェーズ0 に入る（`skill_name="report-sweep"`）。バグ側は Issue 起票だけなので影響を受けない。**差分は機能要望（spec-gen 実行）の流し方だけ**:
+有効時は **`../sweep-common/single-branch-mode.md` の S-0（統合ブランチ作成）だけを読んでから**フェーズ0 に入る（`skill_name="report-sweep"`）。バグ側は Issue 起票だけなので影響を受けない。**差分は機能要望（spec-gen 実行）の流し方だけで、PR は一切作らない**:
 
-| 箇所 | single-pr での差し替え |
+| 箇所 | bundle での差し替え |
 |---|---|
 | P-0 の直後 | S-0 を実行。P-0 で確定したベースから統合ブランチを切って push する |
-| フェーズ2 の計画提示 | 機能要望に `→ 統合ブランチ <int_branch> 上で spec-gen` と表示し、末尾に `最終的に <base_branch> へ PR 1 本` を添える |
+| フェーズ2 の計画提示 | 機能要望に `→ 統合ブランチ <int_branch> 上で spec-gen` と表示する（PR の予告は添えない） |
 | 3-5 手順1 | `feat/#<Issue番号>` ブランチ作成を**行わない**（統合ブランチ上で作業する） |
 | 3-5 手順3 | push 先は統合ブランチ（項目ごとに `git push origin "$int_branch"`） |
 | 3-5 手順4 | 「ベースブランチに戻る」を**統合ブランチに居続ける**に読み替える |
-| フェーズ4 の前 | 機能要望が 1 件以上あれば S-2 を実行して最終 PR を作り、CI 緑を確認する。**PR はマージしない**（レビューとマージはユーザー）。**Issue は close しない**（後で `/impl #N` `/bug-fix #N` に渡す設計） |
-| フェーズ4 の報告 | ブランチ名の代わりにベース / 統合ブランチ / PR URL を提示する。バグ Issue の一覧は変更なし |
+| フェーズ4 の前 | 機能要望が 1 件以上あれば統合ブランチを `git push origin "$int_branch"` して終える。**`single-branch-mode.md` の S-2（統合研磨・最終 PR 作成・CI 確認）は実行しない**。Issue は close しない（後で `/impl #N` `/bug-fix #N` に渡す設計） |
+| フェーズ4 の報告 | ブランチ名の代わりにベース / 統合ブランチ名を提示する。PR URL は出さない（存在しない）。バグ Issue の一覧は変更なし |
 
-機能要望が 0 件（バグのみ）だった場合は統合ブランチに何も積まれないので、**PR を作らず統合ブランチを削除して終わる**（`git checkout "$base_branch" && git branch -D "$int_branch" && git push origin --delete "$int_branch"`）。
+機能要望が 0 件（バグのみ）だった場合は統合ブランチに何も積まれないので、統合ブランチを削除して終わる（`git checkout "$base_branch" && git branch -D "$int_branch" && git push origin --delete "$int_branch"`）。
 
 ## フェーズ0: 前提スキャン + lock / state.json の準備
 
@@ -77,18 +77,18 @@ jq -n --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{
 - ベースブランチは次のフェーズ P-0 で確定する（**現在ブランチ名をそのままベースとして記録しない**）
 - 仕様書が見つからない場合、機能要望は spec-gen が新規設計モードになってしまうため、**バグのみモード**に切り替えるかユーザーに一言添えて続行（判断できなければバグのみモード＝機能要望は Issue 起票までで停止）
 
-## フェーズ P-0: モードとベースブランチの確定（必須）
+## フェーズ P-0: ブランチの束ね方とベースブランチの確定（必須）
 
-フェーズ0 の直後、フェーズ1 の**前**に実行する。**`../sweep-common/branch-preflight.md` を読んでその手順どおりに実行する。スキップ不可。**
-`--single-pr` / `--multi-pr` と `--base` の両方が引数で確定している場合のみ、ヒアリング（P-0-2）を省略できる。
+フェーズ0 の直後、フェーズ1 の**前**に実行する。**`../sweep-common/branch-preflight.md` の P-0-0（prelude 生成）・P-0-1（候補収集）・P-0-5（清潔確認）と事前ガード `assert_not_base` はそのまま使い、P-0-2（PR モード確認）だけ `../sweep-common/branch-preflight-bundle.md` の P-0-2' に差し替える。スキップ不可。**
+`--bundle` / `--per-feature` と `--base` の両方が引数で確定している場合のみ、ヒアリング（P-0-2'）を省略できる。
 
 ここで確定するもの:
 
-- `mode`（`single-pr` = 統合ブランチ 1 本＋最終 1 PR / `multi-pr` = 機能要望ごとに `feat/#N`）
+- `mode`（`bundle` = 統合ブランチ 1 本 / `per-feature` = 機能要望ごとに `feat/#N`）。**「PR モード」は聞かない**（この sweep は PR を作らない）
 - `base_branch`（**現在の HEAD を推測で採用しない**）
 - `main_worktree` と事前ガード関数 `assert_not_base`
 
-`mode=single-pr` なら続けて S-0 へ、`multi-pr` ならフェーズ1 へ進む。以降「ベースブランチ」と書かれた箇所はすべて P-0 で確定した `$base_branch` を指す。
+`mode=bundle` なら続けて S-0 へ、`per-feature` ならフェーズ1 へ進む。以降「ベースブランチ」と書かれた箇所はすべて P-0 で確定した `$base_branch` を指す。
 バグのみで終わる可能性があってもここは飛ばさない（種別はフェーズ1-2 まで確定しないため）。
 
 ## フェーズ1: 一括計画
@@ -290,10 +290,11 @@ rm -f "$SWEEP_DIR/lock"
 - `spec-gen` 本体のロジックは複製せず `../spec-gen/SKILL.md` を参照
 - **Issue 本文は同梱の `templates/bug.md` / `templates/feature.md` から作る**（自前で見出しを起こさない。埋められない項目は消さず `未確認` と書く）
 - 未存在ラベルはユーザー承認なしに作成しない（フェーズ 2 の一括承認に含める）
-- 各 Issue は open のまま残す（後で `/impl #N` `/bug-fix #N` にそのまま渡せる）。single-pr モードでも最終 PR で close しない
+- 各 Issue は open のまま残す（後で `/impl #N` `/bug-fix #N` にそのまま渡せる）。**PR は一切作らないため close 対象にもならない**
 - **フェーズ P-0 を飛ばさない**。モードとベースブランチを聞かずに始めない / 現在の HEAD を推測でベースに採用しない（`../sweep-common/branch-preflight.md`）
 - **作業ブランチを作らずベースブランチ上で仕様書をコミットしない**。ブランチ作成に失敗したらその項目を諦めて人に返す（`git reset` / `git checkout -f` で自動的に直して続行しない）
-- `--single-pr` 指定時は `../sweep-common/single-branch-mode.md` を読んでから進める（差分表だけで手順を推測しない）
+- `--bundle` 指定時は `../sweep-common/branch-preflight-bundle.md` を読んでから進める（差分表だけで手順を推測しない）
+- **PR を一切作らない**（`gh pr create` 相当を呼ばない。レビュー・マージは `/impl` 等の後段の責務）
 - コミットメッセージは `<type>: <説明>` 形式（CLAUDE.md 準拠）
 - **対話フェーズ（0〜2）では lock を書かない / 実行フェーズ（3）に入る直前に書く**。ユーザーに質問して止まる区間で lock があると停止ガードに押し戻される
 - **終了時・打ち切り時は必ず `phase=terminal` + `rm -f lock`**。放置すると次回起動が「他 sweep 実行中」で弾かれる
