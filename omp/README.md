@@ -57,6 +57,21 @@ advisor のノートを同期的に割り込ませる閾値。`1` / `3` にす�
 そのたびに本線のターンが止まりスループットが落ちる。`advisor.enabled: true` のノート注入と
 `immuneTurns`（既定 3）で足りているとみて off のままにしている。暴走が実際に起きたら `3` から試す。
 
+### compaction.thresholdPercent: 50
+
+既定は `-1`（未設定＝omp が `contextWindow - reserve`〈目安 16k または枠の 15%〉付近まで待って発火）。
+長い `issue-sweep` / `impl` ではその手前で `task.softRequestBudget` の強制停止が先に来て、
+`omp-jev-compaction`（TypeSafe Jev、上記 plugins 節参照）まで届かないことがあった。
+枠ギリギリまで溜めてから一気に compact するより、**50% 前後でこまめに** compaction（と Jev の
+ツール結果間引き）を回したほうが、hub / gh / テストログのようなツール結果だらけの本線には合う
+という判断で試験導入する（issue #23）。
+
+**観測ポイント**: `~/.omp/logs/omp.<date>.*.log` の `jev context` 出現頻度と compact 頻度、
+TypeSafe 側のコスト、後半ターンでの「さっき見た情報を読み直す」頻度が減っているか。
+**戻し方**: 過発火・コスト増・挙動悪化が見えたら `compaction.thresholdPercent` の値を上げる
+（例: 70）か、キーごと削除して既定（`-1`）に戻す。`thresholdTokens` は正の値を設定すると
+`thresholdPercent` より優先されるため、percent 側だけで試している間は触らない。
+
 ### retry.fallbackChains
 
 `retry.modelFallback` は既定 on だが、行き先を書かないと同一プロバイダ内で粘る。

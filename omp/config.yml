@@ -20,6 +20,8 @@ task:
     security-reviewer: "@task"
 advisor:
   enabled: true
+compaction:
+  thresholdPercent: 50
 retry:
   fallbackChains:
     default:
