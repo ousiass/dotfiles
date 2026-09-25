@@ -1,7 +1,7 @@
 modelRoles:
   default: anthropic/claude-sonnet-5:high
   task: anthropic/claude-sonnet-5:high
-  slow: anthropic/claude-opus-5:high
+  slow: anthropic/claude-opus-5-5:high
   plan: anthropic/claude-sonnet-5:high
   advisor: anthropic/claude-sonnet-5:high
   smol: openai-codex/gpt-6-luna:medium
@@ -41,7 +41,8 @@ retry:
     commit:
       - google/gemini-3.5-flash
       - cursor/claude-sonnet-5-low
-    slow: []
+    slow:
+      []
 providers:
   maxInFlightRequests:
     anthropic: 3
@@ -55,3 +56,5 @@ textVerbosity: low
 skills:
   enableClaudeUser: true
 setupVersion: 2
+dev:
+  autoqaConsent: granted

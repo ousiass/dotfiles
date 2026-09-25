@@ -20,6 +20,8 @@ sweep / refine / impl からサブエージェントを起動するときのモ�
 
 起動側で `model` を渡さない。ロール（`@task` / `@slow`）が `~/.omp/agent/config.yml` の `modelRoles` で解決され、`task.agentModelOverrides` がエージェント単位で上書きする。モデルを変えたいときは手順スキルではなく config 側を直す。
 
+`modelRoles.slow` は Opus 5.5（`anthropic/claude-opus-5-5:high`）。本線（`default`/`task`/`plan`/`advisor`/`vision`）は Sonnet 5 のまま（issue #30）。
+
 ### develop → develop-slow の昇格ルール（issue-sweep 専用）
 
 - 1 回目の実装・CI fix → `develop`（`@task`）

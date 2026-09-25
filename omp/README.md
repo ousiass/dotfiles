@@ -26,13 +26,17 @@
 |---|---|---|
 | `default` / `task` | `claude-sonnet-5:high` | 主セッションと実装サブエージェント |
 | `plan` / `advisor` | `claude-sonnet-5:high` | 設計と受動レビュー。常時動くので opus は使わない |
-| `slow` | `claude-opus-5:high` | **難問を突破するときだけ**。通常の経路からは呼ばれない |
+| `slow` | `claude-opus-5-5:high` | **難問を突破するときだけ**。通常の経路からは呼ばれない |
 | `smol` / `tiny` / `commit` | `gpt-6-luna:medium` | 探索の fan-out・タイトル/メモリ・コミットメッセージ |
 | `vision` | `claude-sonnet-5:high` | 画像。未設定だと default に落ちるので明示する |
 
 opus は `slow` だけに限定する。レビュー（`reviewer` / `security-reviewer` / 自前の `review`）は
 sweep が何度も並列起動するため、ここを opus にすると消費が跳ねる。sonnet で回し、
-行き詰まったときに `--slow` や `/model` で opus に切り替える。
+行き詰まったときに `--slow` や `/model` で opus に切り替える。`slow` は Opus 5.5
+（`claude-opus-5-5`）。本線（`default`/`task`/`plan`/`advisor`/`vision`）は引き続き Sonnet 5
+のままで、5.5 は難問・再試行枠だけに絞る（issue #30）。thinking は `develop-slow` の
+`thinkingLevel: auto` のまま変更不要 — 5.5 も `anthropic-adaptive` モードで efforts
+`low/medium/high/xhigh/max` を持ち、既存の `:high` 指定と矛盾しない（`models.db` で確認済み）。
 
 `issue-sweep` だけ例外的に自動昇格がある: 同じバッチの実装が 1 回失敗して**同一バッチの 2 回目**を
 再投入するとき、`develop` ではなく `develop-slow`（`@slow`）に上げる（`budget_exhausted` の
