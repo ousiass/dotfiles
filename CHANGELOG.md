@@ -1,5 +1,75 @@
 > 注: このファイルは `~/dotfiles` リポジトリ全体（fish / nvim / tmux / install scripts / `.claude/` 配下のスキル類すべて）の変更履歴です。
 
+## [v0.13.0] - 2026-09-29
+
+ディスク/キャッシュの自動掃除（systemd timer・シンボリックリンク対応・go-build 残骸掃除）を整備しつつ、oh-my-pi (omp) を install パイプラインへ本格導入し、sweep/impl 系スキルの移植・modelRoles によるモデル方針の一本化・停止ガード/WATCHDOG・fallback チェーンまで作り込んだリリース。本線は Sonnet 5.5、`slow` は Opus 5.5 に更新した。
+
+### ✨ New Features / 新機能
+
+- Add disk cleanup commands / `make clean` / `clean-system` / `diag` を追加。go-build はサイズ閾値超のときだけ全消し、docker は volume を残し、Claude Code の subagents ログは退避、fish の `_tide_prompt_` 残骸も掃除する。`log.sh` は `LOG_TAG` でタグ差し替え可能にした
+- Add `make runner-setup` / Actions Runner ホストのセットアップを追加
+- Add weekly automated cleanup via systemd timer / go-build は 20 worktree の `-race` ビルドで4日 230GB まで育つため、毎週日曜4:00に `cleanup.sh` を実行。閾値300GB、`Nice=10`/`IOSchedulingClass=idle` で他作業を邪魔しない
+- Clean up `$TMPDIR` go-build leftovers / kill されたビルドが残す `$TMPDIR/go-build<乱数>/` を `GO_TMP_AGE_DAYS`（既定1日）経過後に `-mmin` 精度で掃除する（実測42個4.8GB）
+- Add oh-my-pi (omp) to install pipeline / 公式インストーラに `--binary` を渡し prebuilt バイナリで導入（`bun -g` は postinstall ブロック・Rosetta 下 x86_64 生成のため回避）。設定と MCP 定義は dotfiles 管理下に置き、Claude / Codex と共有する
+- Add omp subagent definitions / `.claude/agents` を omp が意図的にスキップするため専用実体を追加。モデルは定義に書かず `modelRoles` の `@task`/`@slow` で解決する
+- Port sweep/impl skills to omp / native provider（priority 100）が claude provider（80）を上書きする仕組みを使い、`Agent` ツール参照を `task`、`AskUserQuestion` を `ask` に置換、ハーネス分岐は `modelRoles` 委譲に統一
+- Port sweep dependency skills to omp / `halt` / `bug-report` / `design-fix` / `design-request` / `design-review` を移植し、omp 版スキルから未移植スキルへの参照をゼロにした
+- Add omp harness-model skill / 手順スキルからモデル方針を `harness-model` へ集約する元の構造を維持し、`modelRoles`/`task.agentModelOverrides` の解決を明記
+- Add subagent-resolved-model badge / ロール経由の間接指定が意図どおり解決されたか sweep 上で可視化する
+- Enable LSP for omp subagents / 既定 `task.enableLsp: false` を有効化し、`review` エージェントが診断付きでレビューできるようにする
+- Add always-on user rules for omp / omp の rules プロバイダに claude が無く `~/.claude/CLAUDE.md` が読まれないため、同方針を `RULES.md` として追加（後に `CLAUDE.md` へ一本化、下記 Improvements 参照）
+- Limit opus to `slow` only, enable advisor / `reviewer`/`security-reviewer`/`review` を sonnet に下ろし opus は `slow` のみに限定。`plan`/`advisor` も sonnet にし、未設定だった `vision` を明示
+- Add cross-provider fallback chains and concurrent request cap to omp
+- Add extended sweep stop-guard and WATCHDOG to omp
+- Add noise-suppression display settings + luna (scout/sonic) triage & commit-draft routing / `hideThinkingBlock`/`textVerbosity`/`display.pinnedAgents` を追加し `sonic` を smol→commit に再割当。`issue-sweep` フェーズ1-2を scout（トリアージ）/review（分割判定）の2段に分離し、commit メッセージ/PR タイトル下書きを `sonic(@commit)` 経由に統一 (#16, #17, #18)
+- Raise issue-sweep softRequestBudget and add worktree resume / `task.softRequestBudget` を200→400に引き上げ、budget切れ/force-stop の worktree を削除せず次回起動時に自動再利用して resume。metrics に `budget_exhausted` status・`worktree` フィールド、レポートに Preserved worktrees セクションを追加。あわせて TypeSafe Jev compaction プラグインのシークレット導線を整備 (#19, #20)
+- Wire omp-jev-compaction plugin into install pipeline / 公式 `omp plugin install jerryfane/omp-jev-compaction` がこの omp バージョンでは失敗するため、`TYPESAFE_API_KEY` 存在時に git clone/pull → npm install → `omp plugin install` まで自前で自動化し `install.sh`/`update.sh` に配線
+- Launch omp via `o` fish alias / 一発起動できるようにした
+- Promote issue-sweep retry #2 to develop-slow / 実装再試行の2回目だけ `@slow` に昇格
+- Add auto-fix and scope-mode selection to spec-review/spec-refine / 番号ズレ等の意味を変えない指摘は ask せず自動修正し、仕様間矛盾・実装乖離・意味が変わる指摘のみ対話確認する運用に変更。自動修正はファイル単位で1コミット、対話確認は指摘ごとに1コミットに統一。`spec-refine` に `--scope diff|full` を追加
+
+### 🔧 Improvements / 改善
+
+- Strip harness-compat notes from agent systemPrompt / frontmatter 以降は毎ターンモデルへ送られるため、ハーネス対応表は不要なトークンだった
+- Update omp smol/tiny/commit roles to gpt-6-luna / 後継モデルへ更新後、openai（API キー）プロバイダが未認証で解決できない問題を認証済みの `openai-codex` へ向け直して解消
+- Raise omp tiny/commit effort to medium / `commit` はコミットメッセージ/changelog の規約遵守に理解力が要り、`tiny` は auto-thinking の難易度分類と停止検出を担うため `low` では後段の判断に響く
+- Restore omp approvalMode to yolo / write のみ自動承認・exec 毎回確認という安全側の既定が、bash を常用するコーディングエージェントと sweep の両方を実質毎ターン止めていた
+- Clean up remaining Claude-era wording in omp skills/agents
+- Unify remaining sweep skills' Stop Hook wording to 停止ガード
+- Consolidate omp RULES.md into CLAUDE.md / CLAUDE.md と RULES.md の確認ツール記述が食い違い二重ロード時に矛盾していたため、RULES.md を廃止し CLAUDE.md 実体に一本化
+- Raise Jev compaction.thresholdPercent to 50 / 発火を早める
+- Rename report-sweep flags and stop it creating PRs / `--single-pr`/`--multi-pr` を `--bundle`/`--per-feature` に改名。report-sweep はバグは Issue のみ・機能要望は Issue+ブランチ+spec-gen までが役割で、PR のレビュー・マージは後段の `/impl` が担うため、専用の P-0-2 ラッパでブランチの束ね方だけ確認しPRモードを聞かない/作らないようにした
+- Bump `modelRoles.slow` to Claude Opus 5.5 (Closes #30)
+- Bump `modelRoles` mainline to Claude Sonnet 5.5 / `default`/`task`/`plan`/`advisor`/`vision` を更新。cursor 側の `retry.fallbackChains` は `models.db` 実測で effort suffix 付き top-level エントリが無いため Sonnet 5 のまま据え置き (Closes #31)
+
+### 🐛 Bug Fixes / バグ修正
+
+- Fix cleanup silently no-op'ing through symlinked caches / go-build と Claude Code projects を NVMe へ退避しシンボリックリンク化したところ、`du`/`find` が既定で引数のシンボリックリンクを辿らず掃除が空振りしていた。`du -D`/`find -H` に変更し回帰テストを追加
+- Fix macOS Homebrew install hanging / `NONINTERACTIVE=1` を渡し RETURN 待ちで `install.sh` 全体が止まるのを防ぐ
+- Fix sweep stop-guard blocking on locks it doesn't own / lock の PID が自分の祖先に居るかで所有者判定し、別セッションの sweep まで止めてしまう問題を修正
+- Fix develop/default agent final Summary language drift / 最終 Summary が英語のまま出るケースがあったため、出力言語ブロックと CLAUDE.md の Language 節に日本語指示を明記
+- Fix issue-sweep batch size causing mid-batch stalls / 1バッチの既定上限を3（重い unit は1）に下げ、soft budget 到達による途中停止→再開の反復を抑えた
+
+### 📝 Documentation / ドキュメント
+
+- Document disk cleanup usage, targets, env vars, and operational guidance in README
+- Document automated cleanup and symlink handling
+- Document go-build `$TMPDIR` cleanup rationale
+- Correct README on fstrim / 月1回の手動実行という記述を訂正し、Ubuntu 標準の `fstrim.timer` が週次で既に走っていることを明記
+- Extract omp config rationale into omp/README.md / `config.yml` は書き込み操作のたびにコメントを失うため、設定意図をこちらへ移した
+- Document new omp settings, stop-guard, and WATCHDOG rationale
+- Correct documented CLAUDE.md read-scope for omp to match measured behavior
+- Fix fish alias table prose to match actual `o`/`h` behavior
+- Add advisor output-language (Japanese) instruction to WATCHDOG
+- Reorganize WATCHDOG heading hierarchy
+
+### 🏗️ Infrastructure / 基盤
+
+- Add Claude Code generated artifacts/backups to `.gitignore`
+- Set Claude Code default model to `opus[1m]`
+- Regenerate copilot fish completions
+- Absorb omp's config.yml write-back reserialization as the new plain-YAML baseline
+
 ## [v0.12.0] - 2026-09-13
 
 Cursor CLI を install パイプラインに載せ、Claude 用スキルを Cursor からも使えるようにしつつ、サブエージェントのモデルだけハーネスで分けたリリース。Claude Code では従来どおり Opus、Cursor では親モデル（Grok / Composer）を継承して Other Models 枠を食わない。
