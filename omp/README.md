@@ -24,17 +24,17 @@
 
 | ロール | 割り当て | 意図 |
 |---|---|---|
-| `default` / `task` | `claude-sonnet-5:high` | 主セッションと実装サブエージェント |
-| `plan` / `advisor` | `claude-sonnet-5:high` | 設計と受動レビュー。常時動くので opus は使わない |
+| `default` / `task` | `claude-sonnet-5-5:high` | 主セッションと実装サブエージェント |
+| `plan` / `advisor` | `claude-sonnet-5-5:high` | 設計と受動レビュー。常時動くので opus は使わない |
 | `slow` | `claude-opus-5-5:high` | **難問を突破するときだけ**。通常の経路からは呼ばれない |
 | `smol` / `tiny` / `commit` | `gpt-6-luna:medium` | 探索の fan-out・タイトル/メモリ・コミットメッセージ |
-| `vision` | `claude-sonnet-5:high` | 画像。未設定だと default に落ちるので明示する |
+| `vision` | `claude-sonnet-5-5:high` | 画像。未設定だと default に落ちるので明示する |
 
 opus は `slow` だけに限定する。レビュー（`reviewer` / `security-reviewer` / 自前の `review`）は
 sweep が何度も並列起動するため、ここを opus にすると消費が跳ねる。sonnet で回し、
 行き詰まったときに `--slow` や `/model` で opus に切り替える。`slow` は Opus 5.5
-（`claude-opus-5-5`）。本線（`default`/`task`/`plan`/`advisor`/`vision`）は引き続き Sonnet 5
-のままで、5.5 は難問・再試行枠だけに絞る（issue #30）。thinking は `develop-slow` の
+（`claude-opus-5-5`）。本線（`default`/`task`/`plan`/`advisor`/`vision`）は Sonnet 5.5
+（`claude-sonnet-5-5`）へ更新済み（issue #31）。thinking は `develop-slow` の
 `thinkingLevel: auto` のまま変更不要 — 5.5 も `anthropic-adaptive` モードで efforts
 `low/medium/high/xhigh/max` を持ち、既存の `:high` 指定と矛盾しない（`models.db` で確認済み）。
 
@@ -87,6 +87,13 @@ TypeSafe 側のコスト、後半ターンでの「さっき見た情報を読�
 | `advisor` | `cursor/claude-sonnet-5-high` |
 | `smol` / `tiny` / `commit` | `google/gemini-3.5-flash` → `cursor/claude-sonnet-5-low` |
 | `slow` | `[]`（フォールバックしない） |
+
+**Cursor 側は Sonnet 5 のまま据え置き（issue #31）**: `default`/`task`/`plan`/`advisor`/`vision`
+は anthropic 直で Sonnet 5.5 に上げたが、`retry.fallbackChains` の cursor 選択肢は変更していない。
+`models.db` の `cursor:default-effort-v4` カタログには `claude-sonnet-5-5`（base）は存在するが、
+`claude-sonnet-5-high`/`-low` のような **effort suffix 付き top-level エントリ（`claude-sonnet-5-5-high` 等）
+はまだ無い**（`effortRouting` 内部マップにのみ現れる）。存在しないモデル ID を fallback に書くと
+起動時警告が出るため、cursor 側の catalog に `claude-sonnet-5-5-*` が top-level で現れてから追随する。
 
 `slow` を空にするのは、opus を日常経路へ戻さないため。難問用に明示的に呼ぶときだけ使う。
 キーは**ロール名・モデルセレクタ・`provider/*` ワイルドカード**が使える。未知のモデル名は
