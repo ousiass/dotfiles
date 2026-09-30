@@ -26,20 +26,20 @@ retry:
   fallbackChains:
     default:
       - cursor/claude-sonnet-5-high
-      - google/gemini-3.1-pro-preview
+      - cursor/grok-4.7-high
     task:
       - cursor/claude-sonnet-5-high
-      - google/gemini-3.1-pro-preview
+      - cursor/grok-4.7-high
     advisor:
       - cursor/claude-sonnet-5-high
     smol:
-      - google/gemini-3.5-flash
+      - cursor/grok-4.7-low-fast
       - cursor/claude-sonnet-5-low
     tiny:
-      - google/gemini-3.5-flash
+      - cursor/grok-4.7-low-fast
       - cursor/claude-sonnet-5-low
     commit:
-      - google/gemini-3.5-flash
+      - cursor/grok-4.7-low-fast
       - cursor/claude-sonnet-5-low
     slow:
       []
@@ -58,3 +58,5 @@ skills:
 setupVersion: 2
 dev:
   autoqaConsent: granted
+claudeResets:
+  autoRedeem: "no"

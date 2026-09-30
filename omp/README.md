@@ -83,10 +83,12 @@ TypeSafe 側のコスト、後半ターンでの「さっき見た情報を読�
 
 | ロール | 次候補 |
 |---|---|
-| `default` / `task` | `cursor/claude-sonnet-5-high` → `google/gemini-3.1-pro-preview` |
+| `default` / `task` | `cursor/claude-sonnet-5-high` → `cursor/grok-4.7-high` |
 | `advisor` | `cursor/claude-sonnet-5-high` |
-| `smol` / `tiny` / `commit` | `google/gemini-3.5-flash` → `cursor/claude-sonnet-5-low` |
+| `smol` / `tiny` / `commit` | `cursor/grok-4.7-low-fast` → `cursor/claude-sonnet-5-low` |
 | `slow` | `[]`（フォールバックしない） |
+
+Grok は omp に xAI 直のプロバイダが無く、Cursor 経由（`cursor/grok-*`）でのみ使える。Gemini はフォールバックに使わない。
 
 **Cursor 側は Sonnet 5 のまま据え置き（issue #31）**: `default`/`task`/`plan`/`advisor`/`vision`
 は anthropic 直で Sonnet 5.5 に上げたが、`retry.fallbackChains` の cursor 選択肢は変更していない。
