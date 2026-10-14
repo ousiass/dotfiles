@@ -324,6 +324,18 @@ make runner-setup RUNNER_USER=ci-runner RUNNER_DIR=/opt/runners/foo
 
 何度実行しても同じ結果になる（idempotent）。ラベル（`linux` / `x64`）と runner group の対象リポジトリはスクリプトからは検証できないため、実行後の案内に従って手動で確認する。とくに `NOPASSWD: ALL` を入れる以上、runner group を「選択したリポジトリ」に限定し public リポジトリへ提供しないことが、fork PR 経由で第三者のコードがこのホストで走るのを防ぐ唯一の層になる。
 
+ジョブの shell は非ログイン・最小環境で起動し、fish の `fnm env` も `shell/paths.sh` も読まれないため、そのままだと fnm の `node` / `npx` が見えず `node: コマンドが見つかりません`（exit 127）で落ちる。そこで `runner-host-setup.sh` は runner の `<runner dir>/.env` に `PATH=<home>/.local/share/fnm/aliases/default/bin:...` を書く（`PATH=` 行は置き換えるので重複しない）。`aliases/default` は node の更新に追従する。`.env` は runner の起動時にしか読まれないため、稼働中の runner は、ジョブが走っていなければスクリプトが再起動し、走っていれば再起動を促すメッセージだけ出す。
+
+「5/5 確認」では、非ログインの最小環境で `node` / `npx` が見えることと、Docker コンテナ内から名前解決できること（`docker run --rm alpine nslookup proxy.golang.org`）を確認する。後者が NG のときは、`docker build` 中のコンテナがホストの DNS に届いていない。自動修正はしない（`/etc/docker/daemon.json` の `"dns"` はホスト固有のため）。次の順で切り分ける。
+
+```bash
+nslookup proxy.golang.org                      # ホスト自体は引けるか
+docker run --rm alpine cat /etc/resolv.conf    # コンテナが使う DNS サーバー
+docker run --rm --network=host alpine nslookup proxy.golang.org  # bridge だけの問題か
+```
+
+ホストは引けるが bridge からだけ届かない場合は、`/etc/docker/daemon.json` に `{"dns": ["<引ける DNS サーバー>"]}` を書き、`sudo systemctl restart docker` する。ホスト自体が引けない場合は OS 側の DNS 設定を直す。
+
 `runner-host-setup.sh` は [ousiassllc/actions-runner-setup-base](https://github.com/ousiassllc/actions-runner-setup-base) から取り込んだコピー。詳細な背景（何が欠けるとどのエラーが出るか等）は上流の README を参照。上流を更新したらこのファイルも追従させる。
 
 ## 注意
