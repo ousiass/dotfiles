@@ -142,9 +142,24 @@ sweep 系スキル共通の進行状態ファイル。停止ガードは `phase 
 
 引数を解釈して対象を集める:
 
-- 引数なし: `gh issue list --state open --json number,labels,title --limit 200`
+- 引数なし: `gh issue list --state open --json number,labels,title,body --limit 200`
 - `label:<name>`: 同上に `--label <name>`
-- `#<n>` 列挙: `gh issue list --state open --json number,labels,title --limit 200` を 1 回だけ叩き、その結果から指定番号を抽出する（Issue ごとに `gh issue view` を叩かない）
+- `#<n>` 列挙: `gh issue list --state open --json number,labels,title,body --limit 200` を 1 回だけ叩き、その結果から指定番号を抽出する（Issue ごとに `gh issue view` を叩かない）
+
+**取得した `title` / `body` / `labels` は 1-2a でそのまま再利用する。** `scout` は bash/`gh` を持たない
+read-only agent で、内部 URI `issue://<n>` も labels を返さないため、agent 自身に取得をやり直させると
+必ず失敗する（1-2a 参照）。ここで取得した JSON をメインスレッドが保持し、1-2a のプロンプトに埋め込む。
+
+**ラベル説明による自動実装対象外の除外**: 各ラベルの `description` に「対象外」「exclude」「no-auto」等、
+自動実装フロー（issue-sweep 等）からの除外を明示する文言が含まれる Issue はキューから除外する
+（label 名は repo ごとに異なるため、名前ではなく description の文言で判定する）:
+
+```bash
+gh issue list --state open --json number,labels,title,body --limit 200 \
+  | jq -c '[.[] | select([.labels[]?.description // "" | test("対象外|exclude|no-auto"; "i")] | any | not)]'
+```
+
+除外された Issue は 1-5 の提示で「ラベル説明により対象外」として理由付きで列挙する。
 
 **親 Issue の自動展開**: `split-from:` ラベル付きの Issue を **1 コールでまとめて**取得し、ローカルで親ごとに束ねる（以前は Issue ごとに `gh issue list --search` を叩いていた）:
 
@@ -157,9 +172,15 @@ gh issue list --state open --search "label:split-from" \
 - 子を持たない `#<n>` はそれ自身をキューに残す
 - これにより `/issue-sweep #100`（5 子持ちのフェーズ Issue）で「そのフェーズの 5 件だけ」を端から処理できる
 
+
 ### 1-2a. Issue トリアージ（scout / `@smol`、1 Issue = 1 agent = 1 パス）
 
 **Issue 本文の読み取りはここだけ。** 以前は「依存・並列禁止の判定」「`issue-split-auto` の分割判定」「バッチ編成のスコープ読み取り」で同じ本文を 3 回読んでいた。1 回の解析でまとめて返させる。
+
+**`scout` に本文取得をやり直させない（重要）。** `scout` は bash/`gh` ツールを持たない read-only agent で、
+内部 URI `issue://<n>` も body・メタデータのみを返し labels を含まない。「Issue #<n> を解析して」とだけ
+指示すると `scout` は取得手段が無く必ず abort する。**1-1 で取得済みの `title` / `labels` / `body` を
+メインスレッドがプロンプト文字列にそのまま埋め込み**、`scout` には埋め込み済みテキストの解析だけをさせる。
 
 全 Issue を対象に、機械的に読み取れる情報（依存・並列可否・分割の一次判定）を安いモデルで抜く。
 分割の**実行**（`/issue-split-auto` の起票）はここでは行わない — `scout` は read-only で Issue 作成が
@@ -168,10 +189,18 @@ gh issue list --state open --search "label:split-from" \
 `task(agent=scout)` で起動する（`harness-model`）。**同時起動は最大 5 件**（`--parallel` とは独立の固定上限）。6 件以上あれば 5 件ずつのウェーブに分け、各ウェーブが揃ってから次を出す。
 
 ```
-Issue #<n> を解析して JSON 1行だけを返してください。実装・Issue の作成や変更は一切しないこと。
-読み取り専用の分類だけ行う。
+以下は Issue #<n> のタイトル・ラベル・本文です（メインスレッドが 1-1 で取得済み）。
+追加の取得は不要かつ不可能（bash/gh は使えない）。gh コマンドや issue:// URI の再取得を試みないこと。
+このプロンプトの内容だけを解析して JSON 1行だけを返してください。実装・Issue の作成や変更は一切しないこと。
 
-本文とラベルから以下を読み取る:
+--- Issue #<n> ---
+Title: <title>
+Labels: <label1>, <label2>, ... （無ければ「なし」）
+Body:
+<body 全文をそのまま貼り付け>
+---
+
+タイトル・ラベル・本文から以下を読み取る:
 - `scope`: 「## スコープ」「## 影響範囲」「## ファイル」等から読み取れる対象ファイル /
   ディレクトリのパス集合。読み取れなければ空配列
 - `depends_on`: 「依存: #N」「blocked by #N」「Depends on #N」「Closes/Fixes #N」の番号
@@ -191,7 +220,8 @@ Issue #<n> を解析して JSON 1行だけを返してください。実装・Is
 返す JSON:
 {"issue": <n>, "scope": ["apps/web/foo/"], "depends_on": [12], "serial_only": false, "priority": "p1", "needs_split_review": false}
 
-失敗時: {"issue": <n>, "error": "<1行で原因>"}
+失敗時（本当に判定不能な場合のみ。情報は埋め込み済みなのでほぼ発生しないはず）:
+{"issue": <n>, "error": "<1行で原因>"}
 
 返答ルール: 上記 JSON 以外を最終メッセージに含めない。
 ```
@@ -615,6 +645,9 @@ worktree の掃除は上記 2-6（失敗時分岐）に従う。
 ## 禁止行動
 
 **本文の手順に書いてあることは再掲しない。** ここにあるのは「手順どおりに読んでも踏みうる罠」だけ。
+- **`scout` に Issue 本文・ラベルの取得を自分でやらせる**（`scout` は bash/`gh` を持たない read-only agent。
+  内部 URI `issue://<n>` も labels を返さない。1-1 でメインスレッドが取得した `title`/`labels`/`body` を
+  プロンプトに埋め込む。埋め込まずに「Issue #<n> を解析して」とだけ指示すると必ず abort する）
 
 **ブランチ**
 

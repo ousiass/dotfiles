@@ -68,6 +68,7 @@ fish/completions/tide.fish
 .claude/teams/
 .claude/llm/active
 .claude/usage-data/
+.claude/state/
 .claude/.last-cleanup
 .claude/.last-update-result.json
 .claude/remote-settings.json
