@@ -20,7 +20,7 @@ reset: ## ツールを一括削除して install.sh で再インストール（�
 fugu: ## Fugu だけ単独でインストール（~/.env の SAKANA_API_KEY を使う）
 	./install.sh fugu
 
-runner-setup: ## GitHub Actions self-hosted runner ホストをセットアップ（sudo 必須。RUNNER_USER / RUNNER_DIR で上書き可）
+runner-setup: ## GitHub Actions self-hosted runner ホストをセットアップ（.path が PATH の正。sudo 必須。RUNNER_USER / RUNNER_DIR で上書き可）
 	sudo env RUNNER_USER="$(RUNNER_USER)" RUNNER_DIR="$(RUNNER_DIR)" bash ./runner-host-setup.sh
 
 clean: ## キャッシュ類を掃除（消しても再生成されるものだけ）
@@ -40,5 +40,6 @@ clean-timer: ## 週次の自動掃除を systemd timer に登録（sudo 不要�
 	systemctl --user enable --now dotfiles-cleanup.timer
 	@systemctl --user list-timers dotfiles-cleanup.timer --no-pager
 
-test: ## cleanup.sh の回帰テストを実行
+test: ## 回帰テストを実行（cleanup.sh / runner-path-guard.sh）
 	./tests/cleanup_test.sh
+	./tests/runner_path_guard_test.sh
