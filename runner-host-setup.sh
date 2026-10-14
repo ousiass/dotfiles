@@ -21,8 +21,18 @@
 #   RUNNER_DIR   $RUNNER_USER のホームディレクトリ配下の actions-runner
 #
 # 失敗したらその場で止まる（set -e）。何度実行しても同じ結果になる。
+#
+# PATH の扱い（runner-path-guard.sh が定義と判定を持つ）:
+#   runner の systemd サービス（runsvc.sh）は起動時に <runner dir>/.path があれば PATH を
+#   丸ごとそれで上書きする。.env の PATH= より後に効くので、.path が PATH の正になる。
+#   そのためこのスクリプトは .path と .env の両方へ安定 PATH を書き、さらに起動のたびに
+#   .path を検査して外れていれば自動修復するガード（systemd drop-in の ExecStartPre）を設置する。
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=runner-path-guard.sh
+. "$SCRIPT_DIR/runner-path-guard.sh"
 
 SUDOERS_FILE=/etc/sudoers.d/github-runner
 
@@ -106,11 +116,15 @@ echo "  $RUNNER_USER の所属: $(id -nG "$RUNNER_USER")"
 echo "== 4/5 PATH 設定と systemd サービス化 =="
 # ジョブの shell は非ログイン・最小環境で起動するため、fish の fnm 初期化も
 # shell/paths.sh も読まれず node / npx が見えない（exit 127）。
-# runner の .env に PATH を書けばジョブへ引き継がれる。fnm の aliases/default は
-# node の更新に追従するシンボリックリンクなので、バージョンを固定せずに済む。
+# 安定 PATH（runner-path-guard.sh の runner_stable_path）を runner に渡す。fnm の
+# aliases/default は node の更新に追従するシンボリックリンクなので、バージョンを固定せずに済む。
+#
+# 渡し口は 2 つ。実効的に効くのは .path（runsvc.sh が PATH を丸ごと上書きするため、.env より優先）。
+#   - <runner dir>/.path : 後述（svc.sh install の後で書く）
+#   - <runner dir>/.env  : Listener が読む。二重化だが害は少ない
 # PATH= 行は置き換えるだけで、何度実行しても重複しない。
 env_file="$RUNNER_DIR/.env"
-runner_path="$home/.local/share/fnm/aliases/default/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+runner_path=$(runner_stable_path "$home")
 path_changed=0
 if [ ! -e "$env_file" ]; then
 	install -m 644 -o "$RUNNER_USER" /dev/null "$env_file"
@@ -135,7 +149,45 @@ else
 	./svc.sh install "$RUNNER_USER"
 fi
 unit=$(cat .service)
-# .env は runner の起動時にだけ読まれる。稼働中だった場合は再起動が必要だが、
+
+# .path は svc.sh install / config.sh を実行したシェルの PATH で書かれる。
+# svc.sh install が書き直す可能性があるため、その後で検査・修復する。
+path_file="$RUNNER_DIR/.path"
+rc=0
+runner_repair_path_file "$path_file" "$home" || rc=$?
+case "$rc" in
+0)
+	chown "$RUNNER_USER" "$path_file"
+	path_changed=1
+	echo "  $path_file を安定 PATH に設定した"
+	;;
+1) echo "  $path_file は書き換え不要" ;;
+*)
+	echo "  $path_file を修復できませんでした" >&2
+	exit 1
+	;;
+esac
+
+# 起動のたびに .path を検査して自動修復するガードを設置する（ExecStartPre）。
+# ガードは runner ユーザーで走り、runner dir 内の .path だけを触る。
+# 修復内容は journalctl -u $unit で追える。
+guard_script="$RUNNER_DIR/path-guard.sh"
+install -m 755 -o "$RUNNER_USER" "$SCRIPT_DIR/runner-path-guard.sh" "$guard_script"
+dropin_dir="/etc/systemd/system/$unit.d"
+dropin_file="$dropin_dir/path-guard.conf"
+dropin_body="[Service]
+ExecStartPre=\"$guard_script\" \"$RUNNER_DIR\" \"$home\""
+if [ -f "$dropin_file" ] && [ "$(cat "$dropin_file")" = "$dropin_body" ]; then
+	echo "  既に設置済み: $dropin_file"
+else
+	mkdir -p "$dropin_dir"
+	printf '%s\n' "$dropin_body" >"$dropin_file"
+	echo "  設置: $dropin_file"
+fi
+# 内容が同じでも副作用は無い。drop-in を読み込ませてから起動する。
+systemctl daemon-reload
+
+# .path / .env は runner の起動時にだけ読まれる。稼働中だった場合は再起動が必要だが、
 # 実行中のジョブ（Runner.Worker）を落とさないよう、ジョブが無いときだけ行う。
 was_active=0
 systemctl is-active --quiet "$unit" && was_active=1
@@ -154,10 +206,29 @@ echo "== 5/5 確認 =="
 docker --version
 docker buildx version
 gcc --version | head -1
-echo "--- ジョブ shell（非ログイン・最小環境）から node / npx ---"
-# ジョブ shell 相当の環境で、.env の PATH だけを頼りに node / npx が引けるかを見る。
-if ! sudo -u "$RUNNER_USER" -H env -i HOME="$home" PATH="$(grep '^PATH=' "$env_file" | cut -d= -f2-)" bash --noprofile --norc -c 'command -v node npx'; then
-	echo "  NG: node / npx が見えません（fnm で node を入れ、fnm default を設定してください）" >&2
+echo "--- Runner.Listener の実 PATH から node / npx ---"
+# .env を見るだけでは、runsvc.sh が .path で PATH を上書きするバグを検知できない。
+# 稼働中の Listener の環境変数（/proc/<pid>/environ）が本当の PATH なので、それを検査する。
+# 再起動直後は Listener がまだ居ないことがあるので、少し待つ。
+pid=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+	pid=$(pgrep -u "$RUNNER_USER" -f Runner.Listener | head -1 || true)
+	[ -n "$pid" ] && break
+	sleep 1
+done
+if [ -n "$pid" ]; then
+	listener_path=$(tr '\0' '\n' <"/proc/$pid/environ" | sed -n 's/^PATH=//p' | head -1)
+	if [[ ":$listener_path:" != *":$home/.local/share/fnm/aliases/default/bin:"* ]]; then
+		echo "  NG: Runner.Listener (pid $pid) の PATH に $home/.local/share/fnm/aliases/default/bin がありません" >&2
+		echo "      PATH=$listener_path" >&2
+		echo "      sudo systemctl restart $unit を実行してください（.path は $path_file）" >&2
+	elif sudo -u "$RUNNER_USER" -H env -i HOME="$home" PATH="$listener_path" bash --noprofile --norc -c 'command -v node npx'; then
+		echo "  OK: Runner.Listener (pid $pid) の PATH で node / npx が見える"
+	else
+		echo "  NG: Runner.Listener (pid $pid) の PATH では node / npx が見えません（fnm で node を入れ、fnm default を設定してください）" >&2
+	fi
+else
+	echo "  Runner.Listener が見つかりません（起動直後なら数秒待って systemctl status $unit を確認）" >&2
 fi
 echo "--- コンテナ内の名前解決 ---"
 # docker build 中の DNS 障害は、デプロイが長時間待ってから落ちて初めて気づくため
@@ -172,7 +243,7 @@ systemctl is-active "$unit" || true
 echo "--- runner のグループ反映（稼働プロセス）---"
 # gsr-helper の doctor（job.dockergroup）と同じ判定。「グループ追加済みなのに
 # permission denied が出続ける」= 稼働プロセスへの未反映を切り分けるため。
-pid=$(pgrep -u "$RUNNER_USER" -f Runner.Listener | head -1 || true)
+# 上で見つけた Listener（pid）をそのまま使う。
 if [ -n "$pid" ]; then
 	docker_gid=$(getent group docker | cut -d: -f3)
 	# Groups 行だけを見る。status 全体を grep すると Pid や Uid の数値に当たる。

@@ -10,6 +10,7 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── reset-tools.sh      # 言語ツール/AI CLI を一括リセットするスクリプト
 ├── cleanup.sh          # キャッシュ類を掃除するスクリプト（make clean から呼ばれる）
 ├── runner-host-setup.sh # GitHub Actions self-hosted runner ホストのセットアップ（make runner-setup から呼ばれる）
+├── runner-path-guard.sh # runner の .path を検査・修復するガード（安定 PATH の定義もここ。setup が source し、起動時にも実行される）
 ├── .env.example        # .env のテンプレート
 ├── .env                # 実体（gitignore 済、~/.env はこれへのシンボリックリンク）
 ├── claude-mcp/        
@@ -27,7 +28,7 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── gh-dash/            # → ~/.config/gh-dash (GitHub Dashboard CLI)
 ├── herdr/              # → ~/.config/herdr (エージェント向けターミナルマルチプレクサ、tmux 準拠 keybinding)
 ├── systemd/            # → ~/.config/systemd/user（週次の自動掃除 timer / service）
-├── tests/              # cleanup.sh の回帰テスト（make test）
+├── tests/              # cleanup.sh / runner-path-guard.sh の回帰テスト（make test）
 └── fish/               # → ~/.config/fish
     ├── config.fish
     ├── fish_plugins
@@ -324,9 +325,18 @@ make runner-setup RUNNER_USER=ci-runner RUNNER_DIR=/opt/runners/foo
 
 何度実行しても同じ結果になる（idempotent）。ラベル（`linux` / `x64`）と runner group の対象リポジトリはスクリプトからは検証できないため、実行後の案内に従って手動で確認する。とくに `NOPASSWD: ALL` を入れる以上、runner group を「選択したリポジトリ」に限定し public リポジトリへ提供しないことが、fork PR 経由で第三者のコードがこのホストで走るのを防ぐ唯一の層になる。
 
-ジョブの shell は非ログイン・最小環境で起動し、fish の `fnm env` も `shell/paths.sh` も読まれないため、そのままだと fnm の `node` / `npx` が見えず `node: コマンドが見つかりません`（exit 127）で落ちる。そこで `runner-host-setup.sh` は runner の `<runner dir>/.env` に `PATH=<home>/.local/share/fnm/aliases/default/bin:...` を書く（`PATH=` 行は置き換えるので重複しない）。`aliases/default` は node の更新に追従する。`.env` は runner の起動時にしか読まれないため、稼働中の runner は、ジョブが走っていなければスクリプトが再起動し、走っていれば再起動を促すメッセージだけ出す。
+ジョブの shell は非ログイン・最小環境で起動し、fish の `fnm env` も `shell/paths.sh` も読まれないため、そのままだと fnm の `node` / `npx` が見えず `node: コマンドが見つかりません`（exit 127）で落ちる。さらに runner の systemd サービス（`runsvc.sh`）は、起動時に `<runner dir>/.path` があれば `PATH` を丸ごとそれで上書きする。**`.env` の `PATH=` より後に効くので、`.path` が PATH の正になる。** `.path` は `config.sh` / `svc.sh install` を実行したシェルの PATH が一度だけ書かれ、fish のログイン中に実行すると fnm の一時パス（`/run/user/<uid>/fnm_multishells/...`）が記録されて、再起動やログアウトで node が消える。
 
-「5/5 確認」では、非ログインの最小環境で `node` / `npx` が見えることと、Docker コンテナ内から名前解決できること（`docker run --rm alpine nslookup proxy.golang.org`）を確認する。後者が NG のときは、`docker build` 中のコンテナがホストの DNS に届いていない。自動修正はしない（`/etc/docker/daemon.json` の `"dns"` はホスト固有のため）。次の順で切り分ける。
+そこで `runner-host-setup.sh` は、一時パスを含めない安定 PATH（`<home>/.local/share/fnm/aliases/default/bin:/opt/nvim/bin:...`。定義は `runner-path-guard.sh` の `runner_stable_path` に 1 つだけ）を次の 2 か所へ書く。`aliases/default` は node の更新に追従する。
+
+- `<runner dir>/.path`: 実効的に効く側。`fnm_multishells` を含む / `aliases/default/bin` を含まない / その PATH で `node` `npx` が引けない、のどれかに当たるときだけ安定 PATH へ書き直す（正常な `.path` は触らない。書き直す前に `.path.bak-<日時>` を残す）
+- `<runner dir>/.env`: `PATH=` 行を置き換える（重複しない）。`.path` と二重化になるが害は少ない
+
+`.path` / `.env` は runner の起動時にしか読まれないため、どちらかを変えたとき、稼働中の runner は、ジョブ（`Runner.Worker`）が走っていなければスクリプトが再起動し、走っていれば再起動を促すメッセージだけ出す。
+
+**起動時の自動修復**: 上記の後でまた `.path` が外れても直るように、`runner-host-setup.sh` は `<runner dir>/path-guard.sh`（`runner-path-guard.sh` のコピー）を置き、systemd の drop-in `/etc/systemd/system/<unit>.d/path-guard.conf` の `ExecStartPre=` で runner の起動のたびに実行する。ガードは上の条件で `.path` を検査して、外れていれば書き直し、修復内容を journal に出す（`journalctl -u <unit> | grep path-guard`）。修復しても node が見つからない（fnm default 未設定など）ときはエラーを出すが、`ExecStartPre` は常に成功を返すので runner の起動は止めない。
+
+「5/5 確認」では、稼働中の `Runner.Listener` の実 PATH（`/proc/<pid>/environ`）に `aliases/default/bin` が入っていてその PATH で `node` / `npx` が見えることと、Docker コンテナ内から名前解決できること（`docker run --rm alpine nslookup proxy.golang.org`）を確認する。`.env` だけを見ても `.path` による上書きは検知できないため、実プロセスを見る。後者が NG のときは、`docker build` 中のコンテナがホストの DNS に届いていない。自動修正はしない（`/etc/docker/daemon.json` の `"dns"` はホスト固有のため）。次の順で切り分ける。
 
 ```bash
 nslookup proxy.golang.org                      # ホスト自体は引けるか
@@ -336,7 +346,7 @@ docker run --rm --network=host alpine nslookup proxy.golang.org  # bridge だけ
 
 ホストは引けるが bridge からだけ届かない場合は、`/etc/docker/daemon.json` に `{"dns": ["<引ける DNS サーバー>"]}` を書き、`sudo systemctl restart docker` する。ホスト自体が引けない場合は OS 側の DNS 設定を直す。
 
-`runner-host-setup.sh` は [ousiassllc/actions-runner-setup-base](https://github.com/ousiassllc/actions-runner-setup-base) から取り込んだコピー。詳細な背景（何が欠けるとどのエラーが出るか等）は上流の README を参照。上流を更新したらこのファイルも追従させる。
+`runner-host-setup.sh` と `runner-path-guard.sh` は [ousiassllc/actions-runner-setup-base](https://github.com/ousiassllc/actions-runner-setup-base) から取り込んだコピー。詳細な背景（何が欠けるとどのエラーが出るか等）は上流の README を参照。上流を更新したらこれらのファイルも追従させる。
 
 ## 注意
 
