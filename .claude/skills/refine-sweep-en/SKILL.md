@@ -78,7 +78,7 @@ The differences from normal mode are only the following places:
 | state.json in Phase 0 step 3 | Add `mode` / `base_branch` / `int_branch` / `pr_number` / `integrated_count` (S-0-3) |
 | Base refresh in 2-1 | **Do not advance the integration branch** instead of `git pull --ff-only origin "$base_branch"`. If base updates must be brought in, explicitly do `git merge --no-ff origin/$base_branch` |
 | Review in 2-2 | No change. The main worktree is the integration branch, so each iteration's review automatically sees "the integrated state" |
-| Engineer agent in 2-5-3 | Change the worktree's branch-off point from `$base_branch` to **`$int_branch`**. The agent goes only as far as `/impl-en #<issue_num> --auto --no-pr` (**do not let it run polishing** — `/refine-git-en` runs once on the integration branch in S-2-0). **Do not let it do any of** PR creation, CI wait, merge, or Issue close. The reply JSON is `{"issue":N,"domain":"...","work_branch":"...","worktree":"...","failure":null}` |
+| Engineer agent in 2-5-3 | Change the worktree's branch-off point from `$base_branch` to **`$int_branch`**. The agent goes only as far as `/impl #<issue_num> --auto --no-pr` (the Japanese `/impl`: `/impl-en` does not implement `--auto` / `--no-pr`) (**do not let it run polishing** — `/refine-git-en` runs once on the integration branch in S-2-0). **Do not let it do any of** PR creation, CI wait, merge, or Issue close. The reply JSON is `{"issue":N,"domain":"...","work_branch":"...","worktree":"...","failure":null}` |
 | Decision in 2-5-4 | **Agent reply → integration merge** (S-1, always serial) instead of observing PR state. No PR exists, so the PR-list fetch in 2-5-1 is unnecessary (heartbeat and base refresh only). Read `closed_count` as `integrated_count` |
 | Issue close in 2-5-5 | Do not close. **The final PR is not merged by the sweep, so the Issues are not closed either** (S-3 only lists them as "Issues to close after merge"). The `fix_ineffective` decision, if left as a fingerprint comparison of open Issues, would misfire because integrated Issues stay open, so **compare over the set excluding integrated Issues** |
 | Completion in 3-2 | Run S-2 → S-3, then write the report. The Summary MUST include the mode, base, integration branch, and PR URL (**still open**) |
@@ -351,7 +351,7 @@ Launch conditions (the domain is used only to avoid PR conflicts):
 
 #### 2-5-3. Launch the implementation agent
 
-**The sweep creates one worktree first, then fills in the path and passes it** (do not have it call `/impl-wt-en`. Calling it creates the worktree twice, and since it lacks `--no-pr` the PR would also be created twice):
+**The sweep creates one worktree first, then fills in the path and passes it** (do not have it call `/impl-wt`. Calling it creates the worktree twice, and since it lacks `--no-pr` the PR would also be created twice):
 
 ```bash
 source "$SWEEP_DIR/prelude.sh"
@@ -377,8 +377,8 @@ Steps:
    [[ "$cur" != "<base_branch>" && "$cur" != "main" && "$cur" != "develop" ]] || exit 2
    If this fails, **you must not implement in the main repository instead**. Return a failure JSON and exit immediately.
    Repeat the same check once more before the first `git commit`.
-1. Launch `/impl-en #<issue_num> --auto --no-pr` via the Skill tool to implement.
-   **Do not use the wt variant (`/impl-wt-en`)** (the worktree is already created; calling it would create it twice).
+1. Launch `/impl #<issue_num> --auto --no-pr` via the Skill tool to implement (the Japanese `/impl`: `/impl-en` does not implement `--auto` / `--no-pr`).
+   **Do not use the wt variant (`/impl-wt`)** (the worktree is already created; calling it would create it twice).
    `--auto` = do not stop to ask for confirmation / `--no-pr` = you create exactly one PR yourself in step 2.
 2. Push and create exactly one PR with `gh pr create --base <base_branch>`.
    Link it with `gh pr edit <PR> --add-issue <Issue URL>` (do not use `Closes`).

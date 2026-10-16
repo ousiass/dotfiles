@@ -1,8 +1,8 @@
 # sweep-common-en
 
-> Source of truth: the Japanese `sweep-common` is canonical. This `-en` directory is a translation; update it after the Japanese version changes.
+**Source of truth: the Japanese `sweep-common` is canonical; this `-en` directory is a translation and MUST be updated after it.**
 
-Specs shared by `issue-sweep-en` / `refine-sweep-en` / `spec-sweep` / `report-sweep`. **Not launched on its own** (it has no `SKILL.md`, so it does not appear as a skill).
+Specs shared by `issue-sweep-en` / `refine-sweep-en`. **Not launched on its own** (it has no `SKILL.md`, so it does not appear as a skill). The Japanese-only `spec-sweep` / `report-sweep` use the Japanese `sweep-common`.
 
 | File | Content | When to read |
 |---|---|---|

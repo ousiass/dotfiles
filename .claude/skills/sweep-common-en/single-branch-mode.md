@@ -55,7 +55,7 @@ Run phase 2 of normal mode (in-flight pipeline) as is. The differences are only 
 
 - The worktree branches from **`$int_branch`, not the base branch**:
   `git worktree add <path> -b <work_branch> "$int_branch"`
-- **Do not let it create a PR.** Forbid `gh pr create`, and stop at commit + push using sub-skills with `--no-pr` (`/impl-en #<n> --auto --no-pr` etc.)
+- **Do not let it create a PR.** Forbid `gh pr create`, and stop at commit + push using sub-skills with `--no-pr` (`/impl #<n> --auto --no-pr` etc.; the Japanese sub-skills, because the `-en` ones do not implement `--auto` / `--no-pr`)
 - **Do not launch per-work-unit polish (`/refine-git-en`).** Polish runs only once on the integration branch in S-2-0.
   Running it per work unit would (a) detect and fix the same findings separately as many times as there are work units, which is entirely wasted, and
   (b) see only each work unit's own diff, so **nobody sees inter-batch duplication, API inconsistency, or integration-caused degradation**

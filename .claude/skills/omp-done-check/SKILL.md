@@ -27,6 +27,7 @@ omp が「完了」と報告しても、それだけでは完了扱いにしな�
    - `headRefOid` が報告の SHA と一致するか（先頭の数桁ではなく全桁で比べる）
    - `state` が `OPEN`、`isDraft` が `false` か
    - `statusCheckRollup` / `gh pr checks` の全チェックが成功か（failure・pending・skipped を見落とさない）
+   - skipped は、前段の失敗で飛ばされたものなら失敗として扱う。設定上の意図（`if:` 条件など）と確かめられたものだけ許容し、理由を報告に添える（`.claude/CLAUDE.md` の `## 完了報告` と同じ区別）
 3. **失敗・pending があれば ✅ にしない**
    1. 失敗なら `gh run view <run-id> --log-failed` などで原因を調べる（pending なら完了まで待って、手順 2 をやり直す）
    2. omp への修正依頼を作る前に、omp がすでに push 中でないか確認する（ペインの出力、`gh pr view <PR> --json headRefOid` を少し置いて取り直し、SHA が動いていないか）。push 中なら重複修正を避けるため、push が終わってから手順 1 に戻る
@@ -41,7 +42,7 @@ PR #<番号> の完了確認: ✅ / ⚠️ 要対応
 - head: <報告の SHA> / <実際の SHA> → 一致 / 不一致
 - state: <OPEN など> / draft: <true|false>
 - チェック:
-  - <チェック名>: <success|failure|pending|skipped>
+  - <チェック名>: <success|failure|pending|skipped（理由: ...）>
   - ...
 - 指示から外れた点: なし / <内容> → 決めた方式と同じ / 違う（確認カードを出した）
 - 判定: ✅（すべて成功・head 一致・外れた点なし）／ ✅ にしない（理由: ...）
@@ -49,7 +50,7 @@ PR #<番号> の完了確認: ✅ / ⚠️ 要対応
 
 ## ルール
 
-- 失敗・pending・head 不一致・外れた点の未確認のどれかが残るうちは、✅ にしない
+- 失敗・pending・head 不一致・理由の分からない skipped・外れた点の未確認のどれかが残るうちは、✅ にしない
 - 確認は報告の文面ではなく、`gh` で自分で取った結果にもとづく
 - 確認カードが必要なことを、文章だけで済ませない
 

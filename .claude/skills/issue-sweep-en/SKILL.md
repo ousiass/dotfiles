@@ -6,7 +6,7 @@ user-invocable: true
 
 **Language: Always interact with the user in 日本語.**
 
-> Source of truth: the Japanese `issue-sweep` is canonical. This `-en` file is a translation; update it after the Japanese version changes.
+**Source of truth: the Japanese `issue-sweep` is canonical; this `-en` is a translation and MUST be updated after it.**
 
 # issue-sweep-en
 
@@ -359,13 +359,13 @@ Steps:
    Return {"issues": [...], "failure": "worktree creation failed: <reason>"} and exit immediately.
    Run the same verification once more before the first `git commit`.
 2. Process each Issue one at a time, **in dependency order**. For each Issue, check labels with `gh issue view <n> --json labels` and choose the skill.
-   **Always add `--auto --no-pr`**:
-   - bug → `/bug-fix-en #<n> --auto --no-pr`
-   - design → `/design-fix-en #<n> --auto --no-pr`
-   - otherwise → `/impl-en #<n> --auto --no-pr`
+   **Always add `--auto --no-pr`** (call the Japanese sub-skills here: `/impl-en`, `/bug-fix-en`, `/design-fix-en` do not implement `--auto` / `--no-pr`):
+   - bug → `/bug-fix #<n> --auto --no-pr`
+   - design → `/design-fix #<n> --auto --no-pr`
+   - otherwise → `/impl #<n> --auto --no-pr`
    `--auto` = autonomous mode (do not stop to ask for confirmation / leave Review to the later refine-git /
    lighten Plan for Issues with explicit scope). `--no-pr` = do not create a PR, since the caller creates one.
-   **Do not use the wt versions (/impl-wt-en, /bug-fix-wt-en)** (the worktree was already created in 1; calling a wt version would create a second one).
+   **Do not use the wt versions (/impl-wt, /bug-fix-wt)** (the worktree was already created in 1; calling a wt version would create a second one).
    Strictly observe the other forbidden actions of each sub-skill (skipping tests, silent skips, not filing out-of-scope findings as issues).
 3. When all Issues are implemented, push and create **exactly one PR** with `gh pr create --base <base_branch>`:
    - Include all Issue numbers in the title
@@ -547,7 +547,7 @@ While waiting, the main thread does only `sleep` + `gh` / `jq` and does not "thi
 
 **Delegation to agents**
 
-- **Launching a sub-skill (`/impl-en` etc.) directly in the main thread via the Skill tool** (root cause of context pollution. Always via `Agent`)
+- **Launching a sub-skill (`/impl` etc.) directly in the main thread via the Skill tool** (root cause of context pollution. Always via `Agent`)
 - **The main thread itself fixing code / committing / editing PRs** (the CTO does not touch implementation)
 - **Taking anything other than the agent's reply JSON into the main context** (do not leave the agent's internal Plan/Develop logs in main)
 
@@ -635,7 +635,7 @@ new_issues=$(gh issue list --state open \
   --json number,title,body,labels --limit 200)
 
 # Decide spinoff origin: use the `spinoff` label assigned by /spinoff-issue as the main signal,
-# extract the parent number from the body "元: #N" (spinoff-issue template) or "Parent: #N" (backward compat),
+# extract the parent number from the body "元: #N" (spinoff-issue template), "Source: #N" (spinoff-issue-en template) or "Parent: #N" (backward compat),
 # and pick those matching PROCESSED_IDS
 #   `high` = whether the importance is high enough to auto-run through re-sweep (full implementation cycle)
 spinoff_json=$(echo "$new_issues" | jq -c --arg ids "$PROCESSED_IDS" '
@@ -644,7 +644,7 @@ spinoff_json=$(echo "$new_issues" | jq -c --arg ids "$PROCESSED_IDS" '
       | select(([.labels[]?.name] | index("spinoff")) != null)
       | select(
           # scan with a capture returns [["3"]], so flatten before converting to a number
-          ( [ .body // "" | scan("(?:元|[Pp]arent):\\s*#?([0-9]+)") ] | flatten | .[0]? | tonumber? ) as $body_parent
+          ( [ .body // "" | scan("(?:元|Source|[Pp]arent):\\s*#?([0-9]+)") ] | flatten | .[0]? | tonumber? ) as $body_parent
           | $body_parent != null and ($parents | index($body_parent)) != null
         )
       | { number,

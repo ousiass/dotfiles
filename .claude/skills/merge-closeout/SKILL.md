@@ -23,10 +23,11 @@ PR を、確認 → 通常のマージコミットでマージ → 対象 Issue 
    gh pr checks <PR>
    ```
 
-   - `state` が `OPEN`、`isDraft` が `false`、`mergeable` が `MERGEABLE`
+   - `state` が `OPEN`、`isDraft` が `false`、`mergeable` が `MERGEABLE`、`mergeStateStatus` が `CLEAN`
    - CI が全部成功（failure・pending があればマージしない）
    - `headRefOid` が、完了報告で確認した head と一致する（確認の手順は `omp-done-check`）
-2. **悠太さんの確認を取る**: 確認カードを出す。PR 番号、head、CI の結果、close する Issue の一覧（下記）を添える。承認が出るまでマージしない
+   - `baseRefName` をデフォルトブランチ（`gh repo view --json defaultBranchRef --jq .defaultBranchRef.name`）と比べる。一致すれば、`Closes` で紐付いた Issue はマージで自動で閉じる（手順 4 では閉じたかの確認と、紐付いていないものの close）。不一致なら手動 close が要る
+2. **悠太さんの確認を取る**: 確認カードを出す。PR 番号、head、CI の結果、close する Issue の一覧（下記）、終了する omp のペイン（手順 5）を添える。承認が出るまでマージしない
 3. **通常のマージコミットでマージする**
 
    ```bash
@@ -40,8 +41,7 @@ PR を、確認 → 通常のマージコミットでマージ → 対象 Issue 
 
    ```bash
    # PR が「Closes #N」などで紐付けている Issue と、本文中の Issue 参照
-   gh pr view <PR> --json closingIssuesReferences,body \
-     --jq '{closing: [.closingIssuesReferences[].number], body: .body}'
+   gh pr view <PR> --json closingIssuesReferences --jq '[.closingIssuesReferences[].number]'
    # 本文中の #N を拾う
    gh pr view <PR> --json body --jq .body | grep -oE '#[0-9]+' | sort -u
    ```
