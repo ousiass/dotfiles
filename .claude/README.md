@@ -94,6 +94,11 @@ graph TD
 |--------|------|
 | `/release` | Changelog生成・バージョンタグ・GitHubリリースノート作成・レジストリpublish |
 | `/resolve-conflicts` | PR番号を指定してコンフリクトをgit worktreeで安全に解消 |
+| `/omp-done-check` | omp の完了報告を、`gh pr view` / `gh pr checks` で head と CI を確かめてから ✅ にして悠太さんへ報告 |
+| `/omp-intake-check` | ほかのボットからの omp 依頼を、送る前に 5 項目で確認。決まっていない点は依頼元へ差し戻し |
+| `/omp-instruction-card` | omp のペインへ、指示の全文を見せて確認を取り、貼り付け・Enter・Working 確認まで行う |
+| `/merge-closeout` | PR のマージ確認 → マージコミットでマージ → 対象 Issue の close → omp の終了処理 |
+| `/retro` | ミスの型を 1 行ずつ記録し、月 1 回見直して同じ型が 2 回以上なら dotfiles の Issue にする |
 
 ### メタ（スキル管理）
 
