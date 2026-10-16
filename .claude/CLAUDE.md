@@ -11,6 +11,9 @@
 - Bug fixes must include a regression test:
   - Add a test that fails before the fix and passes after the fix.
   - Place it in the closest relevant test suite.
+- テストで非同期処理の完了を待つときは、チャネル・準備完了フック・上限付きの条件待ち（ポーリング）を使い、固定時間の待ち（`time.Sleep` など）に頼らない。
+- シグナルを使うテストは、ハンドラの登録後に準備完了を通知させ、その通知を受けてから送る。
+- テストが不安定（flaky）になったら、タイムアウトを延ばさず、コード側（待ち方・準備完了の通知）を直す。
 
 ## Language
 - User-facing responses must use the same language as the instructions used.
@@ -34,6 +37,36 @@
 - PR をマージする際は squash せず、マージコミット方式（merge commit）を使うこと。
 - `gh pr merge` を使う場合は `--merge` を明示する（`--squash` / `--rebase` は使わない）。
 - ローカルで `git merge` する場合も fast-forward ではなく `--no-ff` でマージコミットを残す。
+
+## CI
+- PR のあるブランチへ push したら、「完了」と報告する前に CI の結果を確認する。`gh pr checks <PR番号>` で pending が無くなるまで待ち、結果を見ること（ローカルでテストが通っただけでは完了にしない）。
+- CI が失敗したら、失敗ジョブのログ（`gh run view --log-failed` など）で原因を調べて直し、同じブランチへ通常の push をする（force push はしない）。タイミング依存のテストなど、再実行で通るだけの失敗でも、原因が分かるなら再実行ではなくコードで直す。
+- 報告の形式は `## 完了報告` に従う。
+- 指示された範囲を超える操作（ドラフト解除、マージ、コメント、閾値や CI 設定の緩和）が必要になったら、承認を得る前に実行しない。対話中は `Asking the user` に従い確認ツールで聞き、答える人がいない自律実行では止まって報告する。
+
+## Push 前の確認
+- push する前に、リポジトリの CI 定義（`.github/workflows` など）を読み、同じコマンドをローカルで実行する（build・vet・lint・test など）。実行方法は `## 高負荷ホストでの実行` に従う。
+- docker や実機などローカルで再現できない確認は、報告で「未確認」と明記する。
+
+## 高負荷ホストでの実行
+- build・vet・lint・test は 1 本のコマンドに詰めず、別々のコマンドで 1 つずつ実行する。
+- sweep 系スキルの並列数は既定 5。ホストが高負荷（1 分間の load average が `nproc` を超える）のときは 3 まで下げる。
+- 負荷の確認は `uptime`（load average を `nproc` と比べる）。
+
+## 指示の遵守
+- 指示で実装方式が決まっている場合は、別の方式に置き換えない。
+- 置き換えたい事情が出たら、実装せずに止まって報告し、判断を待つ。対話中は `Asking the user` に従い確認ツールで聞き、答える人がいない自律実行では止まって報告する。
+- 指示から外れた点は、`## 完了報告` の欄に書く。
+
+## 完了報告
+完了報告には次の欄を、この順で書く（日本語。識別子・コマンドは原文のまま）。
+- 対象 PR と head のコミット
+- CI の各チェックの結果（成功・失敗・skipped。skipped は前段の失敗で飛ばされたのか、設定上の意図かも添える）
+- 指示から外れた点（無ければ「なし」）
+- 未確認の点（docker・実機など）
+- 次にやること
+
+pending のチェックが残っているのに「CI 確認中」のまま完了と書かない（`## CI` 参照）。
 
 ## Libraries
 - Prefer using well-known, widely adopted libraries when they simplify the solution, reduce risk, or improve maintainability.
