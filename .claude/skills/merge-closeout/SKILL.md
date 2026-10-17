@@ -1,6 +1,6 @@
 ---
 name: merge-closeout
-description: PR のマージ確認からマージコミットでのマージ、Issue close、omp の終了処理までを行うとき
+description: PR のマージ確認からマージコミットでのマージ、Issue close、omp の終了処理までを行うとき。
 user-invocable: true
 ---
 
@@ -10,7 +10,7 @@ PR を、確認 → 通常のマージコミットでマージ → 対象 Issue 
 
 ## 前提条件
 
-- `gh` CLI（認証済み）
+- `gh` CLI（認証済み）。`gh pr view --json closingIssuesReferences` が使える版が要る（gh 2.46.0 では使えない）。使えない版では、手順 4 の `gh api graphql` の代替を使う
 - 対象の PR 番号
 - `tmux`（omp の終了処理で使う）
 
@@ -42,6 +42,10 @@ PR を、確認 → 通常のマージコミットでマージ → 対象 Issue 
    ```bash
    # PR が「Closes #N」などで紐付けている Issue と、本文中の Issue 参照
    gh pr view <PR> --json closingIssuesReferences --jq '[.closingIssuesReferences[].number]'
+   # gh pr view が closingIssuesReferences を持たない版では、同じ値を GraphQL で取る（動作確認済み）
+   gh api graphql -F owner=<owner> -F repo=<repo> -F pr=<PR> \
+     -f query='query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){closingIssuesReferences(first:50){nodes{number}}}}}' \
+     --jq '[.data.repository.pullRequest.closingIssuesReferences.nodes[].number]'
    # 本文中の #N を拾う
    gh pr view <PR> --json body --jq .body | grep -oE '#[0-9]+' | sort -u
    ```
@@ -67,15 +71,15 @@ PR を、確認 → 通常のマージコミットでマージ → 対象 Issue 
       ```
 
       2 回とも出力が変わらず、`Working` が出ていなければ完了。動いていれば、手順 5.1 をやり直す
-   2. `/exit` を送る（貼り付けと Enter は `omp-instruction-card` の手順 4 と同じ）
+   2. `/exit` を **omp のペインへ**送る（貼り付けと Enter は `omp-instruction-card` の手順 4 と同じ）
 
       ```bash
       printf '/exit' | tmux load-buffer -b omp-closeout -
       tmux paste-buffer -p -d -b omp-closeout -t <PANE>
       sleep 3; tmux send-keys -t <PANE> Enter
       ```
-   3. fish のプロンプトに戻ったことを確かめてから、`cd ~` を同じ要領で送る
-   4. 続けて `clear` を同じ要領で送る
+   3. omp が終了して fish のプロンプトに戻ったことを確かめてから、**fish に戻ったそのペインへ** `cd ~` を同じ要領で送る
+   4. 続けて `clear` を fish へ同じ要領で送る
 
    `<PANE>` は tmux のペイン指定（`omp-instruction-card` の「ペインの指定」を参照）。
 

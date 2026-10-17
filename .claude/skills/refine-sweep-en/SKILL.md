@@ -6,7 +6,7 @@ user-invocable: true
 
 **Language: Always interact with the user in 日本語.**
 
-**Source of truth: the Japanese `refine-sweep` is canonical; this `-en` is a translation and MUST be updated after it.**
+**Source of truth: the Japanese `.claude/skills/refine-sweep` (Claude Code version) is canonical; this `-en` is a translation of it and MUST be updated after it. It is NOT translated from the `omp/skills/` version: differences in `omp/skills/` are not reflected, so calling this `-en` in omp lacks the omp-version fixes.**
 
 # refine-sweep-en
 

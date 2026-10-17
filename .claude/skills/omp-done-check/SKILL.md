@@ -1,6 +1,6 @@
 ---
 name: omp-done-check
-description: omp から完了報告を受けたとき、PR の CI を自分で確かめてから ✅ にして悠太さんへ報告する
+description: omp から完了報告を受けたとき、PR の CI を自分で確かめてから ✅ にして悠太さんへ報告する。
 user-invocable: true
 ---
 
@@ -56,6 +56,6 @@ PR #<番号> の完了確認: ✅ / ⚠️ 要対応
 
 ## 関連
 
-- 参照元: `omp-pane-report`（かなの私用スキル。このリポジトリの外にある）
+- 参照元（予定）: `omp-pane-report`（かなの私用スキル。このリポジトリの外にあり、まだ本スキルへの参照は入っていない）
 - 修正依頼を送るときに使う: `omp-instruction-card`
 - 完了報告の書式: `.claude/CLAUDE.md` の `## 完了報告`

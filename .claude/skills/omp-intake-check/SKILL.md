@@ -1,6 +1,6 @@
 ---
 name: omp-intake-check
-description: あおい・るな・なななど、ほかのボットから来た omp 依頼を、omp に入れる前に確かめるとき
+description: あおい・るな・なななど、ほかのボットから来た omp 依頼を、omp に入れる前に確かめるとき。
 user-invocable: true
 ---
 
@@ -71,5 +71,5 @@ omp への依頼を確認しました。次の点が決まっていないので�
 
 ## 関連
 
-- 参照元: `omp-dispatch`（かなの私用スキル。このリポジトリの外にある）
+- 参照元（予定）: `omp-dispatch`（かなの私用スキル。このリポジトリの外にあり、まだ本スキルへの参照は入っていない）
 - 確認を通った依頼を送るときに使う: `omp-instruction-card`

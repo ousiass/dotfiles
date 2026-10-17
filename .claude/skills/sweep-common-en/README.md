@@ -1,6 +1,6 @@
 # sweep-common-en
 
-**Source of truth: the Japanese `sweep-common` is canonical; this `-en` directory is a translation and MUST be updated after it.**
+**Source of truth: the Japanese `.claude/skills/sweep-common` (Claude Code version) is canonical; this `-en` directory is a translation of it and MUST be updated after it. It is NOT translated from the `omp/skills/` version: differences in `omp/skills/` are not reflected, so calling this `-en` in omp lacks the omp-version fixes.**
 
 Specs shared by `issue-sweep-en` / `refine-sweep-en`. **Not launched on its own** (it has no `SKILL.md`, so it does not appear as a skill). The Japanese-only `spec-sweep` / `report-sweep` use the Japanese `sweep-common`.
 

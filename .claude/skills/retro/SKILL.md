@@ -1,6 +1,6 @@
 ---
 name: retro
-description: かなのミスの型をメモリへ溜め、月に 1 回見直して dotfiles の Issue にするとき
+description: かなのミスの型をメモリへ溜め、月に 1 回見直して dotfiles の Issue にするとき。
 user-invocable: true
 ---
 
@@ -34,7 +34,7 @@ YYYY-MM-DD | 型 | 何が起きた | どうすればよかったか
 
 1. **ミスが起きたら記録する**: 気づいたその場で、上の書式の 1 行をメモリに残す。後回しにしない
 2. **月に 1 回、見直す**: メモリの記録を読み、`型` ごとに数える
-3. **同じ型が 2 回以上あれば Issue にする**: `ousiass/dotfiles` に、改善案の Issue を作る。1 回だけの型は、記録を残して次の月へ持ち越す
+3. **同じ型が 2 回以上あれば、悠太さんに確認カードを出してから Issue にする**: 起票する前に、型・回数・改善案を添えた確認カードで承認を取る。承認後に `ousiass/dotfiles` へ改善案の Issue を作る。1 回だけの型は、記録を残して次の月へ持ち越す
 
    ```bash
    gh issue create --repo ousiass/dotfiles \
