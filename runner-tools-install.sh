@@ -100,7 +100,9 @@ ensure_docker_config() {
 	local docker_dir="$HOME/.docker" cfg="$HOME/.docker/config.json" socket="$HOME/.colima/default/docker.sock"
 	local plugin_dir tmp current
 	mkdir -p "$docker_dir"
-	[ -s "$cfg" ] || echo '{}' >"$cfg"
+	# 無い・空のときは {} から始める。auths（認証情報）が入りうるファイルなので、新規は自分だけが読める 0600 にする
+	# （既存ファイルのモードは、下の cat での書き戻しで変わらない）。
+	[ -s "$cfg" ] || (umask 077 && echo '{}' >"$cfg")
 	if ! jq empty "$cfg" >/dev/null 2>&1; then
 		warn "${cfg} が JSON として読めないため、docker の設定（context / buildx）をスキップ（壊れた設定は上書きしません）"
 		note_failure docker-config

@@ -49,9 +49,26 @@ export STUB_LAUNCHD_LIST="$tmp/launchd.list"
 mkdir -p "$stubs" "$home/.local/bin" "$fnm_bin" "$runner_dir"
 
 stub() { # stub <path> : 標準入力の内容を実行可能ファイルとして書く
+    # 先に消す。同名のシンボリックリンク（実物の jq など）があっても、リンク先を上書きしない。
+    rm -f "$1"
     cat >"$1"
     chmod +x "$1"
 }
+
+# runner-tools-install.sh が ~/.docker/config.json の編集に使う jq は実物を使う。PATH を絞るケースでも
+# 見えるよう、スタブ置き場に張る（Homebrew の jq が /opt/homebrew/bin にだけある Mac でも同じ）。
+if ! real_jq="$(command -v jq)"; then
+    ng "jq が必要です（runner-tools-install.sh の docker 設定の検査に使う）"
+    exit 1
+fi
+ln -sf "$real_jq" "$stubs/jq"
+
+# brew --prefix の値（brew の docker-buildx が置かれる場所もここ）と、docker context の一覧（スタブの状態）
+export STUB_BREW_PREFIX="$tmp/brew-prefix"
+export STUB_CONTEXTS="$tmp/contexts"
+plugin_dir="$STUB_BREW_PREFIX/lib/docker/cli-plugins"
+mkdir -p "$plugin_dir"
+: >"$STUB_CONTEXTS"
 
 # --- PATH 先頭に置くスタブ（root・macOS コマンドの代役） -----------------------------
 stub "$stubs/uname" <<'EOF'
@@ -161,10 +178,21 @@ stub "$stubs/gcc" <<'EOF'
 #!/bin/bash
 echo "gcc (stub) 1.0"
 EOF
+# docker（runner-tools-install.sh と Linux の確認が使う側）。context の inspect / create / use を模す。
+# use は config.json の currentContext を書き換える（実物と同じ）。
 stub "$stubs/docker" <<'EOF'
 #!/bin/bash
 echo "docker $*" >>"$STUB_LOG"
-echo "Docker stub"
+case "$1 $2" in
+"context inspect") grep -qxF "$3" "$STUB_CONTEXTS" ;;
+"context create") echo "$3" >>"$STUB_CONTEXTS" ;;
+"context use")
+    t=$(mktemp)
+    jq --arg c "$3" '.currentContext = $c' "$HOME/.docker/config.json" >"$t" && cat "$t" >"$HOME/.docker/config.json"
+    rm -f "$t"
+    ;;
+*) echo "Docker stub" ;;
+esac
 EOF
 # macOS のコンソールユーザー（stat -f %Su /dev/console）。GUI ログイン中のユーザー名を返す。
 stub "$stubs/stat" <<'EOF'
@@ -199,6 +227,7 @@ EOF
 stub "$stubs/brew" <<'EOF'
 #!/bin/bash
 echo "brew $*" >>"$STUB_LOG"
+[ "$1" = --prefix ] && echo "$STUB_BREW_PREFIX"
 if [ "$1" = list ]; then
     case " ${STUB_BREW_MISSING:-} " in
     *" $3 "*) exit 1 ;;
@@ -238,11 +267,31 @@ EOF
 # そこにある本物の docker が先に見つかり、スタブの docker info が呼ばれずに本物が colima を探して
 # 失敗していた（macOS の成功系が全部 exit 1 になった原因）。そこで、安定 PATH の先頭にある
 # fnm の aliases/default/bin に docker / cc / node のスタブを置く（本物の /opt/homebrew/bin より前になる）。
+# 実機の挙動を再現する（#53）。colima の docker に繋がるのは、$HOME/.docker/config.json の currentContext が
+# colima のときだけ（素の状態は /var/run/docker.sock を見て失敗する）。docker buildx も、config.json の
+# cliPluginsExtraDirs が設定されているときだけ使える。runner-tools-install.sh が書いた設定を、runner ユーザーの
+# 最小環境（env -i）から確かめる。env -i で STUB_LOG が消えていても、エラーを出さない。
 stub "$fnm_bin/docker" <<'EOF'
 #!/bin/bash
-# env -i で STUB_LOG が消えている呼び出しでも、エラーを出さず成功する
 [ -z "${STUB_LOG:-}" ] || echo "docker $*" >>"$STUB_LOG"
-echo "Docker stub"
+cfg="$HOME/.docker/config.json"
+case "$1" in
+info)
+    if [ "$(jq -r '.currentContext // "default"' "$cfg" 2>/dev/null)" != colima ]; then
+        echo "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?" >&2
+        exit 1
+    fi
+    echo "Server: Docker stub (colima)"
+    ;;
+buildx)
+    if ! jq -e '(.cliPluginsExtraDirs // []) | length > 0' "$cfg" >/dev/null 2>&1; then
+        echo "docker: 'buildx' is not a docker command." >&2
+        exit 1
+    fi
+    echo "github.com/docker/buildx stub"
+    ;;
+*) echo "Docker stub" ;;
+esac
 EOF
 stub "$fnm_bin/cc" <<'EOF'
 #!/bin/bash
@@ -384,7 +433,8 @@ check_eq    "ログイン画面（root）: 何も設置しない"        0 "$(( 
 # 直前までのケース（brew パッケージ不足の成功など）が sudoers・サービス・.path を作っているので、
 # 初回の実行として確かめるために消しておく。
 rm -f "$tmp/sudoers-github-runner" "$runner_dir/.service" "$runner_dir/.path" "$runner_dir/.env"
-rm -rf "$home/Library"
+rm -rf "$home/Library" "$home/.docker"
+: >"$STUB_CONTEXTS"
 : >"$STUB_LOG"
 : >"$STUB_LAUNCHD_LIST"
 run_setup
@@ -393,6 +443,13 @@ check_match "macOS: dscl で取ったホームの runner dir を使う" "runner 
 check_match "macOS: sudoers は wheel グループで置く" "install -m 0440 -o root -g wheel" "$(cat "$STUB_LOG")"
 check_match "macOS: colima を brew services で自動起動にする" "brew services start colima" "$(cat "$STUB_LOG")"
 check_match "macOS: runner ユーザーで docker info を確かめる" "docker info" "$(cat "$STUB_LOG")"
+# 2/5（runner-tools-install.sh）が書いた ~/.docker/config.json で、3/5 と 5/5 の docker が colima に繋がる
+# （スタブの docker は currentContext が colima のときだけ info が通る）。素の状態では通らない。
+check_eq    "macOS: runner ユーザーの currentContext が colima"      colima "$(jq -r '.currentContext' "$home/.docker/config.json")"
+check_eq    "macOS: cliPluginsExtraDirs に buildx の場所"            "$plugin_dir" "$(jq -r '.cliPluginsExtraDirs[0]' "$home/.docker/config.json")"
+check_match "macOS: 3/5 で docker info が通ったと表示する"           "docker info が通った" "$out"
+check_match "macOS: 5/5 で docker info が通る"                       "OK: ci で docker info が通る" "$out"
+check_no_match "macOS: 5/5 で docker / buildx の NG が出ない"        "NG: docker" "$out"
 check_eq    "macOS: svc.sh install を 1 回呼ぶ"   1 "$(calls 'svc.sh install')"
 check_eq    "macOS: svc.sh start を 1 回呼ぶ"     1 "$(calls 'svc.sh start')"
 check_eq    ".path は macOS の安定 PATH"          "$(runner_stable_path "$home")" "$(<"$runner_dir/.path")"
