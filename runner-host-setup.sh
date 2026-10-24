@@ -229,7 +229,7 @@ if [ "$OS" = Darwin ]; then
 	fi
 	echo "  $RUNNER_USER で docker info が通った"
 else
-	echo "== 2/5 Docker / Buildx / C コンパイラ =="
+	echo "== 2/5 Docker / Buildx / Compose / C コンパイラ / zstd =="
 	# docker.io 単体では buildx が入らず、COPY --chmod を含む Dockerfile が
 	# 「the --chmod option requires BuildKit」で失敗するため docker-buildx を明示する。
 	#
@@ -238,8 +238,9 @@ else
 	export DEBIAN_FRONTEND=noninteractive
 	apt-get update
 	# zstd は actions/cache が tar の圧縮に使う。docker-compose-v2 は Ubuntu の docker.io 前提の
-	# `docker compose` 用。Docker 公式 apt（docker-ce + docker-compose-plugin）のホストでは
-	# すでに `docker compose version` が通るので入れない（plugin と衝突させない）。
+	# `docker compose` 用。すでに `docker compose version` が通るホスト（Docker 公式 apt の
+	# docker-compose-plugin など）では、cli-plugins/docker-compose が衝突するので入れない。
+	# docker.io 自体は従来どおり無条件に入れる（docker-ce のホストへの適用は想定しない）。
 	packages=(docker.io docker-buildx build-essential zstd)
 	if ! docker compose version >/dev/null 2>&1; then
 		packages+=(docker-compose-v2)

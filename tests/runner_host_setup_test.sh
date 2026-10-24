@@ -565,6 +565,7 @@ check_eq    "Linux: /etc へ書こうとしていない"             0 "$(calls 
 check_eq    "Linux: sudoers の内容"                       "ci ALL=(ALL) NOPASSWD: ALL" "$(cat "$linux_sudoers")"
 check_match "Linux: sudoers は root グループで置く"        "install -m 0440 -o root -g root" "$(cat "$STUB_LOG")"
 check_eq    "Linux: apt で docker / buildx / compose-v2 / build-essential / zstd を入れる" "apt-get install -y docker.io docker-buildx build-essential zstd docker-compose-v2" "$(grep '^apt-get install' "$STUB_LOG")"
+check_eq    "Linux: 入れる前に docker compose version で判定する" 1 "$(( $(grep -n '^docker compose version' "$STUB_LOG" | cut -d: -f1 | head -1) < $(grep -n '^apt-get install' "$STUB_LOG" | cut -d: -f1 | head -1) ))"
 check_match "Linux: docker を有効化する"                   "systemctl enable --now docker" "$(cat "$STUB_LOG")"
 check_match "Linux: docker グループへ入れる"                "usermod -aG docker ci" "$(cat "$STUB_LOG")"
 check_eq    "Linux: svc.sh install <user> を呼ぶ"           1 "$(calls 'svc.sh install ci')"

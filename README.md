@@ -400,7 +400,7 @@ Linux との違い:
 | OS | 入れるもの |
 |---|---|
 | macOS | Homebrew で `colima` `docker` `docker-buildx` `fnm` `gh` `jq` `shellcheck` `fish`、fnm で Node.js LTS（default に設定。runner の安定 PATH は fnm の `aliases/default/bin` を指すため）、`~/.docker/config.json` の docker context と `cliPluginsExtraDirs`（上の「docker の接続と buildx」） |
-| Linux | `apt` で `jq` `shellcheck` `fish`、`install.sh` と同じ関数（`lib/tools/fnm.sh` / `lib/tools/gh.sh`）で `fnm` と `gh`、fnm で Node.js LTS。Docker / Buildx / build-essential は `runner-host-setup.sh` が入れるので、`make runner-setup` からは呼ばず、単体で `make runner-tools` したときだけ使う |
+| Linux | `apt` で `jq` `shellcheck` `fish`、`install.sh` と同じ関数（`lib/tools/fnm.sh` / `lib/tools/gh.sh`）で `fnm` と `gh`、fnm で Node.js LTS。Docker / Buildx / Compose / build-essential / zstd は `runner-host-setup.sh` が入れるので、`make runner-setup` からは呼ばず、単体で `make runner-tools` したときだけ使う |
 
 入れない（案内か表示だけ）もの:
 
