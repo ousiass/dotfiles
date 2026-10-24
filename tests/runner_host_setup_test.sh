@@ -186,6 +186,7 @@ echo "docker $*" >>"$STUB_LOG"
 case "$1 $2" in
 "context inspect") grep -qxF "$3" "$STUB_CONTEXTS" ;;
 "context create") echo "$3" >>"$STUB_CONTEXTS" ;;
+"compose version") [ -n "${STUB_COMPOSE_PRESENT:-}" ] ;;
 "context use")
     t=$(mktemp)
     jq --arg c "$3" '.currentContext = $c' "$HOME/.docker/config.json" >"$t" && cat "$t" >"$HOME/.docker/config.json"
@@ -563,7 +564,7 @@ check_eq    "Linux: 成功する"                             0 "$rc"
 check_eq    "Linux: /etc へ書こうとしていない"             0 "$(calls 'LEAK')"
 check_eq    "Linux: sudoers の内容"                       "ci ALL=(ALL) NOPASSWD: ALL" "$(cat "$linux_sudoers")"
 check_match "Linux: sudoers は root グループで置く"        "install -m 0440 -o root -g root" "$(cat "$STUB_LOG")"
-check_match "Linux: apt で docker / buildx / build-essential を入れる" "apt-get install -y docker.io docker-buildx build-essential" "$(cat "$STUB_LOG")"
+check_eq    "Linux: apt で docker / buildx / compose-v2 / build-essential / zstd を入れる" "apt-get install -y docker.io docker-buildx build-essential zstd docker-compose-v2" "$(grep '^apt-get install' "$STUB_LOG")"
 check_match "Linux: docker を有効化する"                   "systemctl enable --now docker" "$(cat "$STUB_LOG")"
 check_match "Linux: docker グループへ入れる"                "usermod -aG docker ci" "$(cat "$STUB_LOG")"
 check_eq    "Linux: svc.sh install <user> を呼ぶ"           1 "$(calls 'svc.sh install ci')"
@@ -596,5 +597,12 @@ echo "/run/user/1000/fnm_multishells/1_2/bin:/usr/bin:/bin" >"$linux_runner/.pat
 run_setup "${linux_env[@]}" STUB_ACTIVE=1
 check_eq    "Linux 壊れた .path: 安定 PATH に直る"          "$linux_stable" "$(<"$linux_runner/.path")"
 check_eq    "Linux 壊れた .path: systemctl restart する"    1 "$(calls 'systemctl restart')"
+
+# docker compose が既に通るホスト（Docker 公式 apt の docker-ce + docker-compose-plugin など）では
+# docker-compose-v2 を入れない。zstd などは入れる。
+: >"$STUB_LOG"
+run_setup "${linux_env[@]}" STUB_COMPOSE_PRESENT=1
+check_eq    "Linux compose 済み: 成功する"                  0 "$rc"
+check_eq    "Linux compose 済み: docker-compose-v2 を入れない" "apt-get install -y docker.io docker-buildx build-essential zstd" "$(grep '^apt-get install' "$STUB_LOG")"
 
 exit "$fail"

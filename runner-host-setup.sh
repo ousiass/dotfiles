@@ -237,7 +237,14 @@ else
 	# actions/setup-go は Go ツールチェーンだけを入れて C コンパイラは入れない。
 	export DEBIAN_FRONTEND=noninteractive
 	apt-get update
-	apt-get install -y docker.io docker-buildx build-essential
+	# zstd は actions/cache が tar の圧縮に使う。docker-compose-v2 は Ubuntu の docker.io 前提の
+	# `docker compose` 用。Docker 公式 apt（docker-ce + docker-compose-plugin）のホストでは
+	# すでに `docker compose version` が通るので入れない（plugin と衝突させない）。
+	packages=(docker.io docker-buildx build-essential zstd)
+	if ! docker compose version >/dev/null 2>&1; then
+		packages+=(docker-compose-v2)
+	fi
+	apt-get install -y "${packages[@]}"
 	systemctl enable --now docker
 
 	echo "== 3/5 docker グループ =="

@@ -7,7 +7,7 @@
 #   ./runner-tools-install.sh
 #
 # macOS（Apple Silicon）は runner-host-setup.sh が、runner ユーザーとしてこのスクリプトを呼ぶ。
-# Linux は runner-host-setup.sh からは呼ばない（Docker / Buildx / build-essential は
+# Linux は runner-host-setup.sh からは呼ばない（Docker / Buildx / Compose / build-essential / zstd は
 # runner-host-setup.sh が apt で入れる）。足したいときだけ make runner-tools を単体で実行する。
 #
 # 入れるもの:

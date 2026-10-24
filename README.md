@@ -374,7 +374,7 @@ Linux との違い:
 |---|---|---|
 | ユーザーのホーム | `getent passwd` | `dscl . -read /Users/<user> NFSHomeDirectory` |
 | `/etc/sudoers.d/github-runner` のグループ | `root` | `wheel`（`visudo -c` で検証してから置くのは同じ） |
-| 依存 | `apt-get install docker.io docker-buildx build-essential` | Xcode CLT・Homebrew の有無を確かめ（無ければ案内して止まる）、colima / docker / docker-buildx などは `runner-tools-install.sh` が brew で入れる |
+| 依存 | `apt-get install docker.io docker-buildx build-essential zstd`。`docker compose version` が通らないときだけ `docker-compose-v2` も入れる（Docker 公式 apt の docker-ce + docker-compose-plugin のホストでは入れない） | Xcode CLT・Homebrew の有無を確かめ（無ければ案内して止まる）、colima / docker / docker-buildx などは `runner-tools-install.sh` が brew で入れる |
 | Docker の起動 | `systemctl enable --now docker` と docker グループ | runner ユーザーで `brew services start colima`（runner ユーザーのログイン後に自動で上がる）。`docker info` が通るまで最大 2 分待つ。docker CLI は `~/.docker/config.json` の docker context `colima` で colima に繋ぐ（下記） |
 | サービス | systemd（`svc.sh` が unit を作る） | launchd（`svc.sh` が `~/Library/LaunchAgents/` に plist を作る。`svc.sh` は root を拒否するので runner ユーザーとして呼ぶ） |
 | `.path` のガード | drop-in の `ExecStartPre=` | plist の `ProgramArguments` を `path-guard.sh --exec <runner dir> <home>` に差し替える。ガードが `.path` を直してから `runsvc.sh` へ `exec` する。起動のたびに走り、修復内容は `~/Library/Logs/<label>/stdout.log` に出る |
