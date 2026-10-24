@@ -135,7 +135,7 @@ if [ "$scope_type" = "fix" ]; then
     fail 'fix 型スコープなのにテストファイルが 1 件も変更されていません（CLAUDE.md の回帰テスト必須規約に違反）'
   fi
 else
-  skip "fix 型以外（$scope_type）のため回帰テスト検査は対象外"
+  skip "fix 型以外（${scope_type}）のため回帰テスト検査は対象外"
 fi
 
 # --- 3. Issue の assignee（着手宣言） ---------------------------------------
@@ -170,7 +170,7 @@ if [ -n "$test_cmd" ]; then
   if bash -c "$test_cmd" >"$test_log" 2>&1; then
     pass "テスト: $test_cmd"
   else
-    fail "テストが失敗しました（$test_cmd）— 末尾 40 行:"
+    fail "テストが失敗しました（${test_cmd}）— 末尾 40 行:"
     add "$(tail -40 "$test_log" | sed 's/^/          /')"
   fi
 else
@@ -182,7 +182,7 @@ if [ -n "$lint_cmd" ]; then
   if bash -c "$lint_cmd" >"$lint_log" 2>&1; then
     pass "lint: $lint_cmd"
   else
-    fail "lint が失敗しました（$lint_cmd）— 末尾 40 行:"
+    fail "lint が失敗しました（${lint_cmd}）— 末尾 40 行:"
     add "$(tail -40 "$lint_log" | sed 's/^/          /')"
   fi
 else

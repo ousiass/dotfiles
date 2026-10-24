@@ -43,8 +43,9 @@ clean-timer: ## 週次の自動掃除を systemd timer に登録（sudo 不要�
 	systemctl --user enable --now dotfiles-cleanup.timer
 	@systemctl --user list-timers dotfiles-cleanup.timer --no-pager
 
-test: ## 回帰テストを実行（cleanup.sh / runner-path-guard.sh / runner-host-setup.sh / runner-tools-install.sh）
+test: ## 回帰テストを実行（cleanup.sh / runner-path-guard.sh / runner-host-setup.sh / runner-tools-install.sh / bash 3.2 可搬性）
 	./tests/cleanup_test.sh
 	./tests/runner_path_guard_test.sh
 	./tests/runner_host_setup_test.sh
 	./tests/runner_tools_install_test.sh
+	./tests/portability_test.sh
