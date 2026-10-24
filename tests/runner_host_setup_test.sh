@@ -118,10 +118,53 @@ done
 src="${args[0]}"
 dst="${args[1]}"
 case "$dst" in
-/etc/*) exit 0 ;;
+/etc/*)
+    echo "LEAK: /etc への書き込み: $dst" >>"$STUB_LOG"
+    exit 99
+    ;;
 esac
 cp "$src" "$dst"
 chmod 755 "$dst"
+EOF
+# macOS の arm64 判定（Rosetta 下では uname -m が x86_64 でも hw.optional.arm64 は 1）
+stub "$stubs/sysctl" <<'EOF'
+#!/bin/bash
+echo "${STUB_ARM64:-0}"
+EOF
+# Linux 分岐が呼ぶコマンド（実際の apt / systemd / docker / グループには触れない）
+stub "$stubs/apt-get" <<'EOF'
+#!/bin/bash
+echo "apt-get $*" >>"$STUB_LOG"
+EOF
+stub "$stubs/systemctl" <<'EOF'
+#!/bin/bash
+echo "systemctl $*" >>"$STUB_LOG"
+if [ "$1" = is-active ]; then
+    [ -n "${STUB_ACTIVE:-}" ]
+    exit $?
+fi
+exit 0
+EOF
+stub "$stubs/usermod" <<'EOF'
+#!/bin/bash
+echo "usermod $*" >>"$STUB_LOG"
+EOF
+stub "$stubs/getent" <<'EOF'
+#!/bin/bash
+case "$1 $2" in
+"passwd ci") echo "ci:x:1000:1000::$STUB_HOME:/bin/bash" ;;
+"group docker") echo "docker:x:999:ci" ;;
+*) exit 2 ;;
+esac
+EOF
+stub "$stubs/gcc" <<'EOF'
+#!/bin/bash
+echo "gcc (stub) 1.0"
+EOF
+stub "$stubs/docker" <<'EOF'
+#!/bin/bash
+echo "docker $*" >>"$STUB_LOG"
+echo "Docker stub"
 EOF
 stub "$stubs/xcode-select" <<'EOF'
 #!/bin/bash
@@ -214,7 +257,7 @@ exit 0
 EOF
 
 run_setup() { # run_setup [VAR=value ...] : 出力を $out、終了コードを $rc に入れる
-    out=$(env PATH="$stubs:$PATH" RUNNER_USER=ci "$@" bash "$SETUP" 2>&1)
+    out=$(env PATH="$stubs:$PATH" RUNNER_USER=ci SUDOERS_FILE="$tmp/sudoers-github-runner" "$@" bash "$SETUP" 2>&1)
     rc=$?
 }
 
@@ -250,6 +293,8 @@ check_eq    "依存不足: colima を起動しない"        0 "$(calls 'brew se
 check_eq    "依存不足: サービス化しない"          0 "$(calls 'svc.sh install')"
 
 # --- 通常の実行 ---------------------------------------------------------------
+# 依存不足のケースでも 1/5 は通って sudoers を置くので、設置から確かめるために消しておく。
+rm -f "$tmp/sudoers-github-runner"
 : >"$STUB_LOG"
 : >"$STUB_LAUNCHD_LIST"
 run_setup
@@ -325,6 +370,12 @@ check_eq    "ラベルが前方一致の別 runner: 成功する"          0 "$r
 check_eq    "ラベルが前方一致の別 runner: 自分は start する" 1 "$(calls 'svc.sh start')"
 check_eq    "ラベルが前方一致の別 runner: 再起動と取り違えない" 0 "$(calls 'svc.sh stop')"
 
+# --- Rosetta 下の端末（uname -m が x86_64）でも、CPU が Apple Silicon なら対象外にしない ---------
+: >"$STUB_LOG"
+run_setup STUB_UNAME_M=x86_64 STUB_ARM64=1
+check_eq       "Rosetta: 成功する"          0 "$rc"
+check_no_match "Rosetta: 対象外にしない"    "対象外です" "$out"
+
 # --- plist が想定と違うときは壊さずに止まる ----------------------------------------
 rm -f "$runner_dir/.service"
 rm -rf "$home/Library"
@@ -336,5 +387,66 @@ run_setup
 check_eq    "想定外の plist: 失敗で止まる"        1 "$rc"
 check_match "想定外の plist: 理由を出す"          "ProgramArguments が想定と違う" "$out"
 check_eq    "想定外の plist: 書き換えない"        "$odd" "$(cat "$plist")"
+
+# --- Linux: 動きが変わっていない（/etc・systemd は tmp に向けて、コマンドは全てスタブで流す） ------
+# 向け先の差し替え口（SUDOERS_FILE / SYSTEMD_SYSTEM_DIR）を使い、実際の /etc には触らない。
+# スタブが漏れて /etc へ書こうとすると install スタブが LEAK を記録して失敗する。
+linux_dir="$tmp/linux"
+linux_runner="$linux_dir/actions-runner"
+linux_sudoers="$linux_dir/sudoers-github-runner"
+linux_systemd="$linux_dir/systemd"
+mkdir -p "$linux_runner" "$linux_systemd"
+echo '{}' >"$linux_runner/.runner"
+stub "$linux_runner/svc.sh" <<'EOF'
+#!/bin/bash
+echo "svc.sh $*" >>"$STUB_LOG"
+case "$1" in
+install) echo actions.runner.test.service >.service ;;
+esac
+exit 0
+EOF
+# 末尾に改行が無く、PATH 以外の行も持つ既存の .env（PATH 行だけが置き換わること）
+printf 'FOO=1\nPATH=/old' >"$linux_runner/.env"
+linux_stable=$(uname() { echo Linux; }; runner_stable_path "$home")
+linux_env=(STUB_UNAME_S=Linux RUNNER_DIR="$linux_runner" SUDOERS_FILE="$linux_sudoers" SYSTEMD_SYSTEM_DIR="$linux_systemd")
+
+: >"$STUB_LOG"
+run_setup "${linux_env[@]}"
+check_eq    "Linux: 成功する"                             0 "$rc"
+check_eq    "Linux: /etc へ書こうとしていない"             0 "$(calls 'LEAK')"
+check_eq    "Linux: sudoers の内容"                       "ci ALL=(ALL) NOPASSWD: ALL" "$(cat "$linux_sudoers")"
+check_match "Linux: sudoers は root グループで置く"        "install -m 0440 -o root -g root" "$(cat "$STUB_LOG")"
+check_match "Linux: apt で docker / buildx / build-essential を入れる" "apt-get install -y docker.io docker-buildx build-essential" "$(cat "$STUB_LOG")"
+check_match "Linux: docker を有効化する"                   "systemctl enable --now docker" "$(cat "$STUB_LOG")"
+check_match "Linux: docker グループへ入れる"                "usermod -aG docker ci" "$(cat "$STUB_LOG")"
+check_eq    "Linux: svc.sh install <user> を呼ぶ"           1 "$(calls 'svc.sh install ci')"
+check_eq    "Linux: svc.sh start を呼ぶ"                    1 "$(calls 'svc.sh start')"
+check_eq    "Linux: brew を呼ばない"                         0 "$(calls 'brew')"
+check_eq    "Linux: launchctl を呼ばない"                    0 "$(calls 'launchctl')"
+check_eq    "Linux: .path は従来の安定 PATH"               "$linux_stable" "$(<"$linux_runner/.path")"
+check_eq    "Linux: .env の PATH 行は 1 行だけ"             "PATH=$linux_stable" "$(grep '^PATH=' "$linux_runner/.env")"
+check_eq    "Linux: .env の PATH 以外の行を残す"            "FOO=1" "$(grep '^FOO=' "$linux_runner/.env")"
+check_eq    "Linux: .env は 2 行になる"                    2 "$(wc -l <"$linux_runner/.env" | tr -d ' ')"
+dropin="$linux_systemd/actions.runner.test.service.d/path-guard.conf"
+check_eq    "Linux: drop-in の ExecStartPre"               "[Service]
+ExecStartPre=\"$linux_runner/path-guard.sh\" \"$linux_runner\" \"$home\"" "$(cat "$dropin")"
+check_match "Linux: 終わりの案内は linux / x64 のラベル"    "[self-hosted, linux, x64]" "$out"
+check_no_match "Linux: macOS のラベルを出さない"           "[self-hosted, macOS, ARM64]" "$out"
+check_eq    "Linux: 初回は稼働中でないので再起動しない"      0 "$(calls 'systemctl restart')"
+
+# 2 回目（稼働中）: 何も変わらず、再起動もしない
+: >"$STUB_LOG"
+run_setup "${linux_env[@]}" STUB_ACTIVE=1
+check_eq    "Linux 2 回目: 成功する"                       0 "$rc"
+check_eq    "Linux 2 回目: サービス化し直さない"            0 "$(calls 'svc.sh install')"
+check_eq    "Linux 2 回目: 再起動しない"                    0 "$(calls 'systemctl restart')"
+check_eq    "Linux 2 回目: .path は変わらない"              "$linux_stable" "$(<"$linux_runner/.path")"
+
+# .path が壊れていて稼働中: 直して、ジョブが無ければ systemctl restart する
+echo "/run/user/1000/fnm_multishells/1_2/bin:/usr/bin:/bin" >"$linux_runner/.path"
+: >"$STUB_LOG"
+run_setup "${linux_env[@]}" STUB_ACTIVE=1
+check_eq    "Linux 壊れた .path: 安定 PATH に直る"          "$linux_stable" "$(<"$linux_runner/.path")"
+check_eq    "Linux 壊れた .path: systemctl restart する"    1 "$(calls 'systemctl restart')"
 
 exit "$fail"

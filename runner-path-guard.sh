@@ -32,6 +32,17 @@
 #   修復しても node が見つからない（fnm default 未設定など）ときはエラーを出すが、
 #   runner の起動は止めない（ExecStartPre は常に成功を返す。--exec も runsvc.sh へ進む）。
 
+# fnm の aliases/default/bin（node の更新に追従するシンボリックリンク）の置き場所を 1 行 1 パスで出す。
+# Linux は ~/.local/share/fnm。macOS は、このリポジトリの fnm.sh が使う公式インストーラの既定が
+# ~/Library/Application Support/fnm（XDG_DATA_HOME 未設定のとき）なので、それと ~/.local/share/fnm の両方を許す。
+runner_fnm_default_bin_dirs() {
+	local home=$1
+	if [ "$(uname -s)" = Darwin ]; then
+		printf '%s\n' "$home/Library/Application Support/fnm/aliases/default/bin"
+	fi
+	printf '%s\n' "$home/.local/share/fnm/aliases/default/bin"
+}
+
 # 安定 PATH。ログイン時の一時パス（fnm_multishells）を含めない。
 # fnm の aliases/default は node の更新に追従するシンボリックリンクなので、バージョンを固定せずに済む。
 # OS（uname -s）で分ける。macOS は Homebrew（Apple Silicon の /opt/homebrew）を入れ、
@@ -40,7 +51,7 @@ runner_stable_path() {
 	local home=$1
 	case "$(uname -s)" in
 	Darwin)
-		printf '%s' "$home/.local/share/fnm/aliases/default/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/go/bin:$home/go/bin:$home/.cargo/bin:$home/.bun/bin:$home/.local/bin:$home/.local/share/fnm:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+		printf '%s' "$home/Library/Application Support/fnm/aliases/default/bin:$home/.local/share/fnm/aliases/default/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/go/bin:$home/go/bin:$home/.cargo/bin:$home/.bun/bin:$home/.local/bin:$home/Library/Application Support/fnm:$home/.local/share/fnm:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 		;;
 	*)
 		printf '%s' "$home/.local/share/fnm/aliases/default/bin:/opt/nvim/bin:/usr/local/go/bin:$home/go/bin:$home/.cargo/bin:$home/.bun/bin:$home/.local/bin:$home/.local/share/fnm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin"
@@ -56,7 +67,7 @@ runner_path_has_node() {
 
 # .path に修復が必要なら理由を出力して 0 を返す。正常なら何も出さず 1 を返す。
 runner_path_file_problem() {
-	local file=$1 home=$2 current
+	local file=$1 home=$2 current fnm_dirs dir found
 	if [ ! -f "$file" ]; then
 		echo "$file が無い"
 		return 0
@@ -69,13 +80,17 @@ runner_path_file_problem() {
 		return 0
 		;;
 	esac
-	case ":$current:" in
-	*":$home/.local/share/fnm/aliases/default/bin:"*) ;;
-	*)
-		echo "$home/.local/share/fnm/aliases/default/bin を含まない"
+	fnm_dirs=$(runner_fnm_default_bin_dirs "$home")
+	found=0
+	while IFS= read -r dir; do
+		case ":$current:" in
+		*":$dir:"*) found=1 ;;
+		esac
+	done <<<"$fnm_dirs"
+	if [ "$found" -ne 1 ]; then
+		echo "${fnm_dirs//$'\n'/ / } を含まない"
 		return 0
-		;;
-	esac
+	fi
 	if ! runner_path_has_node "$home" "$current"; then
 		echo "その PATH で node / npx が引けない"
 		return 0

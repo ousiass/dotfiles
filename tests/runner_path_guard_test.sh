@@ -107,7 +107,8 @@ check_eq "引数不足: exit 0" 0 "$?"
 # uname を関数で差し替えて、macOS と Linux の定義を同じホストで確かめる。
 linux_path=$(uname() { echo Linux; }; runner_stable_path /h)
 mac_path=$(uname() { echo Darwin; }; runner_stable_path /h)
-check_match    "macOS の安定 PATH: fnm の aliases/default/bin が先頭" ":${mac_path%%:*}:" ":/h/.local/share/fnm/aliases/default/bin:"
+check_match    "macOS の安定 PATH: Application Support の fnm の aliases/default/bin が先頭" ":${mac_path%%:*}:" ":/h/Library/Application Support/fnm/aliases/default/bin:"
+check_match    "macOS の安定 PATH: ~/.local/share/fnm の aliases/default/bin も含む" ":/h/.local/share/fnm/aliases/default/bin:" ":$mac_path:"
 check_match    "macOS の安定 PATH: Homebrew (Apple Silicon) を含む"   ":/opt/homebrew/bin:" ":$mac_path:"
 check_match    "macOS の安定 PATH: /opt/homebrew/sbin を含む"         ":/opt/homebrew/sbin:" ":$mac_path:"
 check_match    "macOS の安定 PATH: 標準の /usr/bin /bin を含む"       ":/usr/bin:/bin:" ":$mac_path:"
@@ -122,5 +123,33 @@ new_runner mac-multishell yes
 echo "$stale" >"$runner_dir/.path"
 ( uname() { echo Darwin; }; runner_repair_path_file "$runner_dir/.path" "$home" >/dev/null 2>&1 )
 check_eq "macOS: 安定 PATH に書き直す" "$(uname() { echo Darwin; }; runner_stable_path "$home")" "$(<"$runner_dir/.path")"
+
+# macOS の fnm は公式インストーラの既定で ~/Library/Application Support/fnm に入る。
+# aliases/default/bin がそちらにあるだけの .path も正常とみなし、どちらにも無ければ直す。
+new_runner mac-appsupport no
+app_bin="$home/Library/Application Support/fnm/aliases/default/bin"
+mkdir -p "$app_bin"
+printf '#!/bin/sh\n' >"$app_bin/node"
+cp "$app_bin/node" "$app_bin/npx"
+chmod +x "$app_bin/node" "$app_bin/npx"
+app_healthy="$app_bin:/usr/bin:/bin"
+echo "$app_healthy" >"$runner_dir/.path"
+out=$(uname() { echo Darwin; }; runner_path_guard_main "$runner_dir" "$home" 2>&1)
+check_eq "macOS: Application Support の fnm を指す .path は正常（書き換えない）" "$app_healthy" "$(<"$runner_dir/.path")"
+check_eq "macOS: Application Support の fnm: 何も出力しない" "" "$out"
+echo "/usr/bin:/bin" >"$runner_dir/.path"
+( uname() { echo Darwin; }; runner_path_guard_main "$runner_dir" "$home" >/dev/null 2>&1 )
+check_eq "macOS: どちらの fnm も無い .path は安定 PATH へ直る" "$(uname() { echo Darwin; }; runner_stable_path "$home")" "$(<"$runner_dir/.path")"
+check_match "macOS: 安定 PATH は Application Support の fnm を含む" ":$app_bin:" ":$(<"$runner_dir/.path"):"
+# Linux では Application Support を見ない（従来どおり ~/.local/share/fnm のみ）
+new_runner linux-appsupport no
+mkdir -p "$home/Library/Application Support/fnm/aliases/default/bin"
+cp "$app_bin/node" "$home/Library/Application Support/fnm/aliases/default/bin/node" 2>/dev/null || true
+echo "$home/Library/Application Support/fnm/aliases/default/bin:/usr/bin:/bin" >"$runner_dir/.path"
+out=$(uname() { echo Linux; }; runner_path_file_problem "$runner_dir/.path" "$home")
+check_match "Linux: Application Support の fnm は認めない" "$home/.local/share/fnm/aliases/default/bin を含まない" "$out"
+
+# Linux の安定 PATH は変更前の文字列と完全一致（origin/main の runner_stable_path から転記）
+check_eq "Linux の安定 PATH: 従来と完全一致" "/h/.local/share/fnm/aliases/default/bin:/opt/nvim/bin:/usr/local/go/bin:/h/go/bin:/h/.cargo/bin:/h/.bun/bin:/h/.local/bin:/h/.local/share/fnm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin" "$linux_path"
 
 exit "$fail"

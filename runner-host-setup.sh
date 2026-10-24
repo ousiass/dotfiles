@@ -41,13 +41,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=runner-path-guard.sh
 . "$SCRIPT_DIR/runner-path-guard.sh"
 
-SUDOERS_FILE=/etc/sudoers.d/github-runner
+# 既定値は固定。テストが /etc を触らずに済むよう、環境変数で向け先だけ差し替えられる。
+SUDOERS_FILE="${SUDOERS_FILE:-/etc/sudoers.d/github-runner}"
+SYSTEMD_SYSTEM_DIR="${SYSTEMD_SYSTEM_DIR:-/etc/systemd/system}"
 
 OS="$(uname -s)"
 case "$OS" in
 Linux) ;;
 Darwin)
-	if [ "$(uname -m)" != arm64 ]; then
+	# Rosetta 下の端末では uname -m が x86_64 になるため、CPU 自体が arm64 かを sysctl で見る。
+	if [ "$(uname -m)" != arm64 ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" != 1 ]; then
 		echo "対象外です: macOS は Apple Silicon（arm64）のみ対応しています（このホスト: $(uname -m)）。" >&2
 		echo "Intel の Mac は対象外です。" >&2
 		exit 1
@@ -366,7 +369,7 @@ if [ "$OS" = Darwin ]; then
 else
 	# ガードは systemd drop-in の ExecStartPre で起動のたびに実行する。
 	# 修復内容は journalctl -u $unit で追える。
-	dropin_dir="/etc/systemd/system/$unit.d"
+	dropin_dir="$SYSTEMD_SYSTEM_DIR/$unit.d"
 	dropin_file="$dropin_dir/path-guard.conf"
 	dropin_body="[Service]
 ExecStartPre=\"$guard_script\" \"$RUNNER_DIR\" \"$home\""
