@@ -106,9 +106,9 @@ runner_repair_path_file() {
 		stable=$(runner_stable_path "$home")
 		if [ -f "$file" ] && [ "$(<"$file")" = "$stable" ]; then
 			# 既に安定 PATH なので書き直しても変わらない。node 側の問題（下で報告する）。
-			echo "path-guard: $file は安定 PATH のまま（$reason）"
+			echo "path-guard: $file は安定 PATH のまま（${reason}）"
 		else
-			echo "path-guard: $file を安定 PATH に修復する（$reason）"
+			echo "path-guard: $file を安定 PATH に修復する（${reason}）"
 			if [ -f "$file" ]; then
 				bak="$file.bak-$(date +%Y%m%d-%H%M%S)"
 				cp -p -- "$file" "$bak" || {

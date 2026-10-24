@@ -12,8 +12,12 @@
 #
 # 前提: config.sh による runner の登録が済んでいること（.runner が存在すること）。
 #       未登録の場合は先に ./config.sh --url ... --token ... を実行する。
-#       macOS は加えて Xcode コマンドラインツール・Homebrew・colima / docker / docker-buildx が
-#       入っていること（足りなければ入れ方を案内して止まる）。
+#       macOS は加えて、runner ユーザーが GUI でログインしていること（LaunchAgent は GUI セッションに
+#       登録するため。別ユーザーでの実行やログイン前・SSH だけの実行は対象外として止まる）と、
+#       Xcode コマンドラインツール・Homebrew が入っていること（無ければ入れ方を案内して止まる）。
+#       colima / docker / docker-buildx / fnm / gh / jq などは runner-tools-install.sh が
+#       runner ユーザーとして brew で入れる（入っているものは飛ばす。Homebrew 自体・Xcode 本体・
+#       署名証明書は入れない）。再起動後の自動ログインは設定しない（README の前提）。
 #
 # 実行:
 #   make runner-setup
@@ -22,7 +26,7 @@
 #   sudo RUNNER_USER=ci-runner RUNNER_DIR=/opt/runners/foo bash runner-host-setup.sh
 #
 # 既定値:
-#   RUNNER_USER  sudo を呼び出したユーザー（$SUDO_USER）
+#   RUNNER_USER  sudo を呼び出したユーザー（${SUDO_USER}）
 #   RUNNER_DIR   $RUNNER_USER のホームディレクトリ配下の actions-runner
 #
 # 失敗したらその場で止まる（set -e）。何度実行しても同じ結果になる。
@@ -59,7 +63,7 @@ Darwin)
 	export PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin"
 	;;
 *)
-	echo "対象外です: 未対応の OS です: $OS（Linux と macOS のみ対応）" >&2
+	echo "対象外です: 未対応の OS です: ${OS}（Linux と macOS のみ対応）" >&2
 	exit 1
 	;;
 esac
@@ -88,6 +92,18 @@ runner_user_home() {
 if ! home=$(runner_user_home "$RUNNER_USER") || [ -z "$home" ]; then
 	echo "ユーザーが見つかりません: $RUNNER_USER" >&2
 	exit 1
+fi
+
+# macOS: LaunchAgent は GUI ログイン中のセッションにだけ登録できる。runner ユーザーが
+# コンソールにログインしている前提で、そうでなければ対象外として止める（別ユーザーでの実行や
+# ログイン前・SSH だけのホストは想定しない）。
+if [ "$OS" = Darwin ]; then
+	console_user=$(stat -f %Su /dev/console 2>/dev/null || true)
+	if [ "$console_user" != "$RUNNER_USER" ]; then
+		echo "対象外です: macOS では、runner ユーザー（${RUNNER_USER}）が GUI でログインしている必要があります（現在のログインユーザー: ${console_user:-なし}）。" >&2
+		echo "  ${RUNNER_USER} で GUI ログインしたまま、そのユーザーのターミナルから実行してください。別ユーザーや、ログイン前・SSH だけの実行は対象外です。" >&2
+		exit 1
+	fi
 fi
 
 RUNNER_DIR="${RUNNER_DIR:-$home/actions-runner}"
@@ -176,17 +192,12 @@ if [ "$OS" = Darwin ]; then
 		exit 1
 	fi
 	echo "  Homebrew: $brew_bin"
+	# 足りないツール（colima / docker / docker-buildx / fnm / gh / jq / shellcheck など）は
+	# runner-tools-install.sh が、runner ユーザーとして brew で入れる（入っているものは飛ばす）。
+	# Homebrew 自体・Xcode 本体・署名証明書は入れない（案内か表示だけ）。
 	# docker-buildx 単体では docker CLI から見えないことがある。その場合は最後の確認で案内する。
-	missing=""
-	for formula in colima docker docker-buildx; do
-		sudo -u "$RUNNER_USER" -H "$brew_bin" list --formula "$formula" >/dev/null 2>&1 || missing="$missing $formula"
-	done
-	if [ -n "$missing" ]; then
-		echo "Homebrew のパッケージが足りません:$missing" >&2
-		echo "  runner ユーザー（$RUNNER_USER）で brew install$missing を実行し、もう一度実行してください。" >&2
-		exit 1
-	fi
-	echo "  colima / docker / docker-buildx: そろっている"
+	sudo -u "$RUNNER_USER" -H env PATH="$PATH" bash "$SCRIPT_DIR/runner-tools-install.sh"
+	echo "  runner に要るツール: そろっている"
 
 	echo "== 3/5 colima =="
 	# brew services は runner ユーザーの LaunchAgent（homebrew.mxcl.colima）として登録するので、
@@ -308,7 +319,7 @@ if [ "$OS" = Darwin ]; then
 	plist="$unit"
 	label=$(basename "$plist" .plist)
 	if [ ! -f "$plist" ]; then
-		echo "  LaunchAgent の plist が見つかりません: $plist（.service と食い違っています。svc.sh uninstall してから再実行してください）" >&2
+		echo "  LaunchAgent の plist が見つかりません: ${plist}（.service と食い違っています。svc.sh uninstall してから再実行してください）" >&2
 		exit 1
 	fi
 	if grep -qF "<string>$guard_script</string>" "$plist"; then
@@ -331,7 +342,7 @@ if [ "$OS" = Darwin ]; then
 		done <"$plist" >"$new_plist"
 		if [ "$found" -ne 1 ]; then
 			rm -f "$new_plist"
-			echo "  plist の ProgramArguments が想定と違うため書き換えません: $plist（$runsvc_line が見つかりません）" >&2
+			echo "  plist の ProgramArguments が想定と違うため書き換えません: ${plist}（$runsvc_line が見つかりません）" >&2
 			exit 1
 		fi
 		# 書き戻す前に検証する（壊れた plist を置くと launchd が runner を読み込めなくなる）。
@@ -438,7 +449,7 @@ else
 		if [[ ":$listener_path:" != *":$home/.local/share/fnm/aliases/default/bin:"* ]]; then
 			echo "  NG: Runner.Listener (pid $pid) の PATH に $home/.local/share/fnm/aliases/default/bin がありません" >&2
 			echo "      PATH=$listener_path" >&2
-			echo "      sudo systemctl restart $unit を実行してください（.path は $path_file）" >&2
+			echo "      sudo systemctl restart $unit を実行してください（.path は ${path_file}）" >&2
 		elif sudo -u "$RUNNER_USER" -H env -i HOME="$home" PATH="$listener_path" bash --noprofile --norc -c 'command -v node npx'; then
 			echo "  OK: Runner.Listener (pid $pid) の PATH で node / npx が見える"
 		else

@@ -32,7 +32,8 @@ check_no_match() {
     if [[ "$text" != *"$pattern"* ]]; then ok "$name"; else ng "$name ('$pattern' がある: $text)"; fi
 }
 
-tmp="$(mktemp -d)"
+# macOS の mktemp は /var/folders/...（実体は /private/var/folders/...）を返す。実体パスにそろえておく。
+tmp="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$tmp"' EXIT
 
 # ホームごとに runner dir を作り、node / npx を置くかどうかを選ぶ。
@@ -48,7 +49,8 @@ new_runner() {
     fi
 }
 
-count_backups() { find "$runner_dir" -maxdepth 1 -name '.path.bak-*' | wc -l; }
+# BSD の wc -l は数字を空白で右寄せして出す。算術展開で数値にそろえる。
+count_backups() { echo $(( $(find "$runner_dir" -maxdepth 1 -name '.path.bak-*' | wc -l) )); }
 
 # --- fnm_multishells を含む .path は安定 PATH へ直り、バックアップと log が残る ----
 new_runner multishell yes
@@ -77,11 +79,13 @@ check_eq "ファイル無し: バックアップは作らない"   0 "$(count_ba
 new_runner healthy yes
 healthy="$home/.local/share/fnm/aliases/default/bin:/usr/bin:/bin"
 echo "$healthy" >"$runner_dir/.path"
-before=$(stat -c '%i %Y' "$runner_dir/.path")
+touch -t 200001010000 "$runner_dir/.path"
+cp -p "$runner_dir/.path" "$runner_dir/.path.ref"
 out=$("$GUARD" "$runner_dir" "$home" 2>&1); rc=$?
 check_eq "正常: exit 0"                         0 "$rc"
 check_eq "正常: 内容を書き換えない"              "$healthy" "$(<"$runner_dir/.path")"
-check_eq "正常: ファイルに触らない"              "$before" "$(stat -c '%i %Y' "$runner_dir/.path")"
+# 書き直されたら mtime が現在時刻になり、基準ファイルより新しくなる（stat の書式は GNU / BSD で違うので使わない）
+if [[ "$runner_dir/.path" -nt "$runner_dir/.path.ref" ]]; then ng "正常: ファイルに触らない"; else ok "正常: ファイルに触らない"; fi
 check_eq "正常: バックアップを作らない"          0 "$(count_backups)"
 check_eq "正常: 何も出力しない"                  "" "$out"
 

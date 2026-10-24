@@ -43,8 +43,13 @@ GO_TMP_AGE_DAYS="${GO_TMP_AGE_DAYS:-1}"
 dir_size_gb() {
     local d="$1"
     [[ -d "$d" ]] || { echo "0.0"; return; }
-    # -D: 引数のシンボリックリンクだけ辿る (キャッシュを NVMe へ逃がしてあるため)
-    du -sbD "$d" 2>/dev/null | awk '{printf "%.1f", $1/1073741824}'
+    # 引数のシンボリックリンクだけ辿る (キャッシュを NVMe へ逃がしてあるため)。
+    # 見かけのサイズで数える: GNU は du -sbH、BSD (macOS) は du -sAkH（KB 単位）。
+    if du --version >/dev/null 2>&1; then
+        du -sbH "$d" 2>/dev/null | awk '{printf "%.1f", $1/1073741824}'
+    else
+        du -sAkH "$d" 2>/dev/null | awk '{printf "%.1f", $1*1024/1073741824}'
+    fi
 }
 
 # $1 >= $2 を小数で比較する（bc に依存しない）。
@@ -84,12 +89,16 @@ clean_gotmp() {
 
     # -mtime は日数を切り捨てるので +1 が「48時間超」になってしまう。
     # 指定どおりの時間で切りたいので -mmin を使う。
-    local dirs=()
-    mapfile -t dirs < <(find -H "$tmp" -mindepth 1 -maxdepth 1 -type d \
+    local dirs=() d
+    # mapfile は bash 4 以降。macOS 標準の bash 3.2 には無いので read ループで集める。
+    while IFS= read -r d; do
+        dirs+=("$d")
+    done < <(find -H "$tmp" -mindepth 1 -maxdepth 1 -type d \
         -name 'go-build*' -mmin "+$(( GO_TMP_AGE_DAYS * 1440 ))" 2>/dev/null)
     (( ${#dirs[@]} )) || { log "go-build の一時ディレクトリ: 残骸なし"; return; }
 
-    local size; size="$(du -shcD "${dirs[@]}" 2>/dev/null | tail -1 | cut -f1)"
+    # -H: 引数のシンボリックリンクだけ辿る（GNU du の -D と同じ。BSD du には -D が無い）
+    local size; size="$(du -shcH "${dirs[@]}" 2>/dev/null | tail -1 | cut -f1)"
     log "go-build の一時ディレクトリ ${#dirs[@]}個 (${size:-?}) を削除します"
     rm -rf -- "${dirs[@]}" || warn "go-build の一時ディレクトリの削除に失敗しました"
 }
@@ -234,13 +243,13 @@ diag() {
 
     echo
     log "キャッシュの大きいもの"
-    du -shD "$HOME/.cache"/* 2>/dev/null | sort -rh | head -8
+    du -shH "$HOME/.cache"/* 2>/dev/null | sort -rh | head -8
 
     echo
     log "Claude Code の履歴"
     printf '  %s ファイル / %s\n' \
         "$(find -H "$HOME/.claude/projects" -type f 2>/dev/null | wc -l)" \
-        "$(du -shD "$HOME/.claude/projects" 2>/dev/null | cut -f1)"
+        "$(du -shH "$HOME/.claude/projects" 2>/dev/null | cut -f1)"
 }
 
 # --- エントリポイント -------------------------------------------------------

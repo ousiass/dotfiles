@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help pull install update reset fugu runner-setup clean clean-system clean-timer diag test
+.PHONY: help pull install update reset fugu runner-setup runner-tools clean clean-system clean-timer diag test
 
 help: ## このヘルプを表示
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -23,6 +23,9 @@ fugu: ## Fugu だけ単独でインストール（~/.env の SAKANA_API_KEY を�
 runner-setup: ## GitHub Actions self-hosted runner ホストをセットアップ（.path が PATH の正。sudo 必須。RUNNER_USER / RUNNER_DIR で上書き可。Linux と Apple Silicon の macOS）
 	sudo env RUNNER_USER="$(RUNNER_USER)" RUNNER_DIR="$(RUNNER_DIR)" bash ./runner-host-setup.sh
 
+runner-tools: ## runner のジョブが使うツール（macOS は brew で colima/docker/fnm/gh/jq など）の足りないものだけ入れる。sudo 不要・何度でも可
+	./runner-tools-install.sh
+
 clean: ## キャッシュ類を掃除（消しても再生成されるものだけ）
 	./cleanup.sh
 
@@ -40,7 +43,8 @@ clean-timer: ## 週次の自動掃除を systemd timer に登録（sudo 不要�
 	systemctl --user enable --now dotfiles-cleanup.timer
 	@systemctl --user list-timers dotfiles-cleanup.timer --no-pager
 
-test: ## 回帰テストを実行（cleanup.sh / runner-path-guard.sh / runner-host-setup.sh）
+test: ## 回帰テストを実行（cleanup.sh / runner-path-guard.sh / runner-host-setup.sh / runner-tools-install.sh）
 	./tests/cleanup_test.sh
 	./tests/runner_path_guard_test.sh
 	./tests/runner_host_setup_test.sh
+	./tests/runner_tools_install_test.sh

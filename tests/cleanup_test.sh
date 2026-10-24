@@ -29,13 +29,26 @@ check_dir() {
     check_eq "$name" "$want" "$got"
 }
 
-tmp="$(mktemp -d)"
+# macOS の mktemp は /var/folders/...（実体は /private/var/folders/...）を返す。実体パスにそろえておく。
+tmp="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$tmp"' EXIT
 
+# truncate は macOS に無い。dd で指定サイズのスパースファイルを作る（GNU / BSD 共通）。
+make_sparse() { dd if=/dev/null of="$1" bs=1 count=0 seek="$2" 2>/dev/null; }
+
+# 指定の時間だけ前の mtime にする。touch -d は GNU のみなので、touch -t（YYYYMMDDhhmm.SS）を使う。
+# 日時の書式化は GNU が date -d @秒、BSD が date -r 秒。
+touch_ago() { # touch_ago <N>h <path>
+    local secs=$(( ${1%h} * 3600 )) when stamp
+    when=$(( $(date +%s) - secs ))
+    stamp="$(date -d "@$when" +%Y%m%d%H%M.%S 2>/dev/null || date -r "$when" +%Y%m%d%H%M.%S)"
+    touch -t "$stamp" "$2"
+}
+
 # --- dir_size_gb がシンボリックリンク越しでも実サイズを返すこと ---------------
-# du -sb は見かけのサイズを数えるので、スパースファイルで一瞬で作れる。
+# du の見かけのサイズ（GNU: -sb / BSD: -sAk）は、スパースファイルで一瞬で作れる。
 mkdir -p "$tmp/real"
-truncate -s 200M "$tmp/real/big"
+make_sparse "$tmp/real/big" $(( 200 * 1024 * 1024 ))
 ln -s "$tmp/real" "$tmp/link"
 
 check_eq "dir_size_gb: 実ディレクトリ"       "0.2" "$(dir_size_gb "$tmp/real")"
@@ -44,7 +57,7 @@ check_eq "dir_size_gb: シンボリックリンク"   "0.2" "$(dir_size_gb "$tmp
 # --- clean_claude がシンボリックリンク越しの projects を退避できること --------
 mkdir -p "$tmp/store/proj/subagents" "$tmp/home/.claude" "$tmp/archive"
 echo dummy > "$tmp/store/proj/subagents/old.jsonl"
-touch -d '30 days ago' "$tmp/store/proj/subagents/old.jsonl"
+touch_ago 720h "$tmp/store/proj/subagents/old.jsonl"
 ln -s "$tmp/store" "$tmp/home/.claude/projects"
 
 HOME="$tmp/home" ARCHIVE_DIR="$tmp/archive/subagents" clean_claude >/dev/null 2>&1
@@ -60,11 +73,11 @@ fi
 # ビルドの跡なので消してよいが、実行中のビルドを巻き込んではいけない。
 gotmp="$tmp/gotmp"
 mkdir -p "$gotmp/go-build-old" "$gotmp/go-build-30h" "$gotmp/go-build-new" "$gotmp/keepme"
-truncate -s 10M "$gotmp/go-build-old/a"
-touch -d '2 days ago' "$gotmp/go-build-old"
+make_sparse "$gotmp/go-build-old/a" $(( 10 * 1024 * 1024 ))
+touch_ago 48h "$gotmp/go-build-old"
 # 30時間前。find の -mtime は日数を切り捨てるため +1 だと 48時間超しか消えない。
 # GO_TMP_AGE_DAYS=1 と書いたら 24時間で消えること。
-touch -d '30 hours ago' "$gotmp/go-build-30h"
+touch_ago 30h "$gotmp/go-build-30h"
 
 TMPDIR="$gotmp" GO_TMP_AGE_DAYS=1 clean_gotmp >/dev/null 2>&1
 

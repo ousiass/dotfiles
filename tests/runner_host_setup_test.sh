@@ -65,7 +65,7 @@ EOF
 stub "$stubs/id" <<'EOF'
 #!/bin/bash
 case "$1" in
--u) echo 0 ;;
+-u) echo "${STUB_ID_U:-0}" ;;
 *) echo staff ;;
 esac
 EOF
@@ -89,7 +89,7 @@ if [ "$1" = "-l" ]; then
 fi
 while [ $# -gt 0 ]; do
     case "$1" in
-    -u) shift 2 ;;
+    -u) export STUB_ID_U=501; shift 2 ;;
     -H) export HOME="$STUB_HOME"; shift ;;
     *) break ;;
     esac
@@ -166,6 +166,30 @@ stub "$stubs/docker" <<'EOF'
 echo "docker $*" >>"$STUB_LOG"
 echo "Docker stub"
 EOF
+# macOS のコンソールユーザー（stat -f %Su /dev/console）。GUI ログイン中のユーザー名を返す。
+stub "$stubs/stat" <<'EOF'
+#!/bin/bash
+if [ "$*" = "-f %Su /dev/console" ]; then
+    echo "${STUB_CONSOLE_USER:-ci}"
+    exit 0
+fi
+echo "stat stub: 想定外の引数: $*" >&2
+exit 1
+EOF
+# fnm: default の node があるか（STUB_NO_NODE_DEFAULT で無い状態にする）。install / default は記録だけ。
+stub "$stubs/fnm" <<'EOF'
+#!/bin/bash
+echo "fnm $*" >>"$STUB_LOG"
+if [ "$1" = exec ]; then
+    [ -z "${STUB_NO_NODE_DEFAULT:-}" ]
+    exit $?
+fi
+exit 0
+EOF
+stub "$stubs/security" <<'EOF'
+#!/bin/bash
+echo "     0 valid identities found"
+EOF
 stub "$stubs/xcode-select" <<'EOF'
 #!/bin/bash
 [ -n "${STUB_NO_CLT:-}" ] && exit 2
@@ -179,6 +203,9 @@ if [ "$1" = list ]; then
     *" $3 "*) exit 1 ;;
     esac
 fi
+[ "$1" = install ] && case " ${STUB_BREW_INSTALL_FAIL:-} " in
+*" $2 "*) exit 1 ;;
+esac
 exit 0
 EOF
 stub "$stubs/launchctl" <<'EOF'
@@ -256,7 +283,7 @@ esac
 exit 0
 EOF
 
-run_setup() { # run_setup [VAR=value ...] : 出力を $out、終了コードを $rc に入れる
+run_setup() { # run_setup [VAR=value ...] : 出力を ${out}、終了コードを $rc に入れる
     out=$(env PATH="$stubs:$PATH" RUNNER_USER=ci SUDOERS_FILE="$tmp/sudoers-github-runner" "$@" bash "$SETUP" 2>&1)
     rc=$?
 }
@@ -268,7 +295,7 @@ calls() { grep -c "^$1" "$STUB_LOG" || true; }
 run_setup STUB_UNAME_M=x86_64
 check_eq    "Intel Mac: 失敗で止まる"             1 "$rc"
 check_match "Intel Mac: 対象外と分かる"           "Intel の Mac は対象外" "$out"
-check_eq    "Intel Mac: 何も実行しない"           0 "$(wc -l <"$STUB_LOG")"
+check_eq    "Intel Mac: 何も実行しない"           0 "$(( $(wc -l <"$STUB_LOG") ))"
 
 # --- Linux / macOS 以外も止まる ---------------------------------------------------
 run_setup STUB_UNAME_S=FreeBSD
@@ -286,15 +313,36 @@ run_setup STUB_NO_CLT=1
 check_eq    "CLT 無し: 失敗で止まる"              1 "$rc"
 check_match "CLT 無し: 入れ方を案内する"          "xcode-select --install" "$out"
 
+# 足りない brew パッケージは、runner ユーザーとして brew install で入れる（入っているものは飛ばす）。
 run_setup STUB_BREW_MISSING="colima docker-buildx"
-check_eq    "brew パッケージ不足: 失敗で止まる"    1 "$rc"
-check_match "brew パッケージ不足: 入れ方を案内する" "brew install colima docker-buildx" "$out"
-check_eq    "依存不足: colima を起動しない"        0 "$(calls 'brew services')"
-check_eq    "依存不足: サービス化しない"          0 "$(calls 'svc.sh install')"
+check_eq    "brew パッケージ不足: 成功する"                0 "$rc"
+check_eq    "brew パッケージ不足: colima を入れる"          1 "$(calls 'brew install colima$')"
+check_eq    "brew パッケージ不足: docker-buildx を入れる"   1 "$(calls 'brew install docker-buildx$')"
+check_eq    "brew パッケージ不足: そろっている docker は入れない" 0 "$(calls 'brew install docker$')"
+
+# 入れるのに失敗したものがあれば、サービス化まで進まず止まる
+: >"$STUB_LOG"
+run_setup STUB_BREW_MISSING="colima" STUB_BREW_INSTALL_FAIL="colima"
+check_eq    "brew install 失敗: 失敗で止まる"             1 "$rc"
+check_match "brew install 失敗: 失敗したものを報告する"   "インストールできなかったもの: colima" "$out"
+check_eq    "brew install 失敗: colima を起動しない"      0 "$(calls 'brew services')"
+check_eq    "brew install 失敗: サービス化しない"        0 "$(calls 'svc.sh install')"
+
+# runner ユーザーが GUI ログインしていない／別ユーザーがログイン中なら、対象外として止まる
+: >"$STUB_LOG"
+run_setup STUB_CONSOLE_USER=someone-else
+check_eq    "別ユーザーがログイン中: 失敗で止まる"        1 "$rc"
+check_match "別ユーザーがログイン中: 対象外と分かる"      "対象外です: macOS では、runner ユーザー（ci）が GUI でログインしている必要" "$out"
+check_match "別ユーザーがログイン中: 現在のユーザーを示す" "現在のログインユーザー: someone-else" "$out"
+check_eq    "別ユーザーがログイン中: 何も設置しない"      0 "$(( $(calls 'install ') + $(calls 'svc.sh') + $(calls 'brew') ))"
+run_setup STUB_CONSOLE_USER=root
+check_eq    "ログイン画面（root）: 失敗で止まる"          1 "$rc"
 
 # --- 通常の実行 ---------------------------------------------------------------
-# 依存不足のケースでも 1/5 は通って sudoers を置くので、設置から確かめるために消しておく。
-rm -f "$tmp/sudoers-github-runner"
+# 直前までのケース（brew パッケージ不足の成功など）が sudoers・サービス・.path を作っているので、
+# 初回の実行として確かめるために消しておく。
+rm -f "$tmp/sudoers-github-runner" "$runner_dir/.service" "$runner_dir/.path" "$runner_dir/.env"
+rm -rf "$home/Library"
 : >"$STUB_LOG"
 : >"$STUB_LAUNCHD_LIST"
 run_setup
@@ -426,7 +474,7 @@ check_eq    "Linux: launchctl を呼ばない"                    0 "$(calls 'la
 check_eq    "Linux: .path は従来の安定 PATH"               "$linux_stable" "$(<"$linux_runner/.path")"
 check_eq    "Linux: .env の PATH 行は 1 行だけ"             "PATH=$linux_stable" "$(grep '^PATH=' "$linux_runner/.env")"
 check_eq    "Linux: .env の PATH 以外の行を残す"            "FOO=1" "$(grep '^FOO=' "$linux_runner/.env")"
-check_eq    "Linux: .env は 2 行になる"                    2 "$(wc -l <"$linux_runner/.env" | tr -d ' ')"
+check_eq    "Linux: .env は 2 行になる"                    2 "$(( $(wc -l <"$linux_runner/.env") ))"
 dropin="$linux_systemd/actions.runner.test.service.d/path-guard.conf"
 check_eq    "Linux: drop-in の ExecStartPre"               "[Service]
 ExecStartPre=\"$linux_runner/path-guard.sh\" \"$linux_runner\" \"$home\"" "$(cat "$dropin")"

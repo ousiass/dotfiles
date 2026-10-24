@@ -10,6 +10,7 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── reset-tools.sh      # 言語ツール/AI CLI を一括リセットするスクリプト
 ├── cleanup.sh          # キャッシュ類を掃除するスクリプト（make clean から呼ばれる）
 ├── runner-host-setup.sh # GitHub Actions self-hosted runner ホストのセットアップ（make runner-setup から呼ばれる）
+├── runner-tools-install.sh # runner のジョブが使うツール（macOS は brew で colima/docker/fnm/gh/jq など）の足りないものだけ入れる（make runner-tools。macOS は runner-setup から呼ばれる）
 ├── runner-path-guard.sh # runner の .path を検査・修復するガード（安定 PATH の定義もここ。setup が source し、起動時にも実行される）
 ├── .env.example        # .env のテンプレート
 ├── .env                # 実体（gitignore 済、~/.env はこれへのシンボリックリンク）
@@ -28,7 +29,7 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── gh-dash/            # → ~/.config/gh-dash (GitHub Dashboard CLI)
 ├── herdr/              # → ~/.config/herdr (エージェント向けターミナルマルチプレクサ、tmux 準拠 keybinding)
 ├── systemd/            # → ~/.config/systemd/user（週次の自動掃除 timer / service）
-├── tests/              # cleanup.sh / runner-path-guard.sh / runner-host-setup.sh（macOS 分岐）の回帰テスト（make test）
+├── tests/              # cleanup.sh / runner-path-guard.sh / runner-host-setup.sh / runner-tools-install.sh の回帰テスト（make test。macOS 標準の bash 3.2 と BSD コマンドでも動く書き方）
 └── fish/               # → ~/.config/fish
     ├── config.fish
     ├── fish_plugins
@@ -352,15 +353,20 @@ docker run --rm --network=host alpine nslookup proxy.golang.org  # bridge だけ
 
 同じ `make runner-setup` が macOS でも動く。`uname -s` で OS を見て Linux と macOS の処理を分けており、Linux の動きは変わらない。対象は Apple Silicon（arm64）の Mac だけで、Intel の Mac では対象外であることを示して止まる（Rosetta 下の端末は `sysctl -n hw.optional.arm64` で見分ける）。Docker は colima を使い、Docker Desktop は対象外。
 
+**前提（決まっている運用）**
+
+- runner は 1 人のユーザー（例: `yuhta`）の **GUI ログインを開いたまま**動かす。runner は LaunchAgent（`~/Library/LaunchAgents/`）で、GUI ログイン中のセッションにしか登録できないため。`make runner-setup` は `stat -f %Su /dev/console` で、いまログインしているユーザーが runner ユーザーと同じかを確かめ、違う（別ユーザーがログイン中・ログイン画面のまま・SSH だけ）ときは「対象外」と表示して止まる。別ユーザーでの実行や、ログインしていないホストは対象外。
+- **再起動後の自動ログインは、スクリプトでは設定しない。** 再起動のあとも runner を動かしたいなら、システム設定の「ユーザとグループ」で自動ログインを自分で設定する（FileVault が有効だと自動ログインは使えない）。
+- colima の CPU・メモリ・ディスクは、スクリプトでは指定せず colima の既定値のまま（`brew services start colima` で起動する）。変えたいときは `colima start --edit` などで colima 側の設定を直す。
+
 先に次を済ませておく（足りなければ、入れ方を案内して止まる。スクリプトは入れない）。
 
 ```bash
-xcode-select --install                              # C コンパイラ（cc）。go test -race の cgo に必要
-# Homebrew は https://brew.sh の手順で入れる（Apple Silicon は /opt/homebrew）
-brew install colima docker docker-buildx            # runner ユーザーで実行する
+xcode-select --install   # C コンパイラ（cc）。go test -race の cgo に必要。GUI の確認が出るので自動化しない
+# Homebrew は https://brew.sh の手順で入れる（Apple Silicon は /opt/homebrew）。スクリプトは自動で入れない
 ```
 
-runner の登録（`config.sh`）は Linux と同じく先に済ませる。実行は runner ユーザーのアカウントから `make runner-setup` する（sudo で `SUDO_USER` が runner ユーザーになる）。launchd の LaunchAgent はそのユーザーがログインしている GUI セッションに登録されるため、`RUNNER_USER` に別のユーザーを指定して SSH などから実行する構成は想定していない（`launchctl asuser` は使っておらず、実機では未確認）。`RUNNER_DIR` はホーム以外に置く場合に指定する。
+colima / docker / docker-buildx / fnm / gh / jq / shellcheck / fish と、fnm の default の Node.js LTS は、足りなければ `make runner-setup` が runner ユーザーとして入れる（下の「ツールのインストール」）。
 
 Linux との違い:
 
@@ -368,7 +374,7 @@ Linux との違い:
 |---|---|---|
 | ユーザーのホーム | `getent passwd` | `dscl . -read /Users/<user> NFSHomeDirectory` |
 | `/etc/sudoers.d/github-runner` のグループ | `root` | `wheel`（`visudo -c` で検証してから置くのは同じ） |
-| 依存 | `apt-get install docker.io docker-buildx build-essential` | Xcode CLT・Homebrew・colima / docker / docker-buildx がそろっているかを確かめる |
+| 依存 | `apt-get install docker.io docker-buildx build-essential` | Xcode CLT・Homebrew の有無を確かめ（無ければ案内して止まる）、colima / docker / docker-buildx などは `runner-tools-install.sh` が brew で入れる |
 | Docker の起動 | `systemctl enable --now docker` と docker グループ | runner ユーザーで `brew services start colima`（runner ユーザーのログイン後に自動で上がる）。`docker info` が通るまで最大 2 分待つ |
 | サービス | systemd（`svc.sh` が unit を作る） | launchd（`svc.sh` が `~/Library/LaunchAgents/` に plist を作る。`svc.sh` は root を拒否するので runner ユーザーとして呼ぶ） |
 | `.path` のガード | drop-in の `ExecStartPre=` | plist の `ProgramArguments` を `path-guard.sh --exec <runner dir> <home>` に差し替える。ガードが `.path` を直してから `runsvc.sh` へ `exec` する。起動のたびに走り、修復内容は `~/Library/Logs/<label>/stdout.log` に出る |
@@ -380,10 +386,26 @@ Linux との違い:
 
 注意:
 
-- runner も colima も runner ユーザーの LaunchAgent なので、そのユーザーが macOS にログインしている間だけ動く。再起動後も動かすには、そのユーザーの自動ログインを設定する。
 - `docker buildx` が見つからないときは、`brew info docker-buildx` の caveats に従い `~/.docker/config.json` の `cliPluginsExtraDirs` に `/opt/homebrew/lib/docker/cli-plugins` を足す。
 - fnm の `aliases/default/bin` は、macOS では公式インストーラの既定（`~/Library/Application Support/fnm`。`lib/tools/fnm.sh` が使う）と、Linux と同じ `~/.local/share/fnm` の両方を安定 PATH に入れ、ガードもどちらかにあれば正常とみなす。Homebrew 版の fnm（`/opt/homebrew/bin/fnm`）は `aliases/default/bin` の場所が上と同じになるかを実機で確かめていない。
-- `tests/runner_host_setup_test.sh` は Linux 上で uname / sudo / brew / launchctl などをスタブに差し替えて分岐を確かめる。launchd・colima・brew services の実機での動きは確かめていない。
+- `tests/runner_host_setup_test.sh` / `tests/runner_tools_install_test.sh` は Linux 上で uname / sudo / brew / launchctl などをスタブに差し替えて分岐を確かめる（実際のインストールはしない）。launchd・colima・brew services の実機での動きは確かめていない。
+
+#### ツールのインストール（`make runner-tools`）
+
+`runner-tools-install.sh`（`make runner-tools`）は、runner のジョブが使うツールのうち**入っていないものだけ**を入れる。入っているものは飛ばすので、何度実行しても同じ結果になる。sudo は付けず、runner を動かすユーザー自身で実行する（root では拒否する。brew は root を拒否し、fnm / Node はホームに入るため）。macOS では `make runner-setup` が、runner ユーザーとして自動で呼ぶ。
+
+| OS | 入れるもの |
+|---|---|
+| macOS | Homebrew で `colima` `docker` `docker-buildx` `fnm` `gh` `jq` `shellcheck` `fish`、fnm で Node.js LTS（default に設定。runner の安定 PATH は fnm の `aliases/default/bin` を指すため） |
+| Linux | `apt` で `jq` `shellcheck` `fish`、`install.sh` と同じ関数（`lib/tools/fnm.sh` / `lib/tools/gh.sh`）で `fnm` と `gh`、fnm で Node.js LTS。Docker / Buildx / build-essential は `runner-host-setup.sh` が入れるので、`make runner-setup` からは呼ばず、単体で `make runner-tools` したときだけ使う |
+
+入れない（案内か表示だけ）もの:
+
+- **Homebrew 自体**: 無ければ自動では入れず、`https://brew.sh` の手順を案内して止まる。
+- **Xcode コマンドラインツール**: 無ければ `xcode-select --install` を案内して止まる（GUI の確認が出るため）。
+- **Xcode 本体（`/Applications/Xcode.app`）とコード署名の証明書**: スクリプトでは入れず、あるか／無いかを表示するだけ（無くても失敗にはしない）。必要なジョブがあれば手動で入れる。
+
+1 つ入れるのに失敗しても残りは試し、最後に失敗したものを列挙して失敗で終わる。
 
 ## 注意
 
