@@ -15,7 +15,7 @@
 #       macOS は加えて、runner ユーザーが GUI でログインしていること（LaunchAgent は GUI セッションに
 #       登録するため。別ユーザーでの実行やログイン前・SSH だけの実行は対象外として止まる）と、
 #       Xcode コマンドラインツール・Homebrew が入っていること（無ければ入れ方を案内して止まる）。
-#       colima / docker / docker-buildx / fnm / gh / jq などは runner-tools-install.sh が
+#       colima / docker / docker-buildx / docker-compose / fnm / gh / jq / zstd などは runner-tools-install.sh が
 #       runner ユーザーとして brew で入れる（入っているものは飛ばす。Homebrew 自体・Xcode 本体・
 #       署名証明書は入れない）。再起動後の自動ログインは設定しない（README の前提）。
 #
@@ -136,6 +136,23 @@ fi
 # ジョブの shell 相当の PATH（OS ごとに runner-path-guard.sh が定義する）。
 runner_path=$(runner_stable_path "$home")
 
+# Docker 公式 apt（docker-ce / docker-ce-cli）が入っているか。docker-ce は docker.io と Conflicts で、
+# Ubuntu の docker-buildx は docker.io に依存し docker-compose-v2 も docker.io を Recommends するので、
+# このホストでは docker.io 系を入れない。dpkg が管理中の状態（installed / unpacked / triggers-pending など）は
+# 入っている扱い（docker.io を入れると衝突する）。未導入・not-installed・removed 後に設定だけ残る config-files は
+# 入っていない扱いにする。
+is_docker_ce_host() {
+	local pkg status
+	for pkg in docker-ce docker-ce-cli; do
+		status=$(dpkg-query -W -f='${db:Status-Status}' "$pkg" 2>/dev/null) || continue
+		case "$status" in
+		not-installed | config-files | "") ;;
+		*) return 0 ;;
+		esac
+	done
+	return 1
+}
+
 # macOS: runner ユーザーとして、ジョブと同じ最小環境（非ログイン）でコマンドを実行する。
 # root のままだと colima の docker context（ユーザーの ~/.docker）が見えない。
 runner_exec() {
@@ -186,7 +203,7 @@ else
 fi
 
 if [ "$OS" = Darwin ]; then
-	echo "== 2/5 Xcode CLT / Homebrew / ツール（colima / docker / docker-buildx など）=="
+	echo "== 2/5 Xcode CLT / Homebrew / ツール（colima / docker / docker-buildx / docker-compose など）=="
 	# Xcode CLT（GUI のダイアログが出る）と Homebrew（所有者がユーザー）は、このスクリプトでは入れず、
 	# 足りなければ入れ方を案内して止まる。それ以外のツールは下で runner-tools-install.sh が入れる。
 	#
@@ -204,10 +221,10 @@ if [ "$OS" = Darwin ]; then
 		exit 1
 	fi
 	echo "  Homebrew: $brew_bin"
-	# 足りないツール（colima / docker / docker-buildx / fnm / gh / jq / shellcheck など）は
+	# 足りないツール（colima / docker / docker-buildx / docker-compose / fnm / gh / jq / shellcheck / zstd など）は
 	# runner-tools-install.sh が、runner ユーザーとして brew で入れる（入っているものは飛ばす）。
 	# Homebrew 自体・Xcode 本体・署名証明書は入れない（案内か表示だけ）。
-	# docker-buildx 単体では docker CLI から見えないことがある。その場合は最後の確認で案内する。
+	# docker-buildx / docker-compose 単体では docker CLI から見えないことがある。その場合は最後の確認で案内する。
 	sudo -u "$RUNNER_USER" -H env PATH="$PATH" RUNNER_BREW_PATHS="$RUNNER_BREW_PATHS" bash "$SCRIPT_DIR/runner-tools-install.sh"
 	echo "  runner に要るツール: そろっている"
 
@@ -229,15 +246,36 @@ if [ "$OS" = Darwin ]; then
 	fi
 	echo "  $RUNNER_USER で docker info が通った"
 else
-	echo "== 2/5 Docker / Buildx / C コンパイラ =="
-	# docker.io 単体では buildx が入らず、COPY --chmod を含む Dockerfile が
+	echo "== 2/5 Docker / Buildx / Compose / C コンパイラ / zstd =="
+	# docker.io ホストでは、docker.io 単体では buildx が入らず、COPY --chmod を含む Dockerfile が
 	# 「the --chmod option requires BuildKit」で失敗するため docker-buildx を明示する。
 	#
 	# build-essential は go test -race のため。競合検出は cgo（= gcc）を必要とし、
 	# actions/setup-go は Go ツールチェーンだけを入れて C コンパイラは入れない。
 	export DEBIAN_FRONTEND=noninteractive
 	apt-get update
-	apt-get install -y docker.io docker-buildx build-essential
+	# zstd は actions/cache が tar の圧縮に使う。build-essential と同じく、docker の種類に関係なく入れる。
+	#
+	# docker の入れ方は 2 通りで、混ぜない。
+	#   - Docker 公式 apt（docker-ce / docker-ce-cli / docker-buildx-plugin / docker-compose-plugin）:
+	#     docker-ce は docker.io と Conflicts なので、docker.io を入れると衝突する。buildx / compose も
+	#     公式の plugin 側が持っているので、docker.io 系（docker-buildx / docker-compose-v2）は入れない。
+	#   - Ubuntu の docker.io: docker-buildx と、`docker compose` が通らないときだけ docker-compose-v2 を足す。
+	packages=(build-essential zstd)
+	if is_docker_ce_host; then
+		echo "  Docker 公式 apt の docker-ce / docker-ce-cli が入っているので、docker.io / docker-buildx / docker-compose-v2 は入れない"
+	else
+		packages=(docker.io docker-buildx "${packages[@]}")
+		if ! docker compose version >/dev/null 2>&1; then
+			packages+=(docker-compose-v2)
+		fi
+	fi
+	apt-get install -y "${packages[@]}"
+	# docker-ce-cli だけ（リモートの daemon を使う構成など）では docker.service が無い。runner は同じホストの daemon を使うので止める。
+	if ! systemctl cat docker.service >/dev/null 2>&1; then
+		echo "docker.service がありません。runner は同じホストの docker daemon を使うので、docker-ce（または docker.io）を入れてください。" >&2
+		exit 1
+	fi
 	systemctl enable --now docker
 
 	echo "== 3/5 docker グループ =="
@@ -425,7 +463,7 @@ fi
 echo "== 5/5 確認 =="
 if [ "$OS" = Darwin ]; then
 	# macOS には /proc も docker グループも無い。runner ユーザーが、ジョブと同じ最小環境で
-	# docker / buildx / node / cc を使えるかで確かめる。
+	# docker / buildx / compose / node / cc を使えるかで確かめる。
 	echo "--- runner ユーザーの docker ---"
 	runner_exec docker --version
 	if runner_exec docker info >/dev/null 2>&1; then
@@ -435,6 +473,8 @@ if [ "$OS" = Darwin ]; then
 	fi
 	runner_exec docker buildx version \
 		|| echo "  NG: docker buildx が使えません（runner-tools-install.sh が ~/.docker/config.json の cliPluginsExtraDirs に足しているはずです。make runner-tools を流し直し、brew info docker-buildx の caveats と見比べてください）" >&2
+	runner_exec docker compose version \
+		|| echo "  NG: docker compose が使えません（runner-tools-install.sh が ~/.docker/config.json の cliPluginsExtraDirs に足しているはずです。make runner-tools を流し直し、brew info docker-compose の caveats と見比べてください）" >&2
 	echo "--- .path の PATH から node / npx / cc ---"
 	# .path が PATH の正（runsvc.sh が丸ごと上書きする）。それだけを頼りに引けるかを見る。
 	if sudo -u "$RUNNER_USER" -H env -i HOME="$home" PATH="$(<"$path_file")" bash --noprofile --norc -c 'command -v node npx cc'; then
@@ -444,7 +484,12 @@ if [ "$OS" = Darwin ]; then
 	fi
 else
 	docker --version
-	docker buildx version
+	# docker-ce ホストの buildx / compose は公式 apt の plugin（このスクリプトは入れない）。
+	# 無くてもここで止めず、後ろの検査まで流して案内だけ出す。
+	docker buildx version \
+		|| echo "  NG: docker buildx が使えません（docker.io ホストなら docker-buildx、Docker 公式 apt のホストなら docker-buildx-plugin を入れてください）" >&2
+	docker compose version \
+		|| echo "  NG: docker compose が使えません（docker.io ホストなら docker-compose-v2、Docker 公式 apt のホストなら docker-compose-plugin を入れてください）" >&2
 	gcc --version | head -1
 	echo "--- Runner.Listener の実 PATH から node / npx ---"
 	# .env を見るだけでは、runsvc.sh が .path で PATH を上書きするバグを検知できない。

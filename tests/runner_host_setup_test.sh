@@ -68,6 +68,8 @@ export STUB_BREW_PREFIX="$tmp/brew-prefix"
 export STUB_CONTEXTS="$tmp/contexts"
 plugin_dir="$STUB_BREW_PREFIX/lib/docker/cli-plugins"
 mkdir -p "$plugin_dir"
+# brew の docker-compose が置く実行ファイル（スタブの docker compose が探す）
+: >"$plugin_dir/docker-compose" && chmod +x "$plugin_dir/docker-compose"
 : >"$STUB_CONTEXTS"
 
 # --- PATH 先頭に置くスタブ（root・macOS コマンドの代役） -----------------------------
@@ -153,9 +155,29 @@ stub "$stubs/apt-get" <<'EOF'
 #!/bin/bash
 echo "apt-get $*" >>"$STUB_LOG"
 EOF
+# dpkg-query -W -f='${db:Status-Status}' <pkg> を模す。STUB_DPKG_STATUS="pkg=状態 ..." にあるパッケージだけ
+# その状態（installed / config-files など）を出して成功し、無いパッケージは実機と同じく失敗する。
+# 引数の形が違えば失敗させる（判定が別の書式に変わったら気づけるように）。実機の dpkg-query は呼ばない。
+stub "$stubs/dpkg-query" <<'EOF'
+#!/bin/bash
+echo "dpkg-query $*" >>"$STUB_LOG"
+[ "$1 $2" = '-W -f=${db:Status-Status}' ] || { echo "dpkg-query stub: 想定外の引数: $*" >&2; exit 2; }
+for entry in ${STUB_DPKG_STATUS:-}; do
+    if [ "${entry%%=*}" = "$3" ]; then
+        echo "${entry#*=}"
+        exit 0
+    fi
+done
+echo "dpkg-query: no packages found matching $3" >&2
+exit 1
+EOF
 stub "$stubs/systemctl" <<'EOF'
 #!/bin/bash
 echo "systemctl $*" >>"$STUB_LOG"
+if [ "$1 $2" = "cat docker.service" ]; then
+    [ -z "${STUB_NO_DOCKER_SERVICE:-}" ]
+    exit $?
+fi
 if [ "$1" = is-active ]; then
     [ -n "${STUB_ACTIVE:-}" ]
     exit $?
@@ -186,6 +208,8 @@ echo "docker $*" >>"$STUB_LOG"
 case "$1 $2" in
 "context inspect") grep -qxF "$3" "$STUB_CONTEXTS" ;;
 "context create") echo "$3" >>"$STUB_CONTEXTS" ;;
+"compose version") [ -n "${STUB_COMPOSE_PRESENT:-}" ] ;;
+"buildx version") [ -z "${STUB_BUILDX_ABSENT:-}" ] ;;
 "context use")
     t=$(mktemp)
     jq --arg c "$3" '.currentContext = $c' "$HOME/.docker/config.json" >"$t" && cat "$t" >"$HOME/.docker/config.json"
@@ -289,6 +313,18 @@ buildx)
         exit 1
     fi
     echo "github.com/docker/buildx stub"
+    ;;
+compose)
+    # cliPluginsExtraDirs のどれかに docker-compose の実行ファイルがあるときだけ通る（実機の探索と同じ）
+    found=1
+    while IFS= read -r d; do
+        [ -x "$d/docker-compose" ] && found=0
+    done < <(jq -r '.cliPluginsExtraDirs[]?' "$cfg" 2>/dev/null)
+    if [ "$found" -ne 0 ]; then
+        echo "docker: 'compose' is not a docker command." >&2
+        exit 1
+    fi
+    echo "Docker Compose version stub"
     ;;
 *) echo "Docker stub" ;;
 esac
@@ -446,10 +482,11 @@ check_match "macOS: runner ユーザーで docker info を確かめる" "docker 
 # 2/5（runner-tools-install.sh）が書いた ~/.docker/config.json で、3/5 と 5/5 の docker が colima に繋がる
 # （スタブの docker は currentContext が colima のときだけ info が通る）。素の状態では通らない。
 check_eq    "macOS: runner ユーザーの currentContext が colima"      colima "$(jq -r '.currentContext' "$home/.docker/config.json")"
-check_eq    "macOS: cliPluginsExtraDirs に buildx の場所"            "$plugin_dir" "$(jq -r '.cliPluginsExtraDirs[0]' "$home/.docker/config.json")"
+check_eq    "macOS: cliPluginsExtraDirs に buildx / compose の場所"  "$plugin_dir" "$(jq -r '.cliPluginsExtraDirs[0]' "$home/.docker/config.json")"
 check_match "macOS: 3/5 で docker info が通ったと表示する"           "docker info が通った" "$out"
 check_match "macOS: 5/5 で docker info が通る"                       "OK: ci で docker info が通る" "$out"
-check_no_match "macOS: 5/5 で docker / buildx の NG が出ない"        "NG: docker" "$out"
+check_no_match "macOS: 5/5 で docker / buildx / compose の NG が出ない" "NG: docker" "$out"
+check_match "macOS: 5/5 で docker compose version を確かめる"        "docker compose version" "$(cat "$STUB_LOG")"
 check_eq    "macOS: svc.sh install を 1 回呼ぶ"   1 "$(calls 'svc.sh install')"
 check_eq    "macOS: svc.sh start を 1 回呼ぶ"     1 "$(calls 'svc.sh start')"
 check_eq    ".path は macOS の安定 PATH"          "$(runner_stable_path "$home")" "$(<"$runner_dir/.path")"
@@ -563,7 +600,8 @@ check_eq    "Linux: 成功する"                             0 "$rc"
 check_eq    "Linux: /etc へ書こうとしていない"             0 "$(calls 'LEAK')"
 check_eq    "Linux: sudoers の内容"                       "ci ALL=(ALL) NOPASSWD: ALL" "$(cat "$linux_sudoers")"
 check_match "Linux: sudoers は root グループで置く"        "install -m 0440 -o root -g root" "$(cat "$STUB_LOG")"
-check_match "Linux: apt で docker / buildx / build-essential を入れる" "apt-get install -y docker.io docker-buildx build-essential" "$(cat "$STUB_LOG")"
+check_eq    "Linux: apt で docker / buildx / compose-v2 / build-essential / zstd を入れる" "apt-get install -y docker.io docker-buildx build-essential zstd docker-compose-v2" "$(grep '^apt-get install' "$STUB_LOG")"
+check_eq    "Linux: 入れる前に docker compose version で判定する" 1 "$(( $(grep -n '^docker compose version' "$STUB_LOG" | cut -d: -f1 | head -1) < $(grep -n '^apt-get install' "$STUB_LOG" | cut -d: -f1 | head -1) ))"
 check_match "Linux: docker を有効化する"                   "systemctl enable --now docker" "$(cat "$STUB_LOG")"
 check_match "Linux: docker グループへ入れる"                "usermod -aG docker ci" "$(cat "$STUB_LOG")"
 check_eq    "Linux: svc.sh install <user> を呼ぶ"           1 "$(calls 'svc.sh install ci')"
@@ -596,5 +634,61 @@ echo "/run/user/1000/fnm_multishells/1_2/bin:/usr/bin:/bin" >"$linux_runner/.pat
 run_setup "${linux_env[@]}" STUB_ACTIVE=1
 check_eq    "Linux 壊れた .path: 安定 PATH に直る"          "$linux_stable" "$(<"$linux_runner/.path")"
 check_eq    "Linux 壊れた .path: systemctl restart する"    1 "$(calls 'systemctl restart')"
+
+# docker.io ホストで docker compose が既に通る（手動で plugin を入れた等）なら
+# docker-compose-v2 を入れない。zstd などは入れる。
+: >"$STUB_LOG"
+run_setup "${linux_env[@]}" STUB_COMPOSE_PRESENT=1
+check_eq    "Linux compose 済み: 成功する"                  0 "$rc"
+check_eq    "Linux compose 済み: docker-compose-v2 を入れない" "apt-get install -y docker.io docker-buildx build-essential zstd" "$(grep '^apt-get install' "$STUB_LOG")"
+
+# Docker 公式 apt の docker-ce ホスト: docker.io は docker-ce と Conflicts なので入れない。
+# docker-buildx は docker.io に Depends、docker-compose-v2 は Recommends するので、これらも入れない。
+# build-essential と zstd は入れる。docker compose が通る（docker-compose-plugin あり）ホストの実態に合わせる。
+docker_ce_status="docker-ce=installed docker-ce-cli=installed"
+: >"$STUB_LOG"
+run_setup "${linux_env[@]}" STUB_DPKG_STATUS="$docker_ce_status" STUB_COMPOSE_PRESENT=1
+check_eq    "Linux docker-ce: 成功する"                     0 "$rc"
+check_eq    "Linux docker-ce: build-essential と zstd だけ入れる" "apt-get install -y build-essential zstd" "$(grep '^apt-get install' "$STUB_LOG")"
+check_eq    "Linux docker-ce: docker を有効化する"          1 "$(calls 'systemctl enable --now docker')"
+check_eq    "Linux docker-ce: docker グループへ入れる"      1 "$(calls 'usermod -aG docker ci')"
+check_no_match "Linux docker-ce: plugin があれば NG を出さない" "NG: docker" "$out"
+
+# docker-ce ホストで docker compose がまだ通らなくても（plugin 未導入）、docker-compose-v2 は入れない
+# （docker.io を引き込むため）。
+: >"$STUB_LOG"
+run_setup "${linux_env[@]}" STUB_DPKG_STATUS="$docker_ce_status"
+check_eq    "Linux docker-ce・compose 無し: docker-compose-v2 も入れない" "apt-get install -y build-essential zstd" "$(grep '^apt-get install' "$STUB_LOG")"
+
+# docker-ce ホストで buildx / compose の plugin が無い: 止めず（rc 0）、公式 plugin の名前を案内する。
+: >"$STUB_LOG"
+run_setup "${linux_env[@]}" STUB_DPKG_STATUS="$docker_ce_status" STUB_BUILDX_ABSENT=1
+check_eq    "Linux docker-ce・plugin 無し: 止まらず成功する"  0 "$rc"
+check_match "Linux docker-ce・plugin 無し: buildx の案内"     "docker-buildx-plugin" "$out"
+check_match "Linux docker-ce・plugin 無し: compose の案内"    "docker-compose-plugin" "$out"
+
+# docker-ce が removed 後に設定だけ残る（config-files）ホストは docker-ce ホスト扱いにしない
+: >"$STUB_LOG"
+run_setup "${linux_env[@]}" STUB_DPKG_STATUS="docker-ce=config-files docker-ce-cli=config-files"
+check_eq    "Linux docker-ce が rc: docker.io 経路で入れる"   "apt-get install -y docker.io docker-buildx build-essential zstd docker-compose-v2" "$(grep '^apt-get install' "$STUB_LOG")"
+
+# dpkg がトリガー処理待ち（triggers-pending）でも docker-ce は居るので、docker-ce ホスト扱い（docker.io を入れると衝突する）
+: >"$STUB_LOG"
+run_setup "${linux_env[@]}" STUB_DPKG_STATUS="docker-ce=triggers-pending docker-ce-cli=triggers-pending"
+check_eq    "Linux docker-ce が triggers-pending: docker.io を入れない" "apt-get install -y build-essential zstd" "$(grep '^apt-get install' "$STUB_LOG")"
+
+# docker.io ホストでも docker.service が無ければ（apt は成功したのにユニットが無い異常）理由を出して止まる
+: >"$STUB_LOG"
+run_setup "${linux_env[@]}" STUB_NO_DOCKER_SERVICE=1
+check_eq    "Linux docker.io・service 無し: docker.io は入れようとする" "apt-get install -y docker.io docker-buildx build-essential zstd docker-compose-v2" "$(grep '^apt-get install' "$STUB_LOG")"
+check_eq    "Linux docker.io・service 無し: 失敗で止まる"     1 "$rc"
+
+# docker-ce-cli だけ（daemon なし）: docker.io は入れず、docker.service が無いので理由を出して止まる
+: >"$STUB_LOG"
+run_setup "${linux_env[@]}" STUB_DPKG_STATUS="docker-ce-cli=installed" STUB_NO_DOCKER_SERVICE=1
+check_eq    "Linux docker-ce-cli のみ: docker.io を入れない"  "apt-get install -y build-essential zstd" "$(grep '^apt-get install' "$STUB_LOG")"
+check_eq    "Linux docker-ce-cli のみ: 失敗で止まる"          1 "$rc"
+check_match "Linux docker-ce-cli のみ: 理由を出す"            "docker.service がありません" "$out"
+check_eq    "Linux docker-ce-cli のみ: docker を有効化しない" 0 "$(calls 'systemctl enable --now docker')"
 
 exit "$fail"

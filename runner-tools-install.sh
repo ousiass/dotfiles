@@ -7,14 +7,14 @@
 #   ./runner-tools-install.sh
 #
 # macOS（Apple Silicon）は runner-host-setup.sh が、runner ユーザーとしてこのスクリプトを呼ぶ。
-# Linux は runner-host-setup.sh からは呼ばない（Docker / Buildx / build-essential は
+# Linux は runner-host-setup.sh からは呼ばない（Docker / Buildx / Compose / build-essential / zstd は
 # runner-host-setup.sh が apt で入れる）。足したいときだけ make runner-tools を単体で実行する。
 #
 # 入れるもの:
-#   macOS : Homebrew で colima docker docker-buildx fnm gh jq shellcheck fish
+#   macOS : Homebrew で colima docker docker-buildx docker-compose fnm gh jq shellcheck fish zstd
 #           ＋ fnm で Node.js LTS（default に設定）
-#           ＋ ~/.docker/config.json に docker context colima（currentContext）と buildx のプラグインの場所
-#             （cliPluginsExtraDirs）。colima の docker に繋がり、docker buildx が使えるようにする
+#           ＋ ~/.docker/config.json に docker context colima（currentContext）と buildx / compose のプラグインの場所
+#             （cliPluginsExtraDirs）。colima の docker に繋がり、docker buildx / docker compose が使えるようにする
 #   Linux : apt で jq shellcheck fish、install.sh と同じ関数（lib/tools/）で fnm と gh、
 #           ＋ fnm で Node.js LTS（default に設定）
 #
@@ -89,12 +89,13 @@ report_apple_extras() {
 #      context "colima" が無ければ作り、currentContext にする。無いと docker は /var/run/docker.sock を見て失敗する。
 #      colima 自身も起動時に同名の context を作ることがあるので、あれば作らずそのまま使う。
 #      runner 専用ホストの前提で、currentContext が別の値でも colima に切り替える（切り替えたことは表示する）。
-#   2. cliPluginsExtraDirs: brew の docker-buildx は $(brew --prefix)/lib/docker/cli-plugins に入るが、
-#      docker CLI の探索先に無いので `docker buildx` が unknown command になる。その場所を足す。
+#   2. cliPluginsExtraDirs: brew の docker-buildx / docker-compose は $(brew --prefix)/lib/docker/cli-plugins に入るが、
+#      docker CLI の探索先に無いので `docker buildx` / `docker compose` が unknown command になる。その場所を足す
+#      （両方とも同じ場所なので、1 件足せば両方見える）。
 # 他のキーは残したまま足す。すでに設定済みなら何も書かない（何度流しても同じ結果）。
 ensure_docker_config() {
 	if ! command -v docker >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
-		warn "docker または jq が見つからないため、docker の設定（context / buildx）をスキップ"
+		warn "docker または jq が見つからないため、docker の設定（context / cliPluginsExtraDirs）をスキップ"
 		return
 	fi
 	local docker_dir="$HOME/.docker" cfg="$HOME/.docker/config.json" socket="$HOME/.colima/default/docker.sock"
@@ -104,21 +105,21 @@ ensure_docker_config() {
 	# （既存ファイルのモードは、下の cat での書き戻しで変わらない）。
 	[ -s "$cfg" ] || (umask 077 && echo '{}' >"$cfg")
 	if ! jq empty "$cfg" >/dev/null 2>&1; then
-		warn "${cfg} が JSON として読めないため、docker の設定（context / buildx）をスキップ（壊れた設定は上書きしません）"
+		warn "${cfg} が JSON として読めないため、docker の設定（context / cliPluginsExtraDirs）をスキップ（壊れた設定は上書きしません）"
 		note_failure docker-config
 		return
 	fi
 
 	plugin_dir="$(brew --prefix 2>/dev/null)/lib/docker/cli-plugins"
 	if [ ! -d "$plugin_dir" ]; then
-		warn "docker-buildx のプラグインの場所が見つかりません（${plugin_dir}）。docker buildx は使えません。"
+		warn "docker のプラグインの場所が見つかりません（${plugin_dir}）。docker buildx / docker compose は使えません。"
 	elif jq -e --arg d "$plugin_dir" '(.cliPluginsExtraDirs // []) | index($d)' "$cfg" >/dev/null 2>&1; then
 		log "cliPluginsExtraDirs は設定済み（${plugin_dir}）"
 	else
 		tmp=$(mktemp)
 		if jq --arg d "$plugin_dir" '.cliPluginsExtraDirs = ((.cliPluginsExtraDirs // []) + [$d])' "$cfg" >"$tmp"; then
 			cat "$tmp" >"$cfg"
-			log "cliPluginsExtraDirs に ${plugin_dir} を追加（docker buildx 用）"
+			log "cliPluginsExtraDirs に ${plugin_dir} を追加（docker buildx / docker compose 用）"
 		else
 			warn "cliPluginsExtraDirs の設定に失敗"
 			note_failure docker-config
@@ -170,7 +171,7 @@ install_macos() {
 	fi
 
 	# 1 つ失敗しても残りは試す（既に non-brew で入っている pkg の link 衝突などで全部が止まらないように）。
-	local formulae=(colima docker docker-buildx fnm gh jq shellcheck fish) formula
+	local formulae=(colima docker docker-buildx docker-compose fnm gh jq shellcheck fish zstd) formula
 	for formula in "${formulae[@]}"; do
 		if brew list --formula "$formula" >/dev/null 2>&1; then
 			log "${formula} は既にインストール済み"
