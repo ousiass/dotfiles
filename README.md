@@ -10,6 +10,7 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── reset-tools.sh      # 言語ツール/AI CLI を一括リセットするスクリプト
 ├── cleanup.sh          # キャッシュ類を掃除するスクリプト（make clean から呼ばれる）
 ├── runner-host-setup.sh # GitHub Actions self-hosted runner ホストのセットアップ（make runner-setup から呼ばれる）
+├── runner-bootstrap.sh # runner 本体の取得（チェックサム確認）と登録（setup が source する関数群）
 ├── runner-tools-install.sh # runner のジョブが使うツール（macOS は brew で colima/docker/fnm/gh/jq など）の足りないものだけ入れる（make runner-tools。macOS は runner-setup から呼ばれる）
 ├── runner-path-guard.sh # runner の .path を検査・修復するガード（安定 PATH の定義もここ。setup が source し、起動時にも実行される）
 ├── .env.example        # .env のテンプレート
@@ -308,23 +309,29 @@ systemctl --user disable --now dotfiles-cleanup.timer # やめる
 
 self-hosted runner を動かすホストで、ジョブ実行の前提（パスワード不要 sudo / Docker / Buildx / C コンパイラ。Linux はさらに docker グループ）を整えて runner をサービスとして起動する。対象は Linux + systemd の apt 系ディストリビューションと、Apple Silicon の macOS（launchd / colima。[後述](#macosapple-silicon)）。以下の説明は Linux（systemd）を基準にしている。
 
-先に runner の登録（`config.sh`）を済ませておく。
+runner 本体がまだ無いホストでも、gh の認証さえ済んでいれば、`make runner-setup` 1 回で、本体の取得・登録（`config.sh` を手で打たない）・サービス登録まで済む。gh が入っていない新しいホスト（新品の Mac など）は、先に次の 2 手を踏む。
 
 ```bash
-cd ~/actions-runner
-./config.sh --url https://github.com/<org> --token <TOKEN>
-
-cd ~/dotfiles
+make runner-tools            # runner ユーザーで（sudo 不要）。gh などを入れる（Linux は apt で jq / shellcheck / fish なども入り、sudo が要る）
+gh auth login -s admin:org   # runner ユーザーで 1 回だけ（org の runner を登録できる権限。トークンは gh が持つ）
 make runner-setup
 ```
 
-runner のユーザーとディレクトリは変数で上書きできる。既定は sudo を呼び出したユーザーと、そのホーム配下の `actions-runner`。
+- **取得**: `RUNNER_DIR`（既定 `~/actions-runner`）に `config.sh` が無ければ、GitHub の最新の `actions/runner` リリースを OS と CPU に合わせて落とす（macOS は `osx-arm64`、Linux は `linux-x64` / `linux-arm64`。それ以外の CPU は対象外として止まる。ダウンロードは https のみ・TLS 1.2 以上）。リリースが資産ごとに持つ sha256 の digest と照合し、一致しなければ展開しない（digest が無いリリースも入れない）。展開は作業ディレクトリで検証してから `RUNNER_DIR` へ移し、`config.sh` は最後に置く（在る = 展開が完了している）。展開を始めると `.runner-extracting` を置き、`config.sh` の後に消す。展開先に今回の展開物と無関係なもの（展開物と同名でも、マーカーが無ければ）があれば、何も消さず止まる（`RUNNER_DIR` の指定ミスで他のディレクトリを壊さない）。マーカーが残っていれば前回の途中で止まった残りなので、展開物と同名のものは入れ子にならないよう置き換える。ディレクトリは親が在るときだけ新しく作り、そのときだけ所有者を runner ユーザーにする（既存のディレクトリは書き込めるかだけ確かめる）。Linux は `bin/installdependencies.sh`（apt。root）を、未登録のあいだ毎回流す（冪等。前回 apt が失敗して止まっても、再実行で入る）。
+- **登録**: `.runner` が無ければ `config.sh --unattended` で登録する。登録トークンは `gh api -X POST orgs/<org>/actions/runners/registration-token` でその場で発行し、`config.sh` の環境変数 `ACTIONS_RUNNER_INPUT_TOKEN` にだけ渡す（`--token` 引数・ファイル・ログ・`ps` に出ない。`GH_DEBUG` / `DEBUG` は gh に渡さない）。org・名前・group は変数で指定する（下記）。**`--replace` は既定で付けない**: `RUNNER_DIR` の指定ミスや 2 台目の登録で、稼働中の既存 runner を黙って追い出さないため。同名の runner が org に既にあると登録は失敗し、置き換えるつもりなら `RUNNER_REPLACE=1` を付けて再実行する案内を出す。登録済み（`.runner` がある）ときは、取得も登録も、入力の検証も飛ばして従来どおり進む。
+- **ラベル**: 既定ラベルは使わず（`--no-default-labels`）、OS と CPU から付ける。macOS は `self-hosted, macOS, ARM64`、Linux は `self-hosted, linux, x64`（arm64 の Linux は `linux, arm64`）。
+- **権限**: ディレクトリの作成・`chown`・Linux の依存パッケージ・サービス化（Linux の `svc.sh`）は root（sudo）。取得・展開・`gh`・`config.sh` は runner ユーザーで実行する（`config.sh` は root を拒否し、`gh` の認証も runner ユーザーのもの）。macOS の `svc.sh` は従来どおり runner ユーザー。
+- **前提**: runner ユーザーの `gh` が org の runner を登録できる権限（`admin:org`）で認証済みであること。足りなければ、Linux は sudoers・apt を触る前に、macOS は 2/5（brew でツールを入れた直後。colima を起動して待つ前）に、入れ方・ログイン方法を案内して止まる。`gh` が PATH に無い場所にあるときは `RUNNER_GH_BIN=/path/to/gh` で指す（`sudo bash runner-host-setup.sh` で直接実行するとき）。なお `gh auth status` は scope まで見ないので、scope 不足は登録時（403）まで分からない。
+
+runner のユーザー・ディレクトリ・登録先は変数で上書きできる。既定は sudo を呼び出したユーザーと、そのホーム配下の `actions-runner`、org `ousiassllc`、runner 名はホスト名（`hostname -s`）、runner group は `Default`。
 
 ```bash
 make runner-setup RUNNER_USER=ci-runner RUNNER_DIR=/opt/runners/foo
+make runner-setup RUNNER_ORG=my-org RUNNER_NAME=my-mac RUNNER_GROUP=Default
+make runner-setup RUNNER_REPLACE=1   # 同名の runner が org にあるとき、置き換えて登録する（既定は置き換えない）
 ```
 
-何度実行しても同じ結果になる（idempotent）。ラベル（`linux` / `x64`）と runner group の対象リポジトリはスクリプトからは検証できないため、実行後の案内に従って手動で確認する。とくに `NOPASSWD: ALL` を入れる以上、runner group を「選択したリポジトリ」に限定し public リポジトリへ提供しないことが、fork PR 経由で第三者のコードがこのホストで走るのを防ぐ唯一の層になる。
+何度実行しても同じ結果になる（idempotent）。登録済みなら何も取得・登録しない。runner 名の既定はホスト名で、macOS は DHCP などで変わることがあるので、固定したいなら `RUNNER_NAME` を指定する。runner group の対象リポジトリはスクリプトからは検証できないため、実行後の案内に従って手動で確認する（ラベルは自動で付く）。とくに `NOPASSWD: ALL` を入れる以上、runner group を「選択したリポジトリ」に限定し public リポジトリへ提供しないことが、fork PR 経由で第三者のコードがこのホストで走るのを防ぐ唯一の層になる。
 
 ジョブの shell は非ログイン・最小環境で起動し、fish の `fnm env` も `shell/paths.sh` も読まれないため、そのままだと fnm の `node` / `npx` が見えず `node: コマンドが見つかりません`（exit 127）で落ちる。さらに runner の systemd サービス（`runsvc.sh`）は、起動時に `<runner dir>/.path` があれば `PATH` を丸ごとそれで上書きする。**`.env` の `PATH=` より後に効くので、`.path` が PATH の正になる。** `.path` は `config.sh` / `svc.sh install` を実行したシェルの PATH が一度だけ書かれ、fish のログイン中に実行すると fnm の一時パス（`/run/user/<uid>/fnm_multishells/...`）が記録されて、再起動やログアウトで node が消える。
 
@@ -347,7 +354,7 @@ docker run --rm --network=host alpine nslookup proxy.golang.org  # bridge だけ
 
 ホストは引けるが bridge からだけ届かない場合は、`/etc/docker/daemon.json` に `{"dns": ["<引ける DNS サーバー>"]}` を書き、`sudo systemctl restart docker` する。ホスト自体が引けない場合は OS 側の DNS 設定を直す。
 
-`runner-host-setup.sh` と `runner-path-guard.sh` は [ousiassllc/actions-runner-setup-base](https://github.com/ousiassllc/actions-runner-setup-base) から取り込んだコピー。詳細な背景（何が欠けるとどのエラーが出るか等）は上流の README を参照。上流を更新したらこれらのファイルも追従させる。macOS 対応（下記）はこのコピー側で先に入れているので、上流へ取り込むときは差分に注意する。
+`runner-host-setup.sh` と `runner-path-guard.sh` は [ousiassllc/actions-runner-setup-base](https://github.com/ousiassllc/actions-runner-setup-base) から取り込んだコピー。詳細な背景（何が欠けるとどのエラーが出るか等）は上流の README を参照。上流を更新したらこれらのファイルも追従させる。macOS 対応（下記）と、runner 本体の取得・登録（`runner-bootstrap.sh`。上流に無いこのリポジトリ独自のファイルで、`runner-host-setup.sh` が source する）はこのコピー側で先に入れているので、上流へ取り込むときは差分に注意する。
 
 ### macOS（Apple Silicon）
 
