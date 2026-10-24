@@ -350,7 +350,7 @@ docker run --rm --network=host alpine nslookup proxy.golang.org  # bridge だけ
 
 ### macOS（Apple Silicon）
 
-同じ `make runner-setup` が macOS でも動く。`uname -s` で OS を見て Linux と macOS の処理を分けており、Linux の動きは変わらない。対象は Apple Silicon（arm64）の Mac だけで、Intel の Mac では対象外であることを示して止まる。Docker は colima を使い、Docker Desktop は対象外。
+同じ `make runner-setup` が macOS でも動く。`uname -s` で OS を見て Linux と macOS の処理を分けており、Linux の動きは変わらない。対象は Apple Silicon（arm64）の Mac だけで、Intel の Mac では対象外であることを示して止まる（Rosetta 下の端末は `sysctl -n hw.optional.arm64` で見分ける）。Docker は colima を使い、Docker Desktop は対象外。
 
 先に次を済ませておく（足りなければ、入れ方を案内して止まる。スクリプトは入れない）。
 
@@ -376,13 +376,13 @@ Linux との違い:
 | 5/5 確認 | `/proc` の `Runner.Listener` の PATH と docker グループ | `/proc` も docker グループも無いので、runner ユーザーの最小環境で `docker info` / `docker buildx version` と、`.path` の PATH で `node` / `npx` / `cc` が引けるかを確かめる |
 | runner のラベル | `[self-hosted, linux, x64]` | `[self-hosted, macOS, ARM64]` |
 
-稼働中の runner に `.path` / `.env` / plist の変更を反映するときは、ジョブが無ければ `svc.sh stop` / `start` で再起動する（ジョブ実行中は再起動せず、手順を案内する）。launchd の `svc.sh start` は読み込み済みだと失敗するため、稼働中は呼ばない。2 回続けて回しても、plist・`.path` は書き換わらず、再起動もしない。
+稼働中の runner に `.path` / `.env` / plist の変更を反映するときは、ジョブが無ければ `svc.sh stop` / `start` で再起動する（ジョブ実行中は再起動せず、手順を案内する）。`svc.sh start` の中身は `launchctl load -w` で、読み込み済みのときの挙動は実機で確かめていないため、稼働中は `start` を呼ばない設計にした。2 回続けて回しても、plist・`.path` は書き換わらず、再起動もしない（これもスタブでの確認のみ）。
 
 注意:
 
 - runner も colima も runner ユーザーの LaunchAgent なので、そのユーザーが macOS にログインしている間だけ動く。再起動後も動かすには、そのユーザーの自動ログインを設定する。
 - `docker buildx` が見つからないときは、`brew info docker-buildx` の caveats に従い `~/.docker/config.json` の `cliPluginsExtraDirs` に `/opt/homebrew/lib/docker/cli-plugins` を足す。
-- fnm の `aliases/default/bin` は Linux と同じ `~/.local/share/fnm` 配下を前提にしている（`runner_stable_path` / ガードの判定とも）。
+- fnm の `aliases/default/bin` は、macOS では公式インストーラの既定（`~/Library/Application Support/fnm`。`lib/tools/fnm.sh` が使う）と、Linux と同じ `~/.local/share/fnm` の両方を安定 PATH に入れ、ガードもどちらかにあれば正常とみなす。Homebrew 版の fnm（`/opt/homebrew/bin/fnm`）は `aliases/default/bin` の場所が上と同じになるかを実機で確かめていない。
 - `tests/runner_host_setup_test.sh` は Linux 上で uname / sudo / brew / launchctl などをスタブに差し替えて分岐を確かめる。launchd・colima・brew services の実機での動きは確かめていない。
 
 ## 注意
