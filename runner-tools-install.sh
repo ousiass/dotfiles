@@ -91,7 +91,12 @@ install_macos() {
 	log "Xcode コマンドラインツール: $(xcode-select -p)"
 
 	# sudo 経由などで PATH に無いことがあるので、Apple Silicon の既定の場所を後ろへ足す。
-	export PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin"
+	# 環境変数 RUNNER_TOOLS_EXTRA_PATH で差し替えられる（空にすると何も足さない。`:-` ではなく `-` なので
+	# 空文字も有効）。テストが、実機の /opt/homebrew の本物の brew を拾わないようにするため。
+	extra_path="${RUNNER_TOOLS_EXTRA_PATH-/opt/homebrew/bin:/opt/homebrew/sbin}"
+	if [ -n "$extra_path" ]; then
+		export PATH="$PATH:$extra_path"
+	fi
 	if ! command -v brew >/dev/null 2>&1; then
 		err "Homebrew が見つかりません。このスクリプトでは自動で入れません。"
 		err "  https://brew.sh の手順で入れ（Apple Silicon の既定は /opt/homebrew）、もう一度実行してください。"
