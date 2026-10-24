@@ -122,6 +122,11 @@ install_linux() {
 		exit 1
 	fi
 
+	# install_fnm は command -v fnm だけで入っているかを見る。fnm の公式インストーラの置き場所を
+	# 先に PATH へ足しておかないと、PATH に無い runner ユーザーでは毎回ダウンロードし直してしまう
+	# （install.sh / lib/tools/node_lts.sh と同じ形）。
+	export PATH="$HOME/.local/share/fnm:$HOME/.local/bin:$PATH"
+
 	local packages=(jq shellcheck fish) pkg missing=()
 	for pkg in "${packages[@]}"; do
 		if command -v "$pkg" >/dev/null 2>&1; then

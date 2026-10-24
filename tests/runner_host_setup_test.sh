@@ -169,6 +169,7 @@ EOF
 # macOS のコンソールユーザー（stat -f %Su /dev/console）。GUI ログイン中のユーザー名を返す。
 stub "$stubs/stat" <<'EOF'
 #!/bin/bash
+echo "stat $*" >>"$STUB_LOG"
 if [ "$*" = "-f %Su /dev/console" ]; then
     echo "${STUB_CONSOLE_USER:-ci}"
     exit 0
@@ -337,6 +338,8 @@ check_match "別ユーザーがログイン中: 現在のユーザーを示す" 
 check_eq    "別ユーザーがログイン中: 何も設置しない"      0 "$(( $(calls 'install ') + $(calls 'svc.sh') + $(calls 'brew') ))"
 run_setup STUB_CONSOLE_USER=root
 check_eq    "ログイン画面（root）: 失敗で止まる"          1 "$rc"
+check_match "ログイン画面（root）: 誰もログインしていないと案内する" "いまは誰もログインしていません" "$out"
+check_eq    "ログイン画面（root）: 何も設置しない"        0 "$(( $(calls 'install ') + $(calls 'svc.sh') + $(calls 'brew') ))"
 
 # --- 通常の実行 ---------------------------------------------------------------
 # 直前までのケース（brew パッケージ不足の成功など）が sudoers・サービス・.path を作っているので、
@@ -469,6 +472,7 @@ check_match "Linux: docker を有効化する"                   "systemctl enab
 check_match "Linux: docker グループへ入れる"                "usermod -aG docker ci" "$(cat "$STUB_LOG")"
 check_eq    "Linux: svc.sh install <user> を呼ぶ"           1 "$(calls 'svc.sh install ci')"
 check_eq    "Linux: svc.sh start を呼ぶ"                    1 "$(calls 'svc.sh start')"
+check_eq    "Linux: macOS 専用の stat -f を呼ばない"        0 "$(calls 'stat ')"
 check_eq    "Linux: brew を呼ばない"                         0 "$(calls 'brew')"
 check_eq    "Linux: launchctl を呼ばない"                    0 "$(calls 'launchctl')"
 check_eq    "Linux: .path は従来の安定 PATH"               "$linux_stable" "$(<"$linux_runner/.path")"

@@ -233,4 +233,21 @@ rc=$?
 check_eq    "Linux 2 回目: 成功する"              0 "$rc"
 check_eq    "Linux 2 回目: 何も入れない"          0 "$(calls '^apt-get install')"
 
+# --- Linux: fnm が ~/.local/share/fnm にあって PATH には無くても、再ダウンロードしない ------------------
+# 公式インストーラの置き場所は PATH に入っていないことがある。install_fnm は command -v fnm だけで
+# 入っているかを見るので、先に PATH へ足していないと毎回 curl | bash してしまう（curl スタブは記録する）。
+lbin2="$tmp/bin-linux2"
+mkdir -p "$lbin2" "$tmp/home/.local/share/fnm"
+for f in "$lbin"/*; do [ "$(basename "$f")" = fnm ] || ln -s "$f" "$lbin2/$(basename "$f")"; done
+cp "$stubs/fnm" "$tmp/home/.local/share/fnm/fnm"
+reset
+: >"$STUB_NODE_DEFAULT"
+for round in 1 2; do
+    : >"$STUB_LOG"
+    out=$(env PATH="$lbin2" STUB_UNAME_S=Linux HOME="$tmp/home" "$BASH" "$SCRIPT" 2>&1)
+    rc=$?
+    check_eq "Linux fnm が PATH 外（${round} 回目）: 成功する"           0 "$rc"
+    check_eq "Linux fnm が PATH 外（${round} 回目）: curl を呼ばない"    0 "$(calls '^curl')"
+done
+
 exit "$fail"

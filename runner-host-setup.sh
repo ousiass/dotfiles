@@ -99,9 +99,15 @@ fi
 # ログイン前・SSH だけのホストは想定しない）。
 if [ "$OS" = Darwin ]; then
 	console_user=$(stat -f %Su /dev/console 2>/dev/null || true)
+	if [ -z "$console_user" ] || [ "$console_user" = root ]; then
+		# /dev/console の所有者が root のとき（ログイン画面のまま）か、取れなかったとき（GUI の無い環境）
+		echo "対象外です: macOS では、runner ユーザー（${RUNNER_USER}）が GUI でログインしている必要があります（いまは誰もログインしていません）。" >&2
+		echo "  ${RUNNER_USER} で GUI ログインしたまま、そのユーザーのターミナルから実行してください。ログイン前・SSH だけの実行は対象外です。" >&2
+		exit 1
+	fi
 	if [ "$console_user" != "$RUNNER_USER" ]; then
-		echo "対象外です: macOS では、runner ユーザー（${RUNNER_USER}）が GUI でログインしている必要があります（現在のログインユーザー: ${console_user:-なし}）。" >&2
-		echo "  ${RUNNER_USER} で GUI ログインしたまま、そのユーザーのターミナルから実行してください。別ユーザーや、ログイン前・SSH だけの実行は対象外です。" >&2
+		echo "対象外です: macOS では、runner ユーザー（${RUNNER_USER}）が GUI でログインしている必要があります（現在のログインユーザー: ${console_user}）。" >&2
+		echo "  ${RUNNER_USER} に切り替えてログインしたまま、そのユーザーのターミナルから実行してください。別ユーザーでの実行は対象外です。" >&2
 		exit 1
 	fi
 fi
@@ -174,9 +180,9 @@ else
 fi
 
 if [ "$OS" = Darwin ]; then
-	echo "== 2/5 Xcode CLT / Homebrew / colima / docker / docker-buildx =="
-	# 入れるのはユーザーの環境（Xcode CLT の GUI ダイアログ、Homebrew の所有者）に依存するため、
-	# このスクリプトでは入れず、足りなければ入れ方を案内して止まる。
+	echo "== 2/5 Xcode CLT / Homebrew / ツール（colima / docker / docker-buildx など）=="
+	# Xcode CLT（GUI のダイアログが出る）と Homebrew（所有者がユーザー）は、このスクリプトでは入れず、
+	# 足りなければ入れ方を案内して止まる。それ以外のツールは下で runner-tools-install.sh が入れる。
 	#
 	# cc（C コンパイラ）は Xcode コマンドラインツールが提供する。go test -race は cgo を必要とし、
 	# actions/setup-go は C コンパイラを入れない。

@@ -359,7 +359,7 @@ docker run --rm --network=host alpine nslookup proxy.golang.org  # bridge だけ
 - **再起動後の自動ログインは、スクリプトでは設定しない。** 再起動のあとも runner を動かしたいなら、システム設定の「ユーザとグループ」で自動ログインを自分で設定する（FileVault が有効だと自動ログインは使えない）。
 - colima の CPU・メモリ・ディスクは、スクリプトでは指定せず colima の既定値のまま（`brew services start colima` で起動する）。変えたいときは `colima start --edit` などで colima 側の設定を直す。
 
-先に次を済ませておく（足りなければ、入れ方を案内して止まる。スクリプトは入れない）。
+先に次の 2 つだけ済ませておく（Xcode CLT と Homebrew は、足りなければ入れ方を案内して止まり、スクリプトは入れない）。
 
 ```bash
 xcode-select --install   # C コンパイラ（cc）。go test -race の cgo に必要。GUI の確認が出るので自動化しない
