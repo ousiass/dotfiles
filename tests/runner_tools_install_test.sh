@@ -37,6 +37,8 @@ export STUB_INSTALLED="$tmp/installed"
 export STUB_BREW_PREFIX="$tmp/brew-prefix"
 plugin_dir="$STUB_BREW_PREFIX/lib/docker/cli-plugins"
 mkdir -p "$plugin_dir"
+# brew の docker-compose が置く実行ファイル（スタブの docker compose が探す）
+: >"$plugin_dir/docker-compose" && chmod +x "$plugin_dir/docker-compose"
 # docker context の一覧（1 行 1 つ）。docker のスタブが inspect / create / use で読み書きする。
 export STUB_CONTEXTS="$tmp/contexts"
 docker_cfg="$tmp/home/.docker/config.json"
@@ -111,7 +113,8 @@ export STUB_NODE_DEFAULT="$tmp/node-default"
 #   - context の inspect / create / use。use は config.json の currentContext を書き換える（実物と同じ）
 #   - info: colima の docker に繋がるのは、config.json の currentContext が colima のときだけ。
 #     素の状態は /var/run/docker.sock を見て失敗する
-#   - buildx: config.json の cliPluginsExtraDirs が設定されているときだけ使える（無いと unknown command）
+#   - buildx / compose: config.json の cliPluginsExtraDirs が設定されているときだけ使える（無いと unknown command）。
+#     brew の docker-buildx と docker-compose は同じ場所（lib/docker/cli-plugins）に入る
 stub "$stubs/docker" <<'EOF'
 #!/bin/bash
 [ -z "${STUB_LOG:-}" ] || echo "docker $*" >>"$STUB_LOG"
@@ -138,6 +141,18 @@ case "$1 $2" in
     fi
     echo "github.com/docker/buildx stub"
     ;;
+"compose "*)
+    # cliPluginsExtraDirs のどれかに docker-compose の実行ファイルがあるときだけ通る（実機の探索と同じ）
+    found=1
+    while IFS= read -r d; do
+        [ -x "$d/docker-compose" ] && found=0
+    done < <(jq -r '.cliPluginsExtraDirs[]?' "$cfg" 2>/dev/null)
+    if [ "$found" -ne 0 ]; then
+        echo "docker: 'compose' is not a docker command." >&2
+        exit 1
+    fi
+    echo "Docker Compose version stub"
+    ;;
 esac
 EOF
 stub "$stubs/curl" <<'EOF'
@@ -147,7 +162,7 @@ echo "LEAK: ネットワークからダウンロードしようとした" >>"$ST
 exit 99
 EOF
 
-all_formulae="colima docker docker-buildx fnm gh jq shellcheck fish"
+all_formulae="colima docker docker-buildx docker-compose fnm gh jq shellcheck fish zstd"
 
 # run [VAR=value ...] : 出力を $out、終了コードを $rc に入れる（PATH はスタブだけ）
 run() {
@@ -162,6 +177,7 @@ reset() { # reset [installed formula ...]
     rm -rf "$tmp/home/.docker"
     : >"$STUB_CONTEXTS"
     mkdir -p "$plugin_dir"
+    : >"$plugin_dir/docker-compose" && chmod +x "$plugin_dir/docker-compose"
     local f
     for f in "$@"; do echo "$f" >>"$STUB_INSTALLED"; done
 }
@@ -178,7 +194,7 @@ reset docker jq shellcheck
 : >"$STUB_NODE_DEFAULT"
 run
 check_eq    "macOS 一部不足: 成功する"            0 "$rc"
-for f in colima docker-buildx fnm gh fish; do
+for f in colima docker-buildx docker-compose fnm gh fish zstd; do
     check_eq "macOS 一部不足: $f を入れる"        1 "$(calls "^brew install $f\$")"
 done
 for f in docker jq shellcheck; do
@@ -275,16 +291,18 @@ if [[ "$have_jq" -eq 1 ]]; then
     : >"$STUB_NODE_DEFAULT"
     runner_docker info;          check_eq "docker 設定 前: 素の docker info は失敗する（/var/run/docker.sock を見る）" 1 "$?"
     runner_docker buildx version; check_eq "docker 設定 前: docker buildx は unknown command" 1 "$?"
+    runner_docker compose version; check_eq "docker 設定 前: docker compose は unknown command" 1 "$?"
 
-    # 初回: context colima を作って currentContext にし、buildx のプラグインの場所を足す
+    # 初回: context colima を作って currentContext にし、buildx / compose のプラグインの場所を足す
     run
     check_eq    "docker 設定 初回: 成功する"                          0 "$rc"
     runner_docker info;          check_eq "docker 設定 初回: runner の最小環境で docker info が通る" 0 "$?"
     runner_docker buildx version; check_eq "docker 設定 初回: docker buildx version が通る" 0 "$?"
+    runner_docker compose version; check_eq "docker 設定 初回: docker compose version が通る" 0 "$?"
     check_eq    "docker 設定 初回: 新規の config.json は 0600"        "$docker_cfg" "$(find "$docker_cfg" -perm 0600 2>/dev/null)"
     check_eq    "docker 設定 初回: context colima を colima の socket で作る" 1 "$(calls "^docker context create colima --docker host=unix://${socket}\$")"
     check_eq    "docker 設定 初回: currentContext が colima"          colima "$(jq -r '.currentContext' "$docker_cfg")"
-    check_eq    "docker 設定 初回: cliPluginsExtraDirs に buildx の場所" "$plugin_dir" "$(jq -r '.cliPluginsExtraDirs[0]' "$docker_cfg")"
+    check_eq    "docker 設定 初回: cliPluginsExtraDirs に buildx / compose の場所" "$plugin_dir" "$(jq -r '.cliPluginsExtraDirs[0]' "$docker_cfg")"
 
     # 2 回目: 何も書き換えず、context も作り直さない
     before=$(cat "$docker_cfg")
@@ -345,16 +363,17 @@ if [[ "$have_jq" -eq 1 ]]; then
     check_match "docker 設定 壊れた JSON: 報告する"                   "インストールできなかったもの: docker-config" "$out"
     check_eq    "docker 設定 壊れた JSON: 上書きしない"               '{ broken' "$(cat "$docker_cfg")"
 
-    # buildx のプラグインの場所が無ければ（docker-buildx 未導入など）、警告だけで currentContext は設定する
+    # プラグインの場所が無ければ（docker-buildx / docker-compose 未導入など）、警告だけで currentContext は設定する
     reset $all_formulae
     : >"$STUB_NODE_DEFAULT"
-    rmdir "$plugin_dir"
+    rm -rf "$plugin_dir"
     run
-    check_eq    "docker 設定 buildx 無し: 成功する"                   0 "$rc"
-    check_match "docker 設定 buildx 無し: 警告する"                   "docker-buildx のプラグインの場所が見つかりません" "$out"
-    check_eq    "docker 設定 buildx 無し: cliPluginsExtraDirs を足さない" null "$(jq '.cliPluginsExtraDirs' "$docker_cfg")"
-    check_eq    "docker 設定 buildx 無し: currentContext は colima"   colima "$(jq -r '.currentContext' "$docker_cfg")"
+    check_eq    "docker 設定 プラグイン無し: 成功する"                   0 "$rc"
+    check_match "docker 設定 プラグイン無し: 警告する"                   "docker のプラグインの場所が見つかりません" "$out"
+    check_eq    "docker 設定 プラグイン無し: cliPluginsExtraDirs を足さない" null "$(jq '.cliPluginsExtraDirs' "$docker_cfg")"
+    check_eq    "docker 設定 プラグイン無し: currentContext は colima"   colima "$(jq -r '.currentContext' "$docker_cfg")"
     mkdir -p "$plugin_dir"
+    : >"$plugin_dir/docker-compose" && chmod +x "$plugin_dir/docker-compose"
 fi
 
 # --- Linux: 足りない apt パッケージだけを入れる（fnm / gh は入っている扱いで curl を呼ばせない） ---

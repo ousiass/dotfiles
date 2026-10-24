@@ -15,7 +15,7 @@
 #       macOS は加えて、runner ユーザーが GUI でログインしていること（LaunchAgent は GUI セッションに
 #       登録するため。別ユーザーでの実行やログイン前・SSH だけの実行は対象外として止まる）と、
 #       Xcode コマンドラインツール・Homebrew が入っていること（無ければ入れ方を案内して止まる）。
-#       colima / docker / docker-buildx / fnm / gh / jq などは runner-tools-install.sh が
+#       colima / docker / docker-buildx / docker-compose / fnm / gh / jq / zstd などは runner-tools-install.sh が
 #       runner ユーザーとして brew で入れる（入っているものは飛ばす。Homebrew 自体・Xcode 本体・
 #       署名証明書は入れない）。再起動後の自動ログインは設定しない（README の前提）。
 #
@@ -186,7 +186,7 @@ else
 fi
 
 if [ "$OS" = Darwin ]; then
-	echo "== 2/5 Xcode CLT / Homebrew / ツール（colima / docker / docker-buildx など）=="
+	echo "== 2/5 Xcode CLT / Homebrew / ツール（colima / docker / docker-buildx / docker-compose など）=="
 	# Xcode CLT（GUI のダイアログが出る）と Homebrew（所有者がユーザー）は、このスクリプトでは入れず、
 	# 足りなければ入れ方を案内して止まる。それ以外のツールは下で runner-tools-install.sh が入れる。
 	#
@@ -204,10 +204,10 @@ if [ "$OS" = Darwin ]; then
 		exit 1
 	fi
 	echo "  Homebrew: $brew_bin"
-	# 足りないツール（colima / docker / docker-buildx / fnm / gh / jq / shellcheck など）は
+	# 足りないツール（colima / docker / docker-buildx / docker-compose / fnm / gh / jq / shellcheck / zstd など）は
 	# runner-tools-install.sh が、runner ユーザーとして brew で入れる（入っているものは飛ばす）。
 	# Homebrew 自体・Xcode 本体・署名証明書は入れない（案内か表示だけ）。
-	# docker-buildx 単体では docker CLI から見えないことがある。その場合は最後の確認で案内する。
+	# docker-buildx / docker-compose 単体では docker CLI から見えないことがある。その場合は最後の確認で案内する。
 	sudo -u "$RUNNER_USER" -H env PATH="$PATH" RUNNER_BREW_PATHS="$RUNNER_BREW_PATHS" bash "$SCRIPT_DIR/runner-tools-install.sh"
 	echo "  runner に要るツール: そろっている"
 
@@ -433,7 +433,7 @@ fi
 echo "== 5/5 確認 =="
 if [ "$OS" = Darwin ]; then
 	# macOS には /proc も docker グループも無い。runner ユーザーが、ジョブと同じ最小環境で
-	# docker / buildx / node / cc を使えるかで確かめる。
+	# docker / buildx / compose / node / cc を使えるかで確かめる。
 	echo "--- runner ユーザーの docker ---"
 	runner_exec docker --version
 	if runner_exec docker info >/dev/null 2>&1; then
@@ -443,6 +443,8 @@ if [ "$OS" = Darwin ]; then
 	fi
 	runner_exec docker buildx version \
 		|| echo "  NG: docker buildx が使えません（runner-tools-install.sh が ~/.docker/config.json の cliPluginsExtraDirs に足しているはずです。make runner-tools を流し直し、brew info docker-buildx の caveats と見比べてください）" >&2
+	runner_exec docker compose version \
+		|| echo "  NG: docker compose が使えません（runner-tools-install.sh が ~/.docker/config.json の cliPluginsExtraDirs に足しているはずです。make runner-tools を流し直し、brew info docker-compose の caveats と見比べてください）" >&2
 	echo "--- .path の PATH から node / npx / cc ---"
 	# .path が PATH の正（runsvc.sh が丸ごと上書きする）。それだけを頼りに引けるかを見る。
 	if sudo -u "$RUNNER_USER" -H env -i HOME="$home" PATH="$(<"$path_file")" bash --noprofile --norc -c 'command -v node npx cc'; then

@@ -68,6 +68,8 @@ export STUB_BREW_PREFIX="$tmp/brew-prefix"
 export STUB_CONTEXTS="$tmp/contexts"
 plugin_dir="$STUB_BREW_PREFIX/lib/docker/cli-plugins"
 mkdir -p "$plugin_dir"
+# brew の docker-compose が置く実行ファイル（スタブの docker compose が探す）
+: >"$plugin_dir/docker-compose" && chmod +x "$plugin_dir/docker-compose"
 : >"$STUB_CONTEXTS"
 
 # --- PATH 先頭に置くスタブ（root・macOS コマンドの代役） -----------------------------
@@ -291,6 +293,18 @@ buildx)
     fi
     echo "github.com/docker/buildx stub"
     ;;
+compose)
+    # cliPluginsExtraDirs のどれかに docker-compose の実行ファイルがあるときだけ通る（実機の探索と同じ）
+    found=1
+    while IFS= read -r d; do
+        [ -x "$d/docker-compose" ] && found=0
+    done < <(jq -r '.cliPluginsExtraDirs[]?' "$cfg" 2>/dev/null)
+    if [ "$found" -ne 0 ]; then
+        echo "docker: 'compose' is not a docker command." >&2
+        exit 1
+    fi
+    echo "Docker Compose version stub"
+    ;;
 *) echo "Docker stub" ;;
 esac
 EOF
@@ -447,10 +461,11 @@ check_match "macOS: runner ユーザーで docker info を確かめる" "docker 
 # 2/5（runner-tools-install.sh）が書いた ~/.docker/config.json で、3/5 と 5/5 の docker が colima に繋がる
 # （スタブの docker は currentContext が colima のときだけ info が通る）。素の状態では通らない。
 check_eq    "macOS: runner ユーザーの currentContext が colima"      colima "$(jq -r '.currentContext' "$home/.docker/config.json")"
-check_eq    "macOS: cliPluginsExtraDirs に buildx の場所"            "$plugin_dir" "$(jq -r '.cliPluginsExtraDirs[0]' "$home/.docker/config.json")"
+check_eq    "macOS: cliPluginsExtraDirs に buildx / compose の場所"  "$plugin_dir" "$(jq -r '.cliPluginsExtraDirs[0]' "$home/.docker/config.json")"
 check_match "macOS: 3/5 で docker info が通ったと表示する"           "docker info が通った" "$out"
 check_match "macOS: 5/5 で docker info が通る"                       "OK: ci で docker info が通る" "$out"
-check_no_match "macOS: 5/5 で docker / buildx の NG が出ない"        "NG: docker" "$out"
+check_no_match "macOS: 5/5 で docker / buildx / compose の NG が出ない" "NG: docker" "$out"
+check_match "macOS: 5/5 で docker compose version を確かめる"        "docker compose version" "$(cat "$STUB_LOG")"
 check_eq    "macOS: svc.sh install を 1 回呼ぶ"   1 "$(calls 'svc.sh install')"
 check_eq    "macOS: svc.sh start を 1 回呼ぶ"     1 "$(calls 'svc.sh start')"
 check_eq    ".path は macOS の安定 PATH"          "$(runner_stable_path "$home")" "$(<"$runner_dir/.path")"
