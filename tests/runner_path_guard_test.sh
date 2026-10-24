@@ -27,6 +27,11 @@ check_match() {
     if [[ "$text" == *"$pattern"* ]]; then ok "$name"; else ng "$name ('$pattern' が無い: $text)"; fi
 }
 
+check_no_match() {
+    local name="$1" pattern="$2" text="$3"
+    if [[ "$text" != *"$pattern"* ]]; then ok "$name"; else ng "$name ('$pattern' がある: $text)"; fi
+}
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
@@ -97,5 +102,25 @@ check_match "安定 PATH + node 無し: NG を出す"      "NG: 安定 PATH で�
 # --- 引数不足でも exit 0（ExecStartPre が runner の起動を止めない） ---------------
 "$GUARD" >/dev/null 2>&1
 check_eq "引数不足: exit 0" 0 "$?"
+
+# --- 安定 PATH は OS（uname -s）で分かれる -----------------------------------------
+# uname を関数で差し替えて、macOS と Linux の定義を同じホストで確かめる。
+linux_path=$(uname() { echo Linux; }; runner_stable_path /h)
+mac_path=$(uname() { echo Darwin; }; runner_stable_path /h)
+check_match    "macOS の安定 PATH: fnm の aliases/default/bin が先頭" ":${mac_path%%:*}:" ":/h/.local/share/fnm/aliases/default/bin:"
+check_match    "macOS の安定 PATH: Homebrew (Apple Silicon) を含む"   ":/opt/homebrew/bin:" ":$mac_path:"
+check_match    "macOS の安定 PATH: /opt/homebrew/sbin を含む"         ":/opt/homebrew/sbin:" ":$mac_path:"
+check_match    "macOS の安定 PATH: 標準の /usr/bin /bin を含む"       ":/usr/bin:/bin:" ":$mac_path:"
+for linux_only in /snap/bin /opt/nvim/bin /usr/games /usr/local/games /usr/local/sbin; do
+    check_no_match "macOS の安定 PATH: Linux 専用の $linux_only を含まない" ":$linux_only:" ":$mac_path:"
+done
+check_match    "Linux の安定 PATH: /snap/bin を含む（従来どおり）"    ":/snap/bin:" ":$linux_path:"
+check_no_match "Linux の安定 PATH: /opt/homebrew を含まない"          "/opt/homebrew" "$linux_path"
+
+# macOS でも fnm_multishells を含む .path は macOS の安定 PATH へ直る
+new_runner mac-multishell yes
+echo "$stale" >"$runner_dir/.path"
+( uname() { echo Darwin; }; runner_repair_path_file "$runner_dir/.path" "$home" >/dev/null 2>&1 )
+check_eq "macOS: 安定 PATH に書き直す" "$(uname() { echo Darwin; }; runner_stable_path "$home")" "$(<"$runner_dir/.path")"
 
 exit "$fail"

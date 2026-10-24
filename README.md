@@ -28,7 +28,7 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── gh-dash/            # → ~/.config/gh-dash (GitHub Dashboard CLI)
 ├── herdr/              # → ~/.config/herdr (エージェント向けターミナルマルチプレクサ、tmux 準拠 keybinding)
 ├── systemd/            # → ~/.config/systemd/user（週次の自動掃除 timer / service）
-├── tests/              # cleanup.sh / runner-path-guard.sh の回帰テスト（make test）
+├── tests/              # cleanup.sh / runner-path-guard.sh / runner-host-setup.sh（macOS 分岐）の回帰テスト（make test）
 └── fish/               # → ~/.config/fish
     ├── config.fish
     ├── fish_plugins
@@ -305,7 +305,7 @@ systemctl --user disable --now dotfiles-cleanup.timer # やめる
 
 ## GitHub Actions self-hosted runner
 
-self-hosted runner を動かすホストで、ジョブ実行の前提（パスワード不要 sudo / Docker / Buildx / docker グループ / C コンパイラ）を整えて runner を systemd サービスとして起動する。対象は Linux + systemd の apt 系ディストリビューション。
+self-hosted runner を動かすホストで、ジョブ実行の前提（パスワード不要 sudo / Docker / Buildx / C コンパイラ。Linux はさらに docker グループ）を整えて runner をサービスとして起動する。対象は Linux + systemd の apt 系ディストリビューションと、Apple Silicon の macOS（launchd / colima。[後述](#macosapple-silicon)）。以下の説明は Linux（systemd）を基準にしている。
 
 先に runner の登録（`config.sh`）を済ませておく。
 
@@ -346,7 +346,44 @@ docker run --rm --network=host alpine nslookup proxy.golang.org  # bridge だけ
 
 ホストは引けるが bridge からだけ届かない場合は、`/etc/docker/daemon.json` に `{"dns": ["<引ける DNS サーバー>"]}` を書き、`sudo systemctl restart docker` する。ホスト自体が引けない場合は OS 側の DNS 設定を直す。
 
-`runner-host-setup.sh` と `runner-path-guard.sh` は [ousiassllc/actions-runner-setup-base](https://github.com/ousiassllc/actions-runner-setup-base) から取り込んだコピー。詳細な背景（何が欠けるとどのエラーが出るか等）は上流の README を参照。上流を更新したらこれらのファイルも追従させる。
+`runner-host-setup.sh` と `runner-path-guard.sh` は [ousiassllc/actions-runner-setup-base](https://github.com/ousiassllc/actions-runner-setup-base) から取り込んだコピー。詳細な背景（何が欠けるとどのエラーが出るか等）は上流の README を参照。上流を更新したらこれらのファイルも追従させる。macOS 対応（下記）はこのコピー側で先に入れているので、上流へ取り込むときは差分に注意する。
+
+### macOS（Apple Silicon）
+
+同じ `make runner-setup` が macOS でも動く。`uname -s` で OS を見て Linux と macOS の処理を分けており、Linux の動きは変わらない。対象は Apple Silicon（arm64）の Mac だけで、Intel の Mac では対象外であることを示して止まる。Docker は colima を使い、Docker Desktop は対象外。
+
+先に次を済ませておく（足りなければ、入れ方を案内して止まる。スクリプトは入れない）。
+
+```bash
+xcode-select --install                              # C コンパイラ（cc）。go test -race の cgo に必要
+# Homebrew は https://brew.sh の手順で入れる（Apple Silicon は /opt/homebrew）
+brew install colima docker docker-buildx            # runner ユーザーで実行する
+```
+
+runner の登録（`config.sh`）は Linux と同じく先に済ませる。実行は runner ユーザーのアカウントから `make runner-setup` する（sudo で `SUDO_USER` が runner ユーザーになる）。launchd の LaunchAgent はそのユーザーがログインしている GUI セッションに登録されるため、`RUNNER_USER` に別のユーザーを指定して SSH などから実行する構成は想定していない（`launchctl asuser` は使っておらず、実機では未確認）。`RUNNER_DIR` はホーム以外に置く場合に指定する。
+
+Linux との違い:
+
+| 項目 | Linux | macOS |
+|---|---|---|
+| ユーザーのホーム | `getent passwd` | `dscl . -read /Users/<user> NFSHomeDirectory` |
+| `/etc/sudoers.d/github-runner` のグループ | `root` | `wheel`（`visudo -c` で検証してから置くのは同じ） |
+| 依存 | `apt-get install docker.io docker-buildx build-essential` | Xcode CLT・Homebrew・colima / docker / docker-buildx がそろっているかを確かめる |
+| Docker の起動 | `systemctl enable --now docker` と docker グループ | runner ユーザーで `brew services start colima`（runner ユーザーのログイン後に自動で上がる）。`docker info` が通るまで最大 2 分待つ |
+| サービス | systemd（`svc.sh` が unit を作る） | launchd（`svc.sh` が `~/Library/LaunchAgents/` に plist を作る。`svc.sh` は root を拒否するので runner ユーザーとして呼ぶ） |
+| `.path` のガード | drop-in の `ExecStartPre=` | plist の `ProgramArguments` を `path-guard.sh --exec <runner dir> <home>` に差し替える。ガードが `.path` を直してから `runsvc.sh` へ `exec` する。起動のたびに走り、修復内容は `~/Library/Logs/<label>/stdout.log` に出る |
+| 安定 PATH | `/opt/nvim/bin`・`/usr/games`・`/snap/bin` など | `/opt/homebrew/bin`・`/opt/homebrew/sbin` を入れ、Linux 専用のものを外す（定義は `runner_stable_path`） |
+| 5/5 確認 | `/proc` の `Runner.Listener` の PATH と docker グループ | `/proc` も docker グループも無いので、runner ユーザーの最小環境で `docker info` / `docker buildx version` と、`.path` の PATH で `node` / `npx` / `cc` が引けるかを確かめる |
+| runner のラベル | `[self-hosted, linux, x64]` | `[self-hosted, macOS, ARM64]` |
+
+稼働中の runner に `.path` / `.env` / plist の変更を反映するときは、ジョブが無ければ `svc.sh stop` / `start` で再起動する（ジョブ実行中は再起動せず、手順を案内する）。launchd の `svc.sh start` は読み込み済みだと失敗するため、稼働中は呼ばない。2 回続けて回しても、plist・`.path` は書き換わらず、再起動もしない。
+
+注意:
+
+- runner も colima も runner ユーザーの LaunchAgent なので、そのユーザーが macOS にログインしている間だけ動く。再起動後も動かすには、そのユーザーの自動ログインを設定する。
+- `docker buildx` が見つからないときは、`brew info docker-buildx` の caveats に従い `~/.docker/config.json` の `cliPluginsExtraDirs` に `/opt/homebrew/lib/docker/cli-plugins` を足す。
+- fnm の `aliases/default/bin` は Linux と同じ `~/.local/share/fnm` 配下を前提にしている（`runner_stable_path` / ガードの判定とも）。
+- `tests/runner_host_setup_test.sh` は Linux 上で uname / sudo / brew / launchctl などをスタブに差し替えて分岐を確かめる。launchd・colima・brew services の実機での動きは確かめていない。
 
 ## 注意
 
