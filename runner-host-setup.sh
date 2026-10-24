@@ -434,7 +434,7 @@ if [ "$OS" = Darwin ]; then
 		echo "  NG: $RUNNER_USER で docker info が通りません（colima status を確認）" >&2
 	fi
 	runner_exec docker buildx version \
-		|| echo "  NG: docker buildx が使えません（brew の docker-buildx の caveats を参照: ~/.docker/config.json の cliPluginsExtraDirs に /opt/homebrew/lib/docker/cli-plugins を足す）" >&2
+		|| echo "  NG: docker buildx が使えません（runner-tools-install.sh が ~/.docker/config.json の cliPluginsExtraDirs に足しているはずです。make runner-tools を流し直し、brew info docker-buildx の caveats と見比べてください）" >&2
 	echo "--- .path の PATH から node / npx / cc ---"
 	# .path が PATH の正（runsvc.sh が丸ごと上書きする）。それだけを頼りに引けるかを見る。
 	if sudo -u "$RUNNER_USER" -H env -i HOME="$home" PATH="$(<"$path_file")" bash --noprofile --norc -c 'command -v node npx cc'; then

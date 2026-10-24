@@ -13,6 +13,8 @@
 # 入れるもの:
 #   macOS : Homebrew で colima docker docker-buildx fnm gh jq shellcheck fish
 #           ＋ fnm で Node.js LTS（default に設定）
+#           ＋ ~/.docker/config.json に docker context colima（currentContext）と buildx のプラグインの場所
+#             （cliPluginsExtraDirs）。colima の docker に繋がり、docker buildx が使えるようにする
 #   Linux : apt で jq shellcheck fish、install.sh と同じ関数（lib/tools/）で fnm と gh、
 #           ＋ fnm で Node.js LTS（default に設定）
 #
@@ -81,6 +83,67 @@ report_apple_extras() {
 	fi
 }
 
+# colima の docker に runner ユーザー（ジョブ・docker info の確認・対話シェル）から繋がるようにする。
+# どれも runner ユーザーの ~/.docker/config.json に書くので、sudo も環境変数も要らず、再起動後も残る。
+#   1. docker context: colima の socket（~/.colima/default/docker.sock。colima の既定プロファイル）を指す
+#      context "colima" が無ければ作り、currentContext にする。無いと docker は /var/run/docker.sock を見て失敗する。
+#      colima 自身も起動時に同名の context を作ることがあるので、あれば作らずそのまま使う。
+#      runner 専用ホストの前提で、currentContext が別の値でも colima に切り替える（切り替えたことは表示する）。
+#   2. cliPluginsExtraDirs: brew の docker-buildx は $(brew --prefix)/lib/docker/cli-plugins に入るが、
+#      docker CLI の探索先に無いので `docker buildx` が unknown command になる。その場所を足す。
+# 他のキーは残したまま足す。すでに設定済みなら何も書かない（何度流しても同じ結果）。
+ensure_docker_config() {
+	if ! command -v docker >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+		warn "docker または jq が見つからないため、docker の設定（context / buildx）をスキップ"
+		return
+	fi
+	local docker_dir="$HOME/.docker" cfg="$HOME/.docker/config.json" socket="$HOME/.colima/default/docker.sock"
+	local plugin_dir tmp current
+	mkdir -p "$docker_dir"
+	[ -s "$cfg" ] || echo '{}' >"$cfg"
+	if ! jq empty "$cfg" >/dev/null 2>&1; then
+		warn "${cfg} が JSON として読めないため、docker の設定（context / buildx）をスキップ（壊れた設定は上書きしません）"
+		note_failure docker-config
+		return
+	fi
+
+	plugin_dir="$(brew --prefix 2>/dev/null)/lib/docker/cli-plugins"
+	if [ ! -d "$plugin_dir" ]; then
+		warn "docker-buildx のプラグインの場所が見つかりません（${plugin_dir}）。docker buildx は使えません。"
+	elif jq -e --arg d "$plugin_dir" '(.cliPluginsExtraDirs // []) | index($d)' "$cfg" >/dev/null 2>&1; then
+		log "cliPluginsExtraDirs は設定済み（${plugin_dir}）"
+	else
+		tmp=$(mktemp)
+		if jq --arg d "$plugin_dir" '.cliPluginsExtraDirs = ((.cliPluginsExtraDirs // []) + [$d])' "$cfg" >"$tmp"; then
+			cat "$tmp" >"$cfg"
+			log "cliPluginsExtraDirs に ${plugin_dir} を追加（docker buildx 用）"
+		else
+			warn "cliPluginsExtraDirs の設定に失敗"
+			note_failure docker-config
+		fi
+		rm -f "$tmp"
+	fi
+
+	if ! docker context inspect colima >/dev/null 2>&1; then
+		log "docker context colima を作成（${socket}）"
+		docker context create colima --docker "host=unix://${socket}" >/dev/null || {
+			warn "docker context colima の作成に失敗"
+			note_failure docker-config
+			return
+		}
+	fi
+	current=$(jq -r '.currentContext // "default"' "$cfg" 2>/dev/null || echo default)
+	if [ "$current" = colima ]; then
+		log "docker の currentContext は colima のまま"
+	else
+		log "docker の currentContext を ${current} から colima に切り替え"
+		docker context use colima >/dev/null || {
+			warn "docker context use colima に失敗"
+			note_failure docker-config
+		}
+	fi
+}
+
 install_macos() {
 	# Xcode コマンドラインツール（C コンパイラ cc）。go test -race の cgo に必要。
 	if ! xcode-select -p >/dev/null 2>&1; then
@@ -118,6 +181,7 @@ install_macos() {
 		fi
 	done
 
+	ensure_docker_config
 	ensure_node_default
 	report_apple_extras
 }

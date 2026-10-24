@@ -375,7 +375,7 @@ Linux との違い:
 | ユーザーのホーム | `getent passwd` | `dscl . -read /Users/<user> NFSHomeDirectory` |
 | `/etc/sudoers.d/github-runner` のグループ | `root` | `wheel`（`visudo -c` で検証してから置くのは同じ） |
 | 依存 | `apt-get install docker.io docker-buildx build-essential` | Xcode CLT・Homebrew の有無を確かめ（無ければ案内して止まる）、colima / docker / docker-buildx などは `runner-tools-install.sh` が brew で入れる |
-| Docker の起動 | `systemctl enable --now docker` と docker グループ | runner ユーザーで `brew services start colima`（runner ユーザーのログイン後に自動で上がる）。`docker info` が通るまで最大 2 分待つ |
+| Docker の起動 | `systemctl enable --now docker` と docker グループ | runner ユーザーで `brew services start colima`（runner ユーザーのログイン後に自動で上がる）。`docker info` が通るまで最大 2 分待つ。docker CLI は `~/.docker/config.json` の docker context `colima` で colima に繋ぐ（下記） |
 | サービス | systemd（`svc.sh` が unit を作る） | launchd（`svc.sh` が `~/Library/LaunchAgents/` に plist を作る。`svc.sh` は root を拒否するので runner ユーザーとして呼ぶ） |
 | `.path` のガード | drop-in の `ExecStartPre=` | plist の `ProgramArguments` を `path-guard.sh --exec <runner dir> <home>` に差し替える。ガードが `.path` を直してから `runsvc.sh` へ `exec` する。起動のたびに走り、修復内容は `~/Library/Logs/<label>/stdout.log` に出る |
 | 安定 PATH | `/opt/nvim/bin`・`/usr/games`・`/snap/bin` など | `/opt/homebrew/bin`・`/opt/homebrew/sbin` を入れ、Linux 専用のものを外す（定義は `runner_stable_path`） |
@@ -386,7 +386,10 @@ Linux との違い:
 
 注意:
 
-- `docker buildx` が見つからないときは、`brew info docker-buildx` の caveats に従い `~/.docker/config.json` の `cliPluginsExtraDirs` に `/opt/homebrew/lib/docker/cli-plugins` を足す。
+- **docker の接続と buildx**: colima の docker は `~/.colima/default/docker.sock` で待ち受けるが、docker CLI の既定は `/var/run/docker.sock` なので、そのままでは `docker info` が失敗する。brew の `docker-buildx` も、CLI の探索先に無いため `docker buildx` が unknown command になる。そこで `runner-tools-install.sh` が、runner ユーザーの `~/.docker/config.json` に次を書く（sudo も環境変数も要らず、再起動後も残る。他のキーは残し、設定済みなら何も書かない）。
+  - docker context `colima`（socket は `~/.colima/default/docker.sock`。colima が作っていればそのまま使う）を作り、`currentContext` にする。runner 専用ホストの前提で、別の context が選ばれていても `colima` に切り替える。
+  - `cliPluginsExtraDirs` に `$(brew --prefix)/lib/docker/cli-plugins` を足す。
+  `config.json` が JSON として壊れているときは上書きせず、失敗として報告する。colima を既定以外のプロファイルで動かす構成は対象外。
 - fnm の `aliases/default/bin` は、macOS では公式インストーラの既定（`~/Library/Application Support/fnm`。`lib/tools/fnm.sh` が使う）と、Linux と同じ `~/.local/share/fnm` の両方を安定 PATH に入れ、ガードもどちらかにあれば正常とみなす。Homebrew 版の fnm（`/opt/homebrew/bin/fnm`）は `aliases/default/bin` の場所が上と同じになるかを実機で確かめていない。
 - `tests/runner_host_setup_test.sh` / `tests/runner_tools_install_test.sh` は Linux 上で uname / sudo / brew / launchctl などをスタブに差し替えて分岐を確かめる（実際のインストールはしない）。launchd・colima・brew services の実機での動きは確かめていない。
 
@@ -396,7 +399,7 @@ Linux との違い:
 
 | OS | 入れるもの |
 |---|---|
-| macOS | Homebrew で `colima` `docker` `docker-buildx` `fnm` `gh` `jq` `shellcheck` `fish`、fnm で Node.js LTS（default に設定。runner の安定 PATH は fnm の `aliases/default/bin` を指すため） |
+| macOS | Homebrew で `colima` `docker` `docker-buildx` `fnm` `gh` `jq` `shellcheck` `fish`、fnm で Node.js LTS（default に設定。runner の安定 PATH は fnm の `aliases/default/bin` を指すため）、`~/.docker/config.json` の docker context と `cliPluginsExtraDirs`（上の「docker の接続と buildx」） |
 | Linux | `apt` で `jq` `shellcheck` `fish`、`install.sh` と同じ関数（`lib/tools/fnm.sh` / `lib/tools/gh.sh`）で `fnm` と `gh`、fnm で Node.js LTS。Docker / Buildx / build-essential は `runner-host-setup.sh` が入れるので、`make runner-setup` からは呼ばず、単体で `make runner-tools` したときだけ使う |
 
 入れない（案内か表示だけ）もの:

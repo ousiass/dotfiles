@@ -33,6 +33,13 @@ calls() { echo $(( $(grep -c "$1" "$STUB_LOG" || true) )); }
 
 # 入っている扱いのコマンド（brew formula 名・コマンド名）の一覧ファイル。1 行 1 つ。
 export STUB_INSTALLED="$tmp/installed"
+# brew --prefix の値。brew の docker-buildx が置かれる場所（lib/docker/cli-plugins）もここに作る。
+export STUB_BREW_PREFIX="$tmp/brew-prefix"
+plugin_dir="$STUB_BREW_PREFIX/lib/docker/cli-plugins"
+mkdir -p "$plugin_dir"
+# docker context の一覧（1 行 1 つ）。docker のスタブが inspect / create / use で読み書きする。
+export STUB_CONTEXTS="$tmp/contexts"
+docker_cfg="$tmp/home/.docker/config.json"
 
 stubs="$tmp/bin"
 mkdir -p "$stubs" "$tmp/home"
@@ -40,9 +47,17 @@ mkdir -p "$stubs" "$tmp/home"
 stub() { cat >"$1"
     chmod +x "$1"; }
 
-# スクリプトとスタブが使う外部コマンドのうち、スタブにしないもの（dirname / grep）は実物を使う。
-ln -s "$(command -v dirname)" "$stubs/dirname"
-ln -s "$(command -v grep)" "$stubs/grep"
+# スクリプトとスタブが使う外部コマンドのうち、スタブにしないものは実物を使う（許可リスト）。
+# 検査の対象（brew / docker / fnm / gh / apt-get / curl / sudo / security など）は張らず、PATH はこのディレクトリだけにする。
+for c in dirname grep mkdir cat mktemp rm; do
+    ln -s "$(command -v "$c")" "$stubs/$c"
+done
+# ~/.docker/config.json の編集（JSON のマージ）は jq。これも実物を使う（無い環境では、その検査だけ飛ばす）。
+have_jq=0
+if command -v jq >/dev/null 2>&1; then
+    ln -s "$(command -v jq)" "$stubs/jq"
+    have_jq=1
+fi
 
 stub "$stubs/uname" <<'EOF'
 #!/bin/bash
@@ -65,6 +80,7 @@ stub "$stubs/brew" <<'EOF'
 #!/bin/bash
 echo "brew $*" >>"$STUB_LOG"
 case "$1" in
+--prefix) echo "$STUB_BREW_PREFIX" ;;
 list) grep -qxF "$3" "$STUB_INSTALLED" ;;
 install)
     case " ${STUB_BREW_INSTALL_FAIL:-} " in *" $2 "*) exit 1 ;; esac
@@ -86,6 +102,20 @@ fi
 exit 0
 EOF
 export STUB_NODE_DEFAULT="$tmp/node-default"
+# docker: context の inspect / create / use だけを模す。use は config.json の currentContext を書き換える（実物と同じ）。
+stub "$stubs/docker" <<'EOF'
+#!/bin/bash
+echo "docker $*" >>"$STUB_LOG"
+case "$1 $2" in
+"context inspect") grep -qxF "$3" "$STUB_CONTEXTS" ;;
+"context create") echo "$3" >>"$STUB_CONTEXTS" ;;
+"context use")
+    t=$(mktemp)
+    jq --arg c "$3" '.currentContext = $c' "$HOME/.docker/config.json" >"$t" && cat "$t" >"$HOME/.docker/config.json"
+    rm -f "$t"
+    ;;
+esac
+EOF
 stub "$stubs/curl" <<'EOF'
 #!/bin/bash
 echo "curl $*" >>"$STUB_LOG"
@@ -105,6 +135,9 @@ reset() { # reset [installed formula ...]
     : >"$STUB_LOG"
     : >"$STUB_INSTALLED"
     rm -f "$STUB_NODE_DEFAULT"
+    rm -rf "$tmp/home/.docker"
+    : >"$STUB_CONTEXTS"
+    mkdir -p "$plugin_dir"
     local f
     for f in "$@"; do echo "$f" >>"$STUB_INSTALLED"; done
 }
@@ -205,6 +238,72 @@ run STUB_IDENTITIES=2
 check_match "Xcode 本体あり: あると表示する"      "Xcode 本体: あり" "$out"
 check_match "署名証明書あり: あると表示する"      "コード署名の証明書: あり" "$out"
 
+# --- macOS: colima の docker に繋ぐ設定（~/.docker/config.json）。実機で docker info が通らず、
+#     docker buildx が unknown command になった（#53）。jq が無い環境ではこの検査だけ飛ばす ------------------
+if [[ "$have_jq" -eq 1 ]]; then
+    socket="$tmp/home/.colima/default/docker.sock"
+
+    # 初回: context colima を作って currentContext にし、buildx のプラグインの場所を足す
+    reset $all_formulae
+    : >"$STUB_NODE_DEFAULT"
+    run
+    check_eq    "docker 設定 初回: 成功する"                          0 "$rc"
+    check_eq    "docker 設定 初回: context colima を colima の socket で作る" 1 "$(calls "^docker context create colima --docker host=unix://${socket}\$")"
+    check_eq    "docker 設定 初回: currentContext が colima"          colima "$(jq -r '.currentContext' "$docker_cfg")"
+    check_eq    "docker 設定 初回: cliPluginsExtraDirs に buildx の場所" "$plugin_dir" "$(jq -r '.cliPluginsExtraDirs[0]' "$docker_cfg")"
+
+    # 2 回目: 何も書き換えず、context も作り直さない
+    before=$(cat "$docker_cfg")
+    : >"$STUB_LOG"
+    run
+    check_eq    "docker 設定 2 回目: 成功する"                        0 "$rc"
+    check_eq    "docker 設定 2 回目: config.json は変わらない"        "$before" "$(cat "$docker_cfg")"
+    check_eq    "docker 設定 2 回目: context を作り直さない"          0 "$(calls '^docker context create')"
+    check_eq    "docker 設定 2 回目: context use しない"              0 "$(calls '^docker context use')"
+    check_eq    "docker 設定 2 回目: cliPluginsExtraDirs は 1 件のまま" 1 "$(jq '.cliPluginsExtraDirs | length' "$docker_cfg")"
+
+    # 既存の設定（他のキー・別の currentContext・別のプラグインの場所）は残し、currentContext だけ colima にする
+    reset $all_formulae
+    : >"$STUB_NODE_DEFAULT"
+    mkdir -p "$tmp/home/.docker"
+    echo '{"auths":{"example.com":{}},"currentContext":"desktop-linux","cliPluginsExtraDirs":["/other/plugins"]}' >"$docker_cfg"
+    run
+    check_eq    "docker 設定 既存: 成功する"                          0 "$rc"
+    check_eq    "docker 設定 既存: 他のキー（auths）を残す"           '{"example.com":{}}' "$(jq -c '.auths' "$docker_cfg")"
+    check_eq    "docker 設定 既存: 別の currentContext は colima に切り替える" colima "$(jq -r '.currentContext' "$docker_cfg")"
+    check_eq    "docker 設定 既存: 別のプラグインの場所を残して足す"   "/other/plugins $plugin_dir" "$(jq -r '.cliPluginsExtraDirs | join(" ")' "$docker_cfg")"
+
+    # colima が自分で context を作っていれば、作り直さずに使う
+    reset $all_formulae
+    : >"$STUB_NODE_DEFAULT"
+    echo colima >"$STUB_CONTEXTS"
+    run
+    check_eq    "docker 設定 colima 作成済み: 成功する"               0 "$rc"
+    check_eq    "docker 設定 colima 作成済み: 作り直さない"           0 "$(calls '^docker context create')"
+    check_eq    "docker 設定 colima 作成済み: currentContext が colima" colima "$(jq -r '.currentContext' "$docker_cfg")"
+
+    # 壊れた config.json は上書きせず、失敗として報告する
+    reset $all_formulae
+    : >"$STUB_NODE_DEFAULT"
+    mkdir -p "$tmp/home/.docker"
+    echo '{ broken' >"$docker_cfg"
+    run
+    check_eq    "docker 設定 壊れた JSON: 失敗で終わる"               1 "$rc"
+    check_match "docker 設定 壊れた JSON: 報告する"                   "インストールできなかったもの: docker-config" "$out"
+    check_eq    "docker 設定 壊れた JSON: 上書きしない"               '{ broken' "$(cat "$docker_cfg")"
+
+    # buildx のプラグインの場所が無ければ（docker-buildx 未導入など）、警告だけで currentContext は設定する
+    reset $all_formulae
+    : >"$STUB_NODE_DEFAULT"
+    rmdir "$plugin_dir"
+    run
+    check_eq    "docker 設定 buildx 無し: 成功する"                   0 "$rc"
+    check_match "docker 設定 buildx 無し: 警告する"                   "docker-buildx のプラグインの場所が見つかりません" "$out"
+    check_eq    "docker 設定 buildx 無し: cliPluginsExtraDirs を足さない" null "$(jq '.cliPluginsExtraDirs' "$docker_cfg")"
+    check_eq    "docker 設定 buildx 無し: currentContext は colima"   colima "$(jq -r '.currentContext' "$docker_cfg")"
+    mkdir -p "$plugin_dir"
+fi
+
 # --- Linux: 足りない apt パッケージだけを入れる（fnm / gh は入っている扱いで curl を呼ばせない） ---
 # Linux は apt-get と sudo をスタブにする。jq / fnm / gh / node default は入っている扱い。
 reset
@@ -220,6 +319,7 @@ stub "$lbin/sudo" <<'EOF'
 #!/bin/bash
 exec "$@"
 EOF
+rm -f "$lbin/jq"
 stub "$lbin/jq" <<'EOF'
 #!/bin/bash
 EOF
