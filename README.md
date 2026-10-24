@@ -318,7 +318,7 @@ make runner-setup
 ```
 
 - **取得**: `RUNNER_DIR`（既定 `~/actions-runner`）に `config.sh` が無ければ、GitHub の最新の `actions/runner` リリースを OS と CPU に合わせて落とす（macOS は `osx-arm64`、Linux は `linux-x64` / `linux-arm64`。それ以外の CPU は対象外として止まる。ダウンロードは https のみ・TLS 1.2 以上）。リリースが資産ごとに持つ sha256 の digest と照合し、一致しなければ展開しない（digest が無いリリースも入れない）。展開は作業ディレクトリで検証してから `RUNNER_DIR` へ移し、`config.sh` は最後に置く（在る = 展開が完了している）。展開を始めると `.runner-extracting` を置き、`config.sh` の後に消す。展開先に今回の展開物と無関係なもの（展開物と同名でも、マーカーが無ければ）があれば、何も消さず止まる（`RUNNER_DIR` の指定ミスで他のディレクトリを壊さない）。マーカーが残っていれば前回の途中で止まった残りなので、展開物と同名のものは入れ子にならないよう置き換える。ディレクトリは親が在るときだけ新しく作り、そのときだけ所有者を runner ユーザーにする（既存のディレクトリは書き込めるかだけ確かめる）。Linux は `bin/installdependencies.sh`（apt。root）を、未登録のあいだ毎回流す（冪等。前回 apt が失敗して止まっても、再実行で入る）。
-- **登録**: `.runner` が無ければ `config.sh --unattended` で登録する。登録トークンは `gh api -X POST orgs/<org>/actions/runners/registration-token` でその場で発行し、`config.sh` の環境変数 `ACTIONS_RUNNER_INPUT_TOKEN` にだけ渡す（`--token` 引数・ファイル・ログ・`ps` に出ない。`GH_DEBUG` / `DEBUG` は gh に渡さない）。org・名前・group は変数で指定する（下記）。**`--replace` は既定で付けない**: `RUNNER_DIR` の指定ミスや 2 台目の登録で、稼働中の既存 runner を黙って追い出さないため。同名の runner が org に既にあると登録は失敗し、置き換えるつもりなら `RUNNER_REPLACE=1` を付けて再実行する案内を出す。登録済み（`.runner` がある）ときは、取得も登録も、入力の検証も飛ばして従来どおり進む。
+- **登録**: `.runner` が無ければ `config.sh --unattended` で登録する。登録トークンは `gh api -X POST orgs/<org>/actions/runners/registration-token` でその場で発行し、`config.sh` の環境変数 `ACTIONS_RUNNER_INPUT_TOKEN` にだけ渡す（`--token` 引数・ファイル・ログに出ず、`ps` の引数にも出ない。`GH_DEBUG` / `DEBUG` は gh に渡さない）。**限界**: 環境変数は `config.sh` が終わるまで、同じユーザーと root からは読める（`/proc/<pid>/environ` や `ps eww`）。トークンは 1 時間で失効し、登録 1 回にしか使えない。org・名前・group は変数で指定する（下記）。**`--replace` は既定で付けない**: `RUNNER_DIR` の指定ミスや 2 台目の登録で、稼働中の既存 runner を黙って追い出さないため。同名の runner が org に既にあると `config.sh` が失敗するので、別の `RUNNER_NAME` を指定するか、置き換えてよいなら `RUNNER_REPLACE=1` を付けて再実行する（失敗時にこの案内を出す）。登録済み（`.runner` がある）ときは、取得も登録も、入力の検証も飛ばして従来どおり進む。`RUNNER_DIR` は絶対パスで指定する（取得・登録は runner ユーザーが `/` を cwd にして実行するため）。
 - **ラベル**: 既定ラベルは使わず（`--no-default-labels`）、OS と CPU から付ける。macOS は `self-hosted, macOS, ARM64`、Linux は `self-hosted, linux, x64`（arm64 の Linux は `linux, arm64`）。
 - **権限**: ディレクトリの作成・`chown`・Linux の依存パッケージ・サービス化（Linux の `svc.sh`）は root（sudo）。取得・展開・`gh`・`config.sh` は runner ユーザーで実行する（`config.sh` は root を拒否し、`gh` の認証も runner ユーザーのもの）。macOS の `svc.sh` は従来どおり runner ユーザー。
 - **前提**: runner ユーザーの `gh` が org の runner を登録できる権限（`admin:org`）で認証済みであること。足りなければ、Linux は sudoers・apt を触る前に、macOS は 2/5（brew でツールを入れた直後。colima を起動して待つ前）に、入れ方・ログイン方法を案内して止まる。`gh` が PATH に無い場所にあるときは `RUNNER_GH_BIN=/path/to/gh` で指す（`sudo bash runner-host-setup.sh` で直接実行するとき）。なお `gh auth status` は scope まで見ないので、scope 不足は登録時（403）まで分からない。
@@ -358,7 +358,7 @@ docker run --rm --network=host alpine nslookup proxy.golang.org  # bridge だけ
 
 ### macOS（Apple Silicon）
 
-同じ `make runner-setup` が macOS でも動く。`uname -s` で OS を見て Linux と macOS の処理を分けており、Linux の動きは変わらない。対象は Apple Silicon（arm64）の Mac だけで、Intel の Mac では対象外であることを示して止まる（Rosetta 下の端末は `sysctl -n hw.optional.arm64` で見分ける）。Docker は colima を使い、Docker Desktop は対象外。
+同じ `make runner-setup` が macOS でも動く。`uname -s` で OS を見て Linux と macOS の処理を分けており、Linux のサービス化・PATH・docker の流れは変わらない（runner 本体の取得・登録は両 OS 共通で、冒頭の節のとおり）。対象は Apple Silicon（arm64）の Mac だけで、Intel の Mac では対象外であることを示して止まる（Rosetta 下の端末は `sysctl -n hw.optional.arm64` で見分ける）。Docker は colima を使い、Docker Desktop は対象外。
 
 **前提（決まっている運用）**
 
@@ -366,7 +366,7 @@ docker run --rm --network=host alpine nslookup proxy.golang.org  # bridge だけ
 - **再起動後の自動ログインは、スクリプトでは設定しない。** 再起動のあとも runner を動かしたいなら、システム設定の「ユーザとグループ」で自動ログインを自分で設定する（FileVault が有効だと自動ログインは使えない）。
 - colima の CPU・メモリ・ディスクは、スクリプトでは指定せず colima の既定値のまま（`brew services start colima` で起動する）。変えたいときは `colima start --edit` などで colima 側の設定を直す。
 
-先に次の 2 つだけ済ませておく（Xcode CLT と Homebrew は、足りなければ入れ方を案内して止まり、スクリプトは入れない）。
+先に次の 2 つだけ済ませておく（Xcode CLT と Homebrew は、足りなければ入れ方を案内して止まり、スクリプトは入れない）。さらに、runner 本体が無い新品の Mac では、gh の認証（`make runner-tools` → `gh auth login -s admin:org`）が 3 つ目の前提になる。gh は 2/5 で入るが未認証なので、未認証のまま `make runner-setup` を流すと、2/5 の直後（colima を起動する前）に案内して止まる。認証してから、もう一度流す。
 
 ```bash
 xcode-select --install   # C コンパイラ（cc）。go test -race の cgo に必要。GUI の確認が出るので自動化しない

@@ -143,8 +143,23 @@ if [ ! -f "$RUNNER_DIR/.runner" ]; then
 	# 既定は ousiassllc の Linux ホストのやり方: org 登録・Default グループ・ホスト名。
 	# org・名前・group は API のパスや引数に入るので、英数字と - _ . だけを許す（group は空白も可）。
 	RUNNER_ORG="${RUNNER_ORG:-ousiassllc}"
-	RUNNER_NAME="${RUNNER_NAME:-$(hostname -s)}"
+	RUNNER_NAME="${RUNNER_NAME:-$(hostname -s || true)}"
 	RUNNER_GROUP="${RUNNER_GROUP:-Default}"
+	# 取得・登録は runner ユーザーが / を cwd にして実行するので、相対パスだと root と見る場所がずれる。
+	case "$RUNNER_DIR" in
+	/*) ;;
+	*)
+		echo "RUNNER_DIR は絶対パスで指定してください: ${RUNNER_DIR}" >&2
+		exit 1
+		;;
+	esac
+	case "${RUNNER_REPLACE:-}" in
+	"" | 0 | 1) ;;
+	*)
+		echo "RUNNER_REPLACE は 1（置き換える）か空（置き換えない）で指定してください: ${RUNNER_REPLACE}" >&2
+		exit 1
+		;;
+	esac
 	re_org='^[A-Za-z0-9][A-Za-z0-9-]*$'
 	re_name='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 	re_group='^[A-Za-z0-9][A-Za-z0-9._ -]*$'
@@ -154,7 +169,7 @@ if [ ! -f "$RUNNER_DIR/.runner" ]; then
 	fi
 	# 登録に要るものを、sudoers・apt・brew より前に確かめて早く止まる。
 	# gh は RUNNER_GH_BIN で指定できる（既定は PATH の gh。macOS は /opt/homebrew/bin を足して探す）。
-	runner_gh_bin="${RUNNER_GH_BIN-$(command -v gh || true)}"
+	runner_gh_bin="${RUNNER_GH_BIN:-$(command -v gh || true)}"
 	if ! runner_labels=$(runner_default_labels "$OS" "$runner_machine"); then
 		echo "対象外です: この OS / CPU の runner は登録できません: ${OS} ${runner_machine}" >&2
 		exit 1
@@ -261,7 +276,7 @@ if [ "$OS" = Darwin ]; then
 	echo "  runner に要るツール: そろっている"
 	# gh は、いま入ったばかりかもしれないので解決し直す。未登録なら、colima を起動して待つ前に確かめて止まる。
 	if [ ! -f "$RUNNER_DIR/.runner" ]; then
-		runner_gh_bin="${RUNNER_GH_BIN-$(command -v gh || true)}"
+		runner_gh_bin="${RUNNER_GH_BIN:-$(command -v gh || true)}"
 		runner_gh_ready "$RUNNER_USER" "$runner_gh_bin" || exit 1
 	fi
 
@@ -334,7 +349,11 @@ else
 	# gh は Linux が冒頭、macOS が 2/5 の直後に確認済み（runner_gh_bin に解決済み）。
 	if [ -x "$RUNNER_DIR/config.sh" ]; then
 		echo "  runner 本体は取得済み: $RUNNER_DIR"
+		# 展開の最後（config.sh の後、マーカーを消す前）で止まった場合の残りを片付ける
+		rm -f "$RUNNER_DIR/.runner-extracting"
 	else
+		echo "  runner が無いので新規に取得・登録します: $RUNNER_DIR"
+		echo "  （別の場所に既存の runner があるなら中断し、RUNNER_DIR=<path> を指定してください）"
 		runner_fetch "$OS" "$runner_machine" "$RUNNER_USER" "$RUNNER_DIR" "$runner_gh_bin"
 	fi
 	# 依存パッケージは冪等。前回 apt が失敗して止まっても、再実行で入る（Linux のみ。root）。

@@ -712,7 +712,9 @@ echo "config.sh $*" >>"$STUB_LOG"
 echo "config.sh cwd=$PWD" >>"$STUB_LOG"
 case "$*" in *"$STUB_TOKEN"*) echo "LEAK: token in argv" >>"$STUB_LOG" ;; esac
 [ "${ACTIONS_RUNNER_INPUT_TOKEN:-}" = "$STUB_TOKEN" ] && echo "config.sh token-env=ok" >>"$STUB_LOG"
-ps -eo args >"$STUB_PS" 2>/dev/null || true
+# 本物の config.sh は、正しいトークンでなければ（JSON 全体など）登録に失敗する
+[ "${ACTIONS_RUNNER_INPUT_TOKEN:-}" = "$STUB_TOKEN" ] || { echo "config.sh: Http response code: Unauthorized" >&2; exit 1; }
+ps ax -o command >"$STUB_PS" 2>/dev/null || true
 [ -z "${STUB_CONFIG_FAIL:-}" ] || exit 1
 echo '{}' >.runner
 cp "$STUB_SVC_TEMPLATE" svc.sh
@@ -743,8 +745,11 @@ case "$1 $2" in
             {name: "\($b).tar.gz.sha", browser_download_url: "https://example.invalid/x", digest: null} ]}' | jq -r "$4"
     ;;
 "api -X")
+    # 本番と同じ形（POST・登録トークンの URL・--jq）でないと失敗させる。--jq .token が無ければ JSON 全体が
+    # トークンとして渡って config.sh が失敗する、という実 gh の挙動を再現する。
+    [ "$3" = POST ] && case "$4" in orgs/*/actions/runners/registration-token) ;; *) exit 1 ;; esac || exit 1
     [ -z "${STUB_GH_FAIL:-}" ] || { echo "gh: HTTP 403" >&2; exit 1; }
-    echo "$STUB_TOKEN"
+    jq -n --arg t "$STUB_TOKEN" '{token:$t, expires_at:"2099-01-01T00:00:00Z"}' | { [ "$5" = --jq ] && jq -r "$6" || cat; }
     ;;
 *) exit 1 ;;
 esac
@@ -780,7 +785,7 @@ check_token_hidden() {
     if [ "$ran" = ran ]; then
         check_match "$name: ps のスナップショットが取れている（config.sh の引数が見える）" "--no-default-labels" "$(cat "$STUB_PS" 2>/dev/null)"
     fi
-    check_eq       "$name: プロセス一覧にトークンが出ない"     0 "$( { grep -F "$STUB_TOKEN" "$STUB_PS" 2>/dev/null || true; } | wc -l | tr -d ' ' )"
+    check_eq       "$name: プロセス一覧の argv にトークンが出ない（環境変数は対象外）" 0 "$( { grep -F "$STUB_TOKEN" "$STUB_PS" 2>/dev/null || true; } | wc -l | tr -d ' ' )"
 }
 default_name=$(hostname -s)
 
@@ -816,7 +821,7 @@ check_eq    "登録済み: config.sh を呼ばない"                     0 "$(c
 rm -rf "$tmp/fresh-body" "$home/Library"
 mkdir -p "$tmp/fresh-body"
 cp "$tarsrc/config.sh" "$tmp/fresh-body/config.sh"
-: >"$STUB_LOG"; : >"$STUB_LAUNCHD_LIST"
+: >"$STUB_LOG"; : >"$STUB_LAUNCHD_LIST"; rm -f "$STUB_PS"
 fresh="$tmp/fresh-body"
 run_setup RUNNER_DIR="$fresh"
 check_eq    "本体のみ: 成功する"                                 0 "$rc"
@@ -893,7 +898,7 @@ fresh_run nogh-linux "${linux_boot_env[@]}" STUB_UNAME_M=x86_64 RUNNER_GH_BIN=/n
 check_eq    "gh 無し(Linux): 失敗で止まる"                       1 "$rc"
 check_match "gh 無し(Linux): 入れ方を案内する"                   "make runner-tools" "$out"
 check_eq    "gh 無し(Linux): apt を触る前に止まる"               0 "$(calls 'apt-get')"
-fresh_run nogh-mac RUNNER_GH_BIN=""
+fresh_run nogh-mac RUNNER_GH_BIN=/nonexistent/gh
 check_eq    "gh 無し(macOS): 失敗で止まる"                       1 "$rc"
 check_match "gh 無し(macOS): 入れ方を案内する"                   "make runner-tools" "$out"
 fresh_run badname RUNNER_NAME="bad name;rm"
@@ -936,13 +941,18 @@ run_setup RUNNER_DIR="$fresh"
 check_eq    "古い作業ディレクトリ: 成功する"                     0 "$rc"
 check_eq    "古い作業ディレクトリ: 片付く"                       0 "$(find "$fresh" -maxdepth 1 -name '.fetch.*' | wc -l | tr -d ' ')"
 # 書き込めない既存ディレクトリには展開しない（所有者も変えない）
-rm -rf "$tmp/fresh-ro"; mkdir -p "$tmp/fresh-ro"; chmod 555 "$tmp/fresh-ro"
-: >"$STUB_LOG"; fresh="$tmp/fresh-ro"
-run_setup RUNNER_DIR="$fresh"
-check_eq    "書き込めないディレクトリ: 失敗で止まる"             1 "$rc"
-check_match "書き込めないディレクトリ: 理由を出す"               "書き込めません" "$out"
-check_eq    "書き込めないディレクトリ: 所有者を変えない"         0 "$(calls 'chown')"
-chmod 755 "$tmp/fresh-ro"
+# （root は chmod 555 でも書き込めるので、root のときは確かめない）
+if [ "$(id -u)" -ne 0 ]; then
+    rm -rf "$tmp/fresh-ro"; mkdir -p "$tmp/fresh-ro"; chmod 555 "$tmp/fresh-ro"
+    : >"$STUB_LOG"; fresh="$tmp/fresh-ro"
+    run_setup RUNNER_DIR="$fresh"
+    check_eq    "書き込めないディレクトリ: 失敗で止まる"             1 "$rc"
+    check_match "書き込めないディレクトリ: 理由を出す"               "書き込めません" "$out"
+    check_eq    "書き込めないディレクトリ: 所有者を変えない"         0 "$(calls 'chown')"
+    chmod 755 "$tmp/fresh-ro"
+else
+    ok "書き込めないディレクトリ: root では確かめない"
+fi
 # 親ディレクトリが無ければ作らずに止まる（root 所有の中間ディレクトリを残さない）
 : >"$STUB_LOG"; fresh="$tmp/no-parent/actions-runner"
 run_setup RUNNER_DIR="$fresh"
@@ -981,8 +991,54 @@ run_setup STUB_GH_UNAUTH=1
 check_eq    "登録済み(macOS): gh が未認証でも進む"               0 "$rc"
 check_eq    "登録済み(macOS): gh の認証を確かめない"             0 "$(calls 'gh auth status')"
 
+# (9f) 登録済み（.runner あり）のホストは、入力の検証も gh も CPU 判定も飛ばして従来どおり進む（回帰防止）
+rm -f "$runner_dir/.service"; rm -rf "$home/Library"; : >"$STUB_LOG"
+run_setup RUNNER_NAME="bad name;rm" RUNNER_GROUP="-x" RUNNER_REPLACE=bogus RUNNER_GH_BIN=/nonexistent/gh
+check_eq    "登録済み: 不正な変数があっても進む"                 0 "$rc"
+check_eq    "登録済み: 検証で止まらない"                         0 "$(printf '%s' "$out" | grep -c '使えない文字')"
+
+# (9g) 相対パスの RUNNER_DIR・不正な RUNNER_REPLACE は、何も取得せず止まる
+fresh_run relpath RUNNER_DIR=rel/runner
+check_eq    "相対パスの RUNNER_DIR: 止まる"                      1 "$rc"
+check_match "相対パスの RUNNER_DIR: 絶対パスを案内する"          "絶対パスで指定してください" "$out"
+check_eq    "相対パスの RUNNER_DIR: 何も取得しない"              0 "$(( $(calls 'curl') + $(calls 'config.sh') ))"
+fresh_run badreplace RUNNER_REPLACE=yes
+check_eq    "不正な RUNNER_REPLACE: 止まる"                      1 "$rc"
+check_match "不正な RUNNER_REPLACE: 理由を出す"                  "RUNNER_REPLACE は 1" "$out"
+
+# (9h) マーカーの再開: 展開物に無いものがあれば消さず止まる／config.sh まで済んでいればマーカーを片付けて登録へ
+rm -rf "$tmp/fresh-resume-x"; mkdir -p "$tmp/fresh-resume-x/bin"; : >"$tmp/fresh-resume-x/.runner-extracting"; echo mine >"$tmp/fresh-resume-x/my-notes.txt"
+: >"$STUB_LOG"; fresh="$tmp/fresh-resume-x"
+run_setup RUNNER_DIR="$fresh"
+check_eq    "再開(展開物に無い物あり): 失敗で止まる"             1 "$rc"
+check_match "再開(展開物に無い物あり): 理由を出す"               "前回の展開の続きですが" "$out"
+check_eq    "再開(展開物に無い物あり): 既存のファイルを残す"     mine "$(cat "$fresh/my-notes.txt")"
+rm -rf "$tmp/fresh-resume-done" "$home/Library"; mkdir -p "$tmp/fresh-resume-done"
+cp "$tarsrc/config.sh" "$tmp/fresh-resume-done/config.sh"; : >"$tmp/fresh-resume-done/.runner-extracting"
+: >"$STUB_LOG"; : >"$STUB_LAUNCHD_LIST"; fresh="$tmp/fresh-resume-done"
+run_setup RUNNER_DIR="$fresh"
+check_eq    "再開(config.sh まで済み): 成功する"                 0 "$rc"
+check_eq    "再開(config.sh まで済み): 再ダウンロードしない"     0 "$(calls 'curl')"
+check_eq    "再開(config.sh まで済み): マーカーを片付ける"       0 "$([ -e "$fresh/.runner-extracting" ] && echo 1 || echo 0)"
+check_eq    "再開(config.sh まで済み): 登録する"                 1 "$(calls 'config.sh --unattended')"
+# 無関係な中身は、ダウンロードする前に断る
+rm -rf "$tmp/fresh-early"; mkdir -p "$tmp/fresh-early"; echo precious >"$tmp/fresh-early/my-notes.txt"; : >"$STUB_LOG"; fresh="$tmp/fresh-early"
+run_setup RUNNER_DIR="$fresh"
+check_eq    "無関係な中身: ダウンロードする前に止まる"           0 "$(calls 'curl')"
+check_eq    "無関係な中身: 失敗で止まる"                         1 "$rc"
+# チェックサム不一致では、展開を始めた印（マーカー）を置かない
+fresh_run nomarker STUB_DIGEST="sha256:$(printf '1%.0s' $(seq 1 64))"
+check_eq    "チェックサム不一致: マーカーを置かない"             0 "$([ -e "$fresh/.runner-extracting" ] && echo 1 || echo 0)"
+
+# (9i) Makefile は sudo の環境リセットを越えて変数を渡す（make runner-setup RUNNER_REPLACE=1 が黙って落ちない）
+mk_out=$(make -n -C "$DOTFILES_DIR" runner-setup RUNNER_REPLACE=1 RUNNER_ORG=x RUNNER_NAME=n RUNNER_GROUP=g 2>&1 || true)
+check_match "make: RUNNER_REPLACE を sudo に渡す"                'RUNNER_REPLACE="1"' "$mk_out"
+check_match "make: RUNNER_ORG を sudo に渡す"                    'RUNNER_ORG="x"' "$mk_out"
+check_match "make: RUNNER_NAME を sudo に渡す"                   'RUNNER_NAME="n"' "$mk_out"
+check_match "make: RUNNER_GROUP を sudo に渡す"                  'RUNNER_GROUP="g"' "$mk_out"
+check_no_match "make: 登録トークンを変数にしない"                 "TOKEN" "$mk_out"
+
 # (10) Linux の依存パッケージ: 失敗したら止まり、再実行でもう一度走る（取得済みの分岐でも飛ばさない）
-rm -rf "$tmp/fresh-deps"; fresh="$tmp/fresh-deps"
 fresh_run deps-fail "${linux_boot_env[@]}" STUB_UNAME_M=x86_64 STUB_DEPS_FAIL=1
 check_eq    "依存導入の失敗(Linux): 失敗で止まる"                1 "$rc"
 check_eq    "依存導入の失敗(Linux): 登録しない"                  0 "$(calls 'config.sh')"

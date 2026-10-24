@@ -58,7 +58,7 @@ runner_gh_ready() {
 		echo "  runner ユーザーで make runner-tools（sudo 不要）を実行して gh を入れ、gh auth login -s admin:org で認証してから、もう一度実行してください。" >&2
 		return 1
 	fi
-	if ! runner_as_user "$user" env -u GH_DEBUG -u DEBUG "$gh_bin" auth status >/dev/null 2>&1; then
+	if ! runner_as_user "$user" env -u GH_DEBUG -u DEBUG "$gh_bin" auth status --hostname github.com >/dev/null 2>&1; then
 		echo "${user} の gh が未認証です。runner の登録に使います。" >&2
 		echo "  ${user} で gh auth login -s admin:org を実行してから、もう一度実行してください。" >&2
 		return 1
@@ -115,6 +115,16 @@ runner_fetch() {
 	elif ! runner_as_user "$user" test -w "$dir"; then
 		echo "${dir} に ${user} が書き込めません。所有者を直すか、RUNNER_DIR で別の場所を指定してください。" >&2
 		return 1
+	elif [ ! -e "$dir/.runner-extracting" ]; then
+		# 展開を始めた印が無いのに runner と無関係な中身があれば、ダウンロードする前に止める
+		# （RUNNER_DIR を $HOME などに誤指定しても、大きな tarball を落としてから断らない）。
+		local entry
+		for entry in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do
+			{ [ -e "$entry" ] || [ -L "$entry" ]; } || continue
+			case "${entry##*/}" in .fetch.*) continue ;; esac
+			echo "空でないディレクトリには展開しません: ${dir}（${entry##*/} があります）。RUNNER_DIR で別の場所を指定するか、中身を片付けてください。" >&2
+			return 1
+		done
 	fi
 
 	echo "  取得: ${name}"
@@ -146,12 +156,16 @@ done
 # マーカーが無いのに何かあれば、runner と無関係の中身なので、何も壊さず止まる。
 resuming=0
 [ -e "$marker" ] && resuming=1
-for e in "$dir"/* "$dir"/.[!.]*; do
-	[ -e "$e" ] || continue
+for e in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do
+	{ [ -e "$e" ] || [ -L "$e" ]; } || continue
 	base=${e##*/}
 	case "$base" in .fetch.* | .runner-extracting) continue ;; esac
-	if [ "$resuming" -ne 1 ] || [ ! -e "$stage/x/$base" ]; then
+	if [ "$resuming" -ne 1 ]; then
 		echo "空でないディレクトリには展開しません: ${dir}（${base} があります）。RUNNER_DIR で別の場所を指定するか、中身を片付けてください。" >&2
+		exit 1
+	fi
+	if [ ! -e "$stage/x/$base" ]; then
+		echo "前回の展開の続きですが、今回の展開物に無いものがあります: ${dir}（${base}）。リリースの構成が変わったか、無関係なファイルです。片付けてから（.runner-extracting も消して）やり直してください。" >&2
 		exit 1
 	fi
 done
