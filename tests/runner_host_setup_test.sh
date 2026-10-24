@@ -234,12 +234,17 @@ exit 0
 EOF
 
 # --- runner ユーザーの最小環境（安定 PATH）から見えるコマンド ----------------------
-stub "$home/.local/bin/docker" <<'EOF'
+# 安定 PATH は macOS で /opt/homebrew/bin を $home/.local/bin より前に持つ。Homebrew のある Mac では、
+# そこにある本物の docker が先に見つかり、スタブの docker info が呼ばれずに本物が colima を探して
+# 失敗していた（macOS の成功系が全部 exit 1 になった原因）。そこで、安定 PATH の先頭にある
+# fnm の aliases/default/bin に docker / cc / node のスタブを置く（本物の /opt/homebrew/bin より前になる）。
+stub "$fnm_bin/docker" <<'EOF'
 #!/bin/bash
-echo "docker $*" >>"$STUB_LOG"
+# env -i で STUB_LOG が消えている呼び出しでも、エラーを出さず成功する
+[ -z "${STUB_LOG:-}" ] || echo "docker $*" >>"$STUB_LOG"
 echo "Docker stub"
 EOF
-stub "$home/.local/bin/cc" <<'EOF'
+stub "$fnm_bin/cc" <<'EOF'
 #!/bin/bash
 exit 0
 EOF
@@ -248,6 +253,13 @@ stub "$fnm_bin/node" <<'EOF'
 exit 0
 EOF
 cp "$fnm_bin/node" "$fnm_bin/npx"
+
+# 守り: runner の安定 PATH で docker / cc / node がスタブに解決されること。ここが崩れると、
+# 本物の Homebrew がある Mac だけでテストが落ちる（Linux や擬似環境では気づけない）。
+for cmd in docker cc node npx; do
+    resolved=$(uname() { echo Darwin; }; env -i PATH="$(runner_stable_path "$home")" "$BASH" --noprofile --norc -c "command -v $cmd")
+    check_eq "runner の安定 PATH で $cmd はスタブに解決される（本物の /opt/homebrew/bin より先）" "$fnm_bin/$cmd" "$resolved"
+done
 
 # --- runner ディレクトリ: 登録済み（.runner）と、macOS の svc.sh を模したスタブ ----------
 echo '{}' >"$runner_dir/.runner"
