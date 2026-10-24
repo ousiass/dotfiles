@@ -20,8 +20,8 @@ reset: ## ツールを一括削除して install.sh で再インストール（�
 fugu: ## Fugu だけ単独でインストール（~/.env の SAKANA_API_KEY を使う）
 	./install.sh fugu
 
-runner-setup: ## GitHub Actions self-hosted runner ホストをセットアップ（.path が PATH の正。sudo 必須。RUNNER_USER / RUNNER_DIR で上書き可。Linux と Apple Silicon の macOS）
-	sudo env RUNNER_USER="$(RUNNER_USER)" RUNNER_DIR="$(RUNNER_DIR)" bash ./runner-host-setup.sh
+runner-setup: ## GitHub Actions self-hosted runner ホストをセットアップ（runner 本体の取得・登録とサービス化まで。.path が PATH の正。sudo 必須。RUNNER_USER / RUNNER_DIR / RUNNER_ORG / RUNNER_NAME / RUNNER_GROUP / RUNNER_REPLACE で上書き可。Linux と Apple Silicon の macOS）
+	sudo env RUNNER_USER="$(RUNNER_USER)" RUNNER_DIR="$(RUNNER_DIR)" RUNNER_ORG="$(RUNNER_ORG)" RUNNER_NAME="$(RUNNER_NAME)" RUNNER_GROUP="$(RUNNER_GROUP)" RUNNER_REPLACE="$(RUNNER_REPLACE)" bash ./runner-host-setup.sh
 
 runner-tools: ## runner のジョブが使うツール（macOS は brew で colima/docker/fnm/gh/jq など）の足りないものだけ入れる。sudo 不要・何度でも可
 	./runner-tools-install.sh

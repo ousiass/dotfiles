@@ -5,14 +5,19 @@
 #
 # 出所: https://github.com/ousiassllc/actions-runner-setup-base （vendored copy）
 #       上流を更新したらこのファイルも追従させる。
-#       （macOS 対応はこのコピー側で先に入れている。上流へ取り込むときは差分に注意）
+#       （macOS 対応と、runner 本体の取得・登録は、このコピー側で先に入れている。後者は同じディレクトリの
+#       runner-bootstrap.sh（このリポジトリ独自）に関数を持つ。上流へ取り込むときは差分に注意）
 #
 # ジョブ実行の前提（パスワード不要 sudo / Docker / Buildx / C コンパイラ。Linux はさらに docker グループ）を
 # 整え、登録済み runner をサービス（Linux: systemd / macOS: launchd）として起動する。
 #
-# 前提: config.sh による runner の登録が済んでいること（.runner が存在すること）。
-#       未登録の場合は先に ./config.sh --url ... --token ... を実行する。
-#       macOS は加えて、runner ユーザーが GUI でログインしていること（LaunchAgent は GUI セッションに
+# runner 本体が無ければ GitHub の最新の actions/runner リリースを取得し（チェックサムを確認）、未登録なら
+# config.sh で登録する（登録トークンは gh api でその場で発行して使い、画面・ログ・ファイル・ps に残さない）。
+# 登録済み（.runner がある）なら、そのまま前提の整備とサービス化へ進む。取得・登録には runner ユーザーの
+# gh（admin:org の権限で認証済み）が要る。
+#
+# macOS の前提:
+#       runner ユーザーが GUI でログインしていること（LaunchAgent は GUI セッションに
 #       登録するため。別ユーザーでの実行やログイン前・SSH だけの実行は対象外として止まる）と、
 #       Xcode コマンドラインツール・Homebrew が入っていること（無ければ入れ方を案内して止まる）。
 #       colima / docker / docker-buildx / docker-compose / fnm / gh / jq / zstd などは runner-tools-install.sh が
@@ -28,6 +33,12 @@
 # 既定値:
 #   RUNNER_USER  sudo を呼び出したユーザー（${SUDO_USER}）
 #   RUNNER_DIR   $RUNNER_USER のホームディレクトリ配下の actions-runner
+#   RUNNER_ORG   登録先の org（ousiassllc）
+#   RUNNER_NAME  runner 名（ホスト名 hostname -s）
+#   RUNNER_GROUP runner group（Default）
+#   RUNNER_GH_BIN gh の場所（PATH の gh）。sudo の PATH に無い場所に gh があるときに指す
+#   RUNNER_REPLACE 1 にすると、同名の runner が org にあれば置き換えて登録する（既定は置き換えない）
+# ラベルは OS と CPU から自動で付ける（macOS: self-hosted,macOS,ARM64 / Linux: self-hosted,linux,x64）。
 #
 # 失敗したらその場で止まる（set -e）。何度実行しても同じ結果になる。
 #
@@ -44,6 +55,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=runner-path-guard.sh
 . "$SCRIPT_DIR/runner-path-guard.sh"
+# shellcheck source=runner-bootstrap.sh
+. "$SCRIPT_DIR/runner-bootstrap.sh"
 
 # 既定値は固定。テストが /etc を触らずに済むよう、環境変数で向け先だけ差し替えられる。
 SUDOERS_FILE="${SUDOERS_FILE:-/etc/sudoers.d/github-runner}"
@@ -120,17 +133,51 @@ fi
 
 RUNNER_DIR="${RUNNER_DIR:-$home/actions-runner}"
 
-if [ ! -x "$RUNNER_DIR/svc.sh" ]; then
-	echo "runner ディレクトリが見つかりません: $RUNNER_DIR" >&2
-	echo "RUNNER_DIR=<path> で指定してください。" >&2
-	exit 1
-fi
-
-# .runner は config.sh が作る。未登録のまま svc.sh install しても起動できない。
+# runner 本体の取得・登録の設定。入力の検証とホスト名の取得は、未登録（.runner が無い）のときだけ行う
+# （登録済みのホストで、これまで動いていた実行が止まらないように）。
+# runner 本体の CPU。macOS は上で Apple Silicon（arm64）に限っている。
+if [ "$OS" = Darwin ]; then runner_machine=arm64; else runner_machine="$(uname -m)"; fi
+runner_gh_bin=""
+runner_labels=""
 if [ ! -f "$RUNNER_DIR/.runner" ]; then
-	echo "runner が未登録です（$RUNNER_DIR/.runner がありません）。" >&2
-	echo "先に config.sh で登録してください: cd $RUNNER_DIR && ./config.sh --url <URL> --token <TOKEN>" >&2
-	exit 1
+	# 既定は ousiassllc の Linux ホストのやり方: org 登録・Default グループ・ホスト名。
+	# org・名前・group は API のパスや引数に入るので、英数字と - _ . だけを許す（group は空白も可）。
+	RUNNER_ORG="${RUNNER_ORG:-ousiassllc}"
+	RUNNER_NAME="${RUNNER_NAME:-$(hostname -s || true)}"
+	RUNNER_GROUP="${RUNNER_GROUP:-Default}"
+	# 取得・登録は runner ユーザーが / を cwd にして実行するので、相対パスだと root と見る場所がずれる。
+	case "$RUNNER_DIR" in
+	/*) ;;
+	*)
+		echo "RUNNER_DIR は絶対パスで指定してください: ${RUNNER_DIR}" >&2
+		exit 1
+		;;
+	esac
+	case "${RUNNER_REPLACE:-}" in
+	"" | 0 | 1) ;;
+	*)
+		echo "RUNNER_REPLACE は 1（置き換える）か空（置き換えない）で指定してください: ${RUNNER_REPLACE}" >&2
+		exit 1
+		;;
+	esac
+	re_org='^[A-Za-z0-9][A-Za-z0-9-]*$'
+	re_name='^[A-Za-z0-9][A-Za-z0-9._-]*$'
+	re_group='^[A-Za-z0-9][A-Za-z0-9._ -]*$'
+	if ! [[ "$RUNNER_ORG" =~ $re_org ]] || ! [[ "$RUNNER_NAME" =~ $re_name ]] || ! [[ "$RUNNER_GROUP" =~ $re_group ]]; then
+		echo "RUNNER_ORG / RUNNER_NAME / RUNNER_GROUP に使えない文字があります（英数字と - _ . のみ。group は空白も可）: org=${RUNNER_ORG} name=${RUNNER_NAME} group=${RUNNER_GROUP}" >&2
+		exit 1
+	fi
+	# 登録に要るものを、sudoers・apt・brew より前に確かめて早く止まる。
+	# gh は RUNNER_GH_BIN で指定できる（既定は PATH の gh。macOS は /opt/homebrew/bin を足して探す）。
+	runner_gh_bin="${RUNNER_GH_BIN:-$(command -v gh || true)}"
+	if ! runner_labels=$(runner_default_labels "$OS" "$runner_machine"); then
+		echo "対象外です: この OS / CPU の runner は登録できません: ${OS} ${runner_machine}" >&2
+		exit 1
+	fi
+	# macOS の gh は 2/5（runner-tools-install.sh）で入るので、そこで確かめる。Linux はここで確かめる。
+	if [ "$OS" = Linux ]; then
+		runner_gh_ready "$RUNNER_USER" "$runner_gh_bin" || exit 1
+	fi
 fi
 
 # ジョブの shell 相当の PATH（OS ごとに runner-path-guard.sh が定義する）。
@@ -227,6 +274,11 @@ if [ "$OS" = Darwin ]; then
 	# docker-buildx / docker-compose 単体では docker CLI から見えないことがある。その場合は最後の確認で案内する。
 	sudo -u "$RUNNER_USER" -H env PATH="$PATH" RUNNER_BREW_PATHS="$RUNNER_BREW_PATHS" bash "$SCRIPT_DIR/runner-tools-install.sh"
 	echo "  runner に要るツール: そろっている"
+	# gh は、いま入ったばかりかもしれないので解決し直す。未登録なら、colima を起動して待つ前に確かめて止まる。
+	if [ ! -f "$RUNNER_DIR/.runner" ]; then
+		runner_gh_bin="${RUNNER_GH_BIN:-$(command -v gh || true)}"
+		runner_gh_ready "$RUNNER_USER" "$runner_gh_bin" || exit 1
+	fi
 
 	echo "== 3/5 colima =="
 	# brew services は runner ユーザーの LaunchAgent（homebrew.mxcl.colima）として登録するので、
@@ -285,6 +337,35 @@ else
 	# systemctl restart が必要になる（そのため 5/5 で稼働プロセスの Groups を検査する）。
 	usermod -aG docker "$RUNNER_USER"
 	echo "  $RUNNER_USER の所属: $(id -nG "$RUNNER_USER")"
+fi
+
+echo "== runner 本体の取得・登録（未取得・未登録のときだけ）=="
+# 登録済み（.runner がある）なら何もしない。本体が無ければ GitHub の最新リリースを取得し、未登録なら
+# config.sh で登録する。取得・展開・gh・config.sh は runner ユーザー、ディレクトリの作成と
+# Linux の依存パッケージだけ root（runner-bootstrap.sh の冒頭に権限の分け方がある）。
+if [ -f "$RUNNER_DIR/.runner" ]; then
+	echo "  登録済み: $RUNNER_DIR/.runner"
+else
+	# gh は Linux が冒頭、macOS が 2/5 の直後に確認済み（runner_gh_bin に解決済み）。
+	if [ -x "$RUNNER_DIR/config.sh" ]; then
+		echo "  runner 本体は取得済み: $RUNNER_DIR"
+		# 展開の最後（config.sh の後、マーカーを消す前）で止まった場合の残りを片付ける
+		rm -f "$RUNNER_DIR/.runner-extracting"
+	else
+		echo "  runner が無いので新規に取得・登録します: $RUNNER_DIR"
+		echo "  （別の場所に既存の runner があるなら中断し、RUNNER_DIR=<path> を指定してください）"
+		runner_fetch "$OS" "$runner_machine" "$RUNNER_USER" "$RUNNER_DIR" "$runner_gh_bin"
+	fi
+	# 依存パッケージは冪等。前回 apt が失敗して止まっても、再実行で入る（Linux のみ。root）。
+	runner_install_deps "$OS" "$RUNNER_DIR"
+	runner_register "$RUNNER_USER" "$RUNNER_DIR" "$RUNNER_ORG" "$RUNNER_NAME" "$RUNNER_GROUP" \
+		"$runner_labels" "$runner_gh_bin" "${RUNNER_REPLACE:-}"
+fi
+# svc.sh は config.sh が作る。登録済みのはずなのに無ければ、RUNNER_DIR が runner のディレクトリではない。
+if [ ! -x "$RUNNER_DIR/svc.sh" ]; then
+	echo "runner ディレクトリが見つかりません: ${RUNNER_DIR}（svc.sh がありません）" >&2
+	echo "RUNNER_DIR=<path> で指定してください。" >&2
+	exit 1
 fi
 
 if [ "$OS" = Darwin ]; then svc_manager=launchd; else svc_manager=systemd; fi

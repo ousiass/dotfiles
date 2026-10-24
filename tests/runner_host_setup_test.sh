@@ -691,4 +691,363 @@ check_eq    "Linux docker-ce-cli のみ: 失敗で止まる"          1 "$rc"
 check_match "Linux docker-ce-cli のみ: 理由を出す"            "docker.service がありません" "$out"
 check_eq    "Linux docker-ce-cli のみ: docker を有効化しない" 0 "$(calls 'systemctl enable --now docker')"
 
+# --- runner 本体の取得・登録（runner ディレクトリが無い・本体だけある・登録済み）。トークンは出力に出さない --------------
+# gh / curl はスタブ。リリースは偽の tarball（config.sh は .runner と svc.sh を作る）で、digest はその sha256。
+# 実機での取得・登録・サービス登録は行わない（PR 本文に未確認として挙げる）。
+export STUB_TOKEN="AAAA-secret-registration-token-$$-$RANDOM"
+export STUB_PS="$tmp/ps.snapshot"
+tarsrc="$tmp/tarsrc"
+mkdir -p "$tarsrc/bin" "$tarsrc/externals/node20/bin"
+: >"$tarsrc/run.sh"; : >"$tarsrc/bin/Runner.Listener"; : >"$tarsrc/bin/runsvc.sh"; : >"$tarsrc/externals/node20/bin/node"
+stub "$tarsrc/bin/installdependencies.sh" <<'EOF'
+#!/bin/bash
+echo "installdependencies.sh" >>"$STUB_LOG"
+[ -z "${STUB_DEPS_FAIL:-}" ] || exit 1
+EOF
+# 本物の config.sh と同じく、トークンは環境変数 ACTIONS_RUNNER_INPUT_TOKEN でだけ受ける。
+# 引数に出ていないこと、プロセス一覧に出ていないことを呼ばれた側から確かめるため、ここで記録する。
+stub "$tarsrc/config.sh" <<'EOF'
+#!/bin/bash
+echo "config.sh $*" >>"$STUB_LOG"
+echo "config.sh cwd=$PWD" >>"$STUB_LOG"
+case "$*" in *"$STUB_TOKEN"*) echo "LEAK: token in argv" >>"$STUB_LOG" ;; esac
+[ "${ACTIONS_RUNNER_INPUT_TOKEN:-}" = "$STUB_TOKEN" ] && echo "config.sh token-env=ok" >>"$STUB_LOG"
+# 本物の config.sh は、正しいトークンでなければ（JSON 全体など）登録に失敗する
+[ "${ACTIONS_RUNNER_INPUT_TOKEN:-}" = "$STUB_TOKEN" ] || { echo "config.sh: Http response code: Unauthorized" >&2; exit 1; }
+ps ax -o command >"$STUB_PS" 2>/dev/null || true
+[ -z "${STUB_CONFIG_FAIL:-}" ] || exit 1
+echo '{}' >.runner
+cp "$STUB_SVC_TEMPLATE" svc.sh
+EOF
+tar -czf "$tmp/runner.tar.gz" -C "$tarsrc" .
+if command -v sha256sum >/dev/null 2>&1; then tar_sha=$(sha256sum "$tmp/runner.tar.gz"); else tar_sha=$(shasum -a 256 "$tmp/runner.tar.gz"); fi
+export STUB_TARBALL="$tmp/runner.tar.gz" STUB_DIGEST="sha256:${tar_sha%% *}"
+cp "$runner_dir/svc.sh" "$tmp/svc-mac.sh"
+cp "$linux_runner/svc.sh" "$tmp/svc-linux.sh"
+export STUB_SVC_TEMPLATE="$tmp/svc-mac.sh"
+stub "$stubs/gh" <<'EOF'
+#!/bin/bash
+echo "gh $*" >>"$STUB_LOG"
+[ -z "${GH_DEBUG:-}${DEBUG:-}" ] || echo "LEAK: debug env" >>"$STUB_LOG"
+case "$1 $2" in
+"auth status")
+    [ -z "${STUB_GH_UNAUTH:-}" ] || { echo "You are not logged into any GitHub hosts." >&2; exit 1; }
+    ;;
+"api repos/actions/runner/releases/latest")
+    # 本物の jq で、スクリプトの --jq のフィルタをそのまま評価する（フィルタの誤りを通さない）。
+    # 本体のほかに -noexternals と .sha と digest 無しを混ぜ、選ぶのが本体の 1 件だけであることを確かめる。
+    jq -n --arg d "${STUB_DIGEST:-}" '
+      ["osx-arm64", "linux-x64", "linux-arm64"] as $ps
+      | {assets: [ $ps[] as $p
+          | ("actions-runner-\($p)-9.9.9") as $b
+          | {name: "\($b).tar.gz", browser_download_url: "https://github.com/actions/runner/releases/download/v9.9.9/\($b).tar.gz", digest: (if $d == "" then null else $d end)},
+            {name: "\($b)-noexternals.tar.gz", browser_download_url: "https://github.com/actions/runner/releases/download/v9.9.9/\($b)-noexternals.tar.gz", digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+            {name: "\($b).tar.gz.sha", browser_download_url: "https://example.invalid/x", digest: null} ]}' | jq -r "$4"
+    ;;
+"api -X")
+    # 本番と同じ形（POST・登録トークンの URL・--jq）でないと失敗させる。--jq .token が無ければ JSON 全体が
+    # トークンとして渡って config.sh が失敗する、という実 gh の挙動を再現する。
+    [ "$3" = POST ] && case "$4" in orgs/*/actions/runners/registration-token) ;; *) exit 1 ;; esac || exit 1
+    [ -z "${STUB_GH_FAIL:-}" ] || { echo "gh: HTTP 403" >&2; exit 1; }
+    jq -n --arg t "$STUB_TOKEN" '{token:$t, expires_at:"2099-01-01T00:00:00Z"}' | { [ "$5" = --jq ] && jq -r "$6" || cat; }
+    ;;
+*) exit 1 ;;
+esac
+EOF
+stub "$stubs/curl" <<'EOF'
+#!/bin/bash
+echo "curl $*" >>"$STUB_LOG"
+while [ $# -gt 0 ]; do
+    case "$1" in
+    -o) cp "$STUB_TARBALL" "$2"; shift 2 ;;
+    *) shift ;;
+    esac
+done
+EOF
+
+# fresh_run <name> [VAR=value ...] : 作り直した runner dir（$fresh）で macOS として実行する
+fresh_run() {
+    local name="$1"
+    shift
+    fresh="$tmp/fresh-$name"
+    rm -rf "$fresh" "$home/Library"
+    : >"$STUB_LOG"; : >"$STUB_LAUNCHD_LIST"; rm -f "$STUB_PS"
+    run_setup RUNNER_DIR="$fresh" "$@"
+}
+# トークンが、出力・呼び出しの記録・runner dir のファイル・プロセス一覧のどこにも無いこと。
+# 第 2 引数 ran を付けると、config.sh が走った時点の ps（引数が見える形）が実際に取れていることも確かめる
+# （ps が取れずに「トークンは無い」と素通りしないように）。
+check_token_hidden() {
+    local name="$1" ran="${2:-}"
+    check_no_match "$name: 出力にトークンが出ない"           "$STUB_TOKEN" "$out"
+    check_no_match "$name: 呼び出しの記録（引数）にトークンが出ない" "$STUB_TOKEN" "$(cat "$STUB_LOG")"
+    check_eq       "$name: runner dir のファイルにトークンが無い" 0 "$(grep -rlF "$STUB_TOKEN" "$fresh" 2>/dev/null | wc -l | tr -d ' ')"
+    if [ "$ran" = ran ]; then
+        check_match "$name: ps のスナップショットが取れている（config.sh の引数が見える）" "--no-default-labels" "$(cat "$STUB_PS" 2>/dev/null)"
+    fi
+    check_eq       "$name: プロセス一覧の argv にトークンが出ない（環境変数は対象外）" 0 "$( { grep -F "$STUB_TOKEN" "$STUB_PS" 2>/dev/null || true; } | wc -l | tr -d ' ' )"
+}
+default_name=$(hostname -s)
+
+# (1) macOS・runner ディレクトリが無い: 取得 → 登録 → サービス化まで 1 回で済む
+fresh_run mac-new
+check_eq    "runner 無し(macOS): 成功する"                       0 "$rc"
+check_eq    "runner 無し(macOS): 最新リリースを 1 回だけ引く"    1 "$(calls 'gh api repos/actions/runner/releases/latest')"
+check_match "runner 無し(macOS): osx-arm64 を選ぶ"               "actions-runner-osx-arm64-" "$(grep '^gh api repos' "$STUB_LOG")"
+check_match "runner 無し(macOS): osx-arm64 の資産を落とす"       "actions-runner-osx-arm64-9.9.9.tar.gz" "$(grep '^curl' "$STUB_LOG")"
+check_eq    "runner 無し(macOS): 展開した config.sh が runner dir に在る" 1 "$(grep -c '^config.sh cwd='"$fresh"'$' "$STUB_LOG")"
+check_eq    "runner 無し(macOS): 取得の作業ディレクトリを残さない" 0 "$(find "$fresh" -maxdepth 1 -name '.fetch.*' | wc -l | tr -d ' ')"
+check_eq    "runner 無し(macOS): 所有者を runner ユーザーに渡す" 1 "$(calls "chown ci $fresh\$")"
+check_eq    "runner 無し(macOS): 取得と登録は runner ユーザー（sudo -u ci）で走る" 2 "$(calls 'sudo -u ci -H bash -c')"
+check_eq    "runner 無し(macOS): macOS では installdependencies を呼ばない" 0 "$(calls 'installdependencies')"
+check_eq    "runner 無し(macOS): ラベルは macOS / ARM64 を自動で付ける" 1 "$(calls "config.sh --unattended --url https://github.com/ousiassllc --name $default_name --runnergroup Default --no-default-labels --labels self-hosted,macOS,ARM64 --work _work\$")"
+check_eq    "runner 無し(macOS): 登録トークンは環境変数でだけ config.sh に渡る" 1 "$(calls 'config.sh token-env=ok')"
+check_eq    "runner 無し(macOS): 引数にトークンを置かない"       0 "$(calls 'LEAK')"
+check_token_hidden "runner 無し(macOS)" ran
+check_eq    "runner 無し(macOS): 登録後に svc.sh install する"   1 "$(calls 'svc.sh install')"
+check_eq    "runner 無し(macOS): svc.sh start する"              1 "$(calls 'svc.sh start')"
+check_eq    "runner 無し(macOS): .runner ができる"               1 "$([ -f "$fresh/.runner" ] && echo 1 || echo 0)"
+
+# (2) 登録済み（.runner がある）の 2 回目: 何も取得・登録しない
+: >"$STUB_LOG"
+run_setup RUNNER_DIR="$fresh"
+check_eq    "登録済み: 成功する"                                 0 "$rc"
+check_match "登録済み: 登録済みと表示する"                       "登録済み: $fresh/.runner" "$out"
+check_eq    "登録済み: gh を呼ばない"                            0 "$(calls 'gh')"
+check_eq    "登録済み: ダウンロードしない"                       0 "$(calls 'curl')"
+check_eq    "登録済み: config.sh を呼ばない"                     0 "$(calls 'config.sh')"
+
+# (3) 本体は在るが未登録（.runner が無い）: 再ダウンロードせず登録だけする
+rm -rf "$tmp/fresh-body" "$home/Library"
+mkdir -p "$tmp/fresh-body"
+cp "$tarsrc/config.sh" "$tmp/fresh-body/config.sh"
+: >"$STUB_LOG"; : >"$STUB_LAUNCHD_LIST"; rm -f "$STUB_PS"
+fresh="$tmp/fresh-body"
+run_setup RUNNER_DIR="$fresh"
+check_eq    "本体のみ: 成功する"                                 0 "$rc"
+check_match "本体のみ: 取得済みと表示する"                       "runner 本体は取得済み" "$out"
+check_eq    "本体のみ: ダウンロードしない"                       0 "$(calls 'curl')"
+check_eq    "本体のみ: リリースを引かない"                       0 "$(calls 'gh api repos')"
+check_eq    "本体のみ: 登録する"                                 1 "$(calls 'config.sh --unattended')"
+check_token_hidden "本体のみ" ran
+
+# (4) 変数で org / 名前 / group を指定できる。登録トークンの API も指定した org に向く
+fresh_run custom RUNNER_ORG=other-org RUNNER_NAME=my-mac RUNNER_GROUP="My Group"
+check_eq    "変数指定: 成功する"                                 0 "$rc"
+check_eq    "変数指定: 指定した org でトークンを発行する"         1 "$(calls 'gh api -X POST orgs/other-org/actions/runners/registration-token')"
+check_eq    "変数指定: org / 名前 / group で登録する"            1 "$(calls 'config.sh --unattended --url https://github.com/other-org --name my-mac --runnergroup My Group --no-default-labels')"
+check_token_hidden "変数指定" ran
+fresh_run badorg RUNNER_ORG="a b"
+check_eq    "変数指定: 使えない文字の org は止まる"              1 "$rc"
+check_match "変数指定: 理由を出す"                               "使えない文字があります" "$out"
+check_eq    "変数指定: 何も取得・登録しない"                     0 "$(( $(calls 'gh') + $(calls 'curl') + $(calls 'config.sh') ))"
+
+# (5) チェックサムが一致しなければ展開せず止まる（登録・サービス化まで進まない）
+fresh_run badsum STUB_DIGEST="sha256:$(printf '0%.0s' $(seq 1 64))"
+check_eq    "チェックサム不一致: 失敗で止まる"                   1 "$rc"
+check_match "チェックサム不一致: 理由を出す"                     "チェックサムが一致しません" "$out"
+check_eq    "チェックサム不一致: config.sh を置かない"           0 "$([ -e "$fresh/config.sh" ] && echo 1 || echo 0)"
+check_eq    "チェックサム不一致: 作業ディレクトリを残さない"     0 "$(find "$fresh" -maxdepth 1 -name '.fetch.*' | wc -l | tr -d ' ')"
+check_eq    "チェックサム不一致: 登録しない"                     0 "$(( $(calls 'gh api -X POST') + $(calls 'config.sh') ))"
+check_eq    "チェックサム不一致: サービス化しない"               0 "$(calls 'svc.sh')"
+fresh_run nodigest STUB_DIGEST=""
+check_eq    "digest 無し: 確かめずに入れない（失敗で止まる）"     1 "$rc"
+check_match "digest 無し: 理由を出す"                            "sha256 の digest が無い" "$out"
+check_eq    "digest 無し: ダウンロードしない"                    0 "$(calls 'curl')"
+
+# (6) 登録の失敗: トークンの発行に失敗しても、config.sh が失敗しても、止まり、トークンは出ない
+fresh_run tokfail STUB_GH_FAIL=1
+check_eq    "トークン発行失敗: 失敗で止まる"                     1 "$rc"
+check_match "トークン発行失敗: 登録に失敗したと案内する"         "登録に失敗しました" "$out"
+check_eq    "トークン発行失敗: config.sh を呼ばない"             0 "$(calls 'config.sh --unattended')"
+check_eq    "トークン発行失敗: サービス化しない"                 0 "$(calls 'svc.sh')"
+check_token_hidden "トークン発行失敗"
+fresh_run cfgfail STUB_CONFIG_FAIL=1
+check_eq    "config.sh 失敗: 失敗で止まる"                       1 "$rc"
+check_eq    "config.sh 失敗: サービス化しない"                   0 "$(calls 'svc.sh')"
+check_token_hidden "config.sh 失敗" ran
+
+# (7) Linux: x64 / arm64 で資産とラベルが変わる。依存パッケージ（root）と svc.sh install <user>（root）は今まで通り
+linux_boot_env=(STUB_UNAME_S=Linux STUB_SVC_TEMPLATE="$tmp/svc-linux.sh" SUDOERS_FILE="$linux_sudoers" SYSTEMD_SYSTEM_DIR="$linux_systemd")
+fresh_run linux-x64 "${linux_boot_env[@]}" STUB_UNAME_M=x86_64
+check_eq    "runner 無し(Linux x64): 成功する"                   0 "$rc"
+check_match "runner 無し(Linux x64): linux-x64 を選ぶ"           "actions-runner-linux-x64-9.9.9.tar.gz" "$(grep '^curl' "$STUB_LOG")"
+check_eq    "runner 無し(Linux x64): ラベルは linux / x64"       1 "$(calls "config.sh --unattended --url https://github.com/ousiassllc --name $default_name --runnergroup Default --no-default-labels --labels self-hosted,linux,x64 --work _work\$")"
+check_eq    "runner 無し(Linux x64): 依存パッケージを root で入れる" 1 "$(calls 'installdependencies.sh')"
+check_eq    "runner 無し(Linux x64): svc.sh install <user> を呼ぶ" 1 "$(calls 'svc.sh install ci')"
+check_token_hidden "runner 無し(Linux x64)" ran
+fresh_run linux-arm64 "${linux_boot_env[@]}" STUB_UNAME_M=aarch64
+check_eq    "runner 無し(Linux arm64): 成功する"                 0 "$rc"
+check_match "runner 無し(Linux arm64): linux-arm64 を選ぶ"       "actions-runner-linux-arm64-9.9.9.tar.gz" "$(grep '^curl' "$STUB_LOG")"
+check_eq    "runner 無し(Linux arm64): ラベルは linux / arm64"   1 "$(calls 'config.sh --unattended .* --labels self-hosted,linux,arm64 --work _work$')"
+fresh_run linux-unsupported "${linux_boot_env[@]}" STUB_UNAME_M=riscv64
+check_eq    "runner 無し(Linux riscv64): 対象外で止まる"          1 "$rc"
+check_match "runner 無し(Linux riscv64): 対象外と分かる"          "対象外です" "$out"
+
+# (8) 前提が足りないときは、sudoers・apt・brew より前に（Linux）／取得より前に（macOS）止まる
+fresh_run noauth-linux "${linux_boot_env[@]}" STUB_UNAME_M=x86_64 STUB_GH_UNAUTH=1
+check_eq    "gh 未認証(Linux): 失敗で止まる"                     1 "$rc"
+check_match "gh 未認証(Linux): gh auth login を案内する"         "gh auth login -s admin:org" "$out"
+check_eq    "gh 未認証(Linux): sudoers も apt も触る前に止まる"   0 "$(( $(calls 'install ') + $(calls 'apt-get') + $(calls 'visudo') ))"
+fresh_run noauth-mac STUB_GH_UNAUTH=1
+check_eq    "gh 未認証(macOS): 失敗で止まる"                     1 "$rc"
+check_match "gh 未認証(macOS): gh auth login を案内する"         "gh auth login -s admin:org" "$out"
+check_eq    "gh 未認証(macOS): ダウンロードしない"               0 "$(calls 'curl')"
+check_eq    "gh 未認証(macOS): サービス化しない"                 0 "$(calls 'svc.sh')"
+fresh_run nogh-linux "${linux_boot_env[@]}" STUB_UNAME_M=x86_64 RUNNER_GH_BIN=/nonexistent/gh
+check_eq    "gh 無し(Linux): 失敗で止まる"                       1 "$rc"
+check_match "gh 無し(Linux): 入れ方を案内する"                   "make runner-tools" "$out"
+check_eq    "gh 無し(Linux): apt を触る前に止まる"               0 "$(calls 'apt-get')"
+fresh_run nogh-mac RUNNER_GH_BIN=/nonexistent/gh
+check_eq    "gh 無し(macOS): 失敗で止まる"                       1 "$rc"
+check_match "gh 無し(macOS): 入れ方を案内する"                   "make runner-tools" "$out"
+fresh_run badname RUNNER_NAME="bad name;rm"
+check_eq    "不正な RUNNER_NAME: 止まる"                         1 "$rc"
+check_match "不正な RUNNER_NAME: 理由を出す"                     "使えない文字があります" "$out"
+fresh_run badgroup RUNNER_GROUP="-x"
+check_eq    "不正な RUNNER_GROUP: 止まる"                        1 "$rc"
+check_match "不正な RUNNER_GROUP: 理由を出す"                    "使えない文字があります" "$out"
+
+# (9) 展開先の扱い: 無関係なファイルがあるディレクトリには展開しない・所有者も変えない。
+#     前回の途中で止まった残り（展開物と同名）は、入れ子にならず置き換わる
+rm -rf "$tmp/fresh-busy-x"; mkdir -p "$tmp/fresh-busy-x"; echo precious >"$tmp/fresh-busy-x/my-notes.txt"
+: >"$STUB_LOG"; fresh="$tmp/fresh-busy-x"
+run_setup RUNNER_DIR="$fresh"
+check_eq    "非空ディレクトリ: 失敗で止まる"                     1 "$rc"
+check_match "非空ディレクトリ: 理由を出す"                       "空でないディレクトリには展開しません" "$out"
+check_eq    "非空ディレクトリ: 既存のファイルをそのまま残す"     precious "$(cat "$fresh/my-notes.txt")"
+check_eq    "非空ディレクトリ: config.sh を置かない"             0 "$([ -e "$fresh/config.sh" ] && echo 1 || echo 0)"
+check_eq    "非空ディレクトリ: 既存ディレクトリの所有者は変えない" 0 "$(calls 'chown')"
+check_eq    "非空ディレクトリ: 登録しない"                       0 "$(calls 'config.sh')"
+# 展開物と同名（bin）だけがあってもマーカーが無ければ、ユーザー自身のファイルかもしれないので消さずに止まる
+rm -rf "$tmp/fresh-samename"; mkdir -p "$tmp/fresh-samename/bin"; echo mine >"$tmp/fresh-samename/bin/my-tool"
+: >"$STUB_LOG"; fresh="$tmp/fresh-samename"
+run_setup RUNNER_DIR="$fresh"
+check_eq    "同名だけでマーカー無し: 失敗で止まる"               1 "$rc"
+check_eq    "同名だけでマーカー無し: 既存のファイルを消さない"   mine "$(cat "$fresh/bin/my-tool")"
+# 前回の途中で止まった残り（マーカーあり）は、入れ子にならず置き換わり、終われば（config.sh の後に）マーカーが消える
+rm -rf "$tmp/fresh-partial"; mkdir -p "$tmp/fresh-partial/bin"; echo stale >"$tmp/fresh-partial/bin/stale-file"; : >"$tmp/fresh-partial/.runner-extracting"
+: >"$STUB_LOG"; fresh="$tmp/fresh-partial"
+run_setup RUNNER_DIR="$fresh"
+check_eq    "途中で止まった残り: 再実行で成功する"               0 "$rc"
+check_eq    "途中で止まった残り: bin が入れ子にならない"         0 "$([ -e "$fresh/bin/bin" ] && echo 1 || echo 0)"
+check_eq    "途中で止まった残り: 古い残りは消える"               0 "$([ -e "$fresh/bin/stale-file" ] && echo 1 || echo 0)"
+check_eq    "途中で止まった残り: 展開物が揃う"                   1 "$([ -e "$fresh/bin/Runner.Listener" ] && [ -e "$fresh/externals/node20/bin/node" ] && echo 1 || echo 0)"
+check_eq    "途中で止まった残り: 終わればマーカーが消える"       0 "$([ -e "$fresh/.runner-extracting" ] && echo 1 || echo 0)"
+# 前回 SIGKILL された作業ディレクトリ（.fetch.*）は取得の前に片付く
+rm -rf "$tmp/fresh-stage"; mkdir -p "$tmp/fresh-stage/.fetch.OLD123"; echo junk >"$tmp/fresh-stage/.fetch.OLD123/x"
+: >"$STUB_LOG"; fresh="$tmp/fresh-stage"
+run_setup RUNNER_DIR="$fresh"
+check_eq    "古い作業ディレクトリ: 成功する"                     0 "$rc"
+check_eq    "古い作業ディレクトリ: 片付く"                       0 "$(find "$fresh" -maxdepth 1 -name '.fetch.*' | wc -l | tr -d ' ')"
+# 書き込めない既存ディレクトリには展開しない（所有者も変えない）
+# （root は chmod 555 でも書き込めるので、root のときは確かめない）
+if [ "$(id -u)" -ne 0 ]; then
+    rm -rf "$tmp/fresh-ro"; mkdir -p "$tmp/fresh-ro"; chmod 555 "$tmp/fresh-ro"
+    : >"$STUB_LOG"; fresh="$tmp/fresh-ro"
+    run_setup RUNNER_DIR="$fresh"
+    check_eq    "書き込めないディレクトリ: 失敗で止まる"             1 "$rc"
+    check_match "書き込めないディレクトリ: 理由を出す"               "書き込めません" "$out"
+    check_eq    "書き込めないディレクトリ: 所有者を変えない"         0 "$(calls 'chown')"
+    chmod 755 "$tmp/fresh-ro"
+else
+    ok "書き込めないディレクトリ: root では確かめない"
+fi
+# 親ディレクトリが無ければ作らずに止まる（root 所有の中間ディレクトリを残さない）
+: >"$STUB_LOG"; fresh="$tmp/no-parent/actions-runner"
+run_setup RUNNER_DIR="$fresh"
+check_eq    "親ディレクトリ無し: 失敗で止まる"                   1 "$rc"
+check_match "親ディレクトリ無し: 理由を出す"                     "親ディレクトリがありません" "$out"
+check_eq    "親ディレクトリ無し: 何も作らない"                   0 "$([ -e "$tmp/no-parent" ] && echo 1 || echo 0)"
+
+# (9b) --replace は既定で付けない（RUNNER_DIR の指定ミスや 2 台目で、既存の runner を黙って追い出さない）。
+#      RUNNER_REPLACE=1 のときだけ付ける。同名があって config.sh が失敗したら、その案内を出す
+fresh_run noreplace
+check_eq    "--replace: 既定では付けない"                        0 "$(calls 'config.sh .*--replace')"
+check_eq    "--replace: 既定では付けない（成功する）"            0 "$rc"
+fresh_run replace RUNNER_REPLACE=1
+check_eq    "--replace: RUNNER_REPLACE=1 で付ける"               1 "$(calls 'config.sh --unattended --replace --url')"
+fresh_run dupname STUB_CONFIG_FAIL=1
+check_match "同名の runner: 失敗時に RUNNER_REPLACE=1 を案内する" "RUNNER_REPLACE=1" "$out"
+
+# (9c) gh のデバッグ出力の環境変数（GH_DEBUG / DEBUG）は、gh に渡さない（応答のトークンが出うるため）
+fresh_run debugenv GH_DEBUG=api DEBUG=1
+check_eq    "デバッグ環境変数: 成功する"                         0 "$rc"
+check_eq    "デバッグ環境変数: gh に渡さない"                    0 "$(calls 'LEAK: debug env')"
+check_token_hidden "デバッグ環境変数" ran
+
+# (9d) ダウンロードは https だけ・TLS 1.2 以上・タイムアウト付き
+fresh_run curlflags
+check_match "curl: https だけ"                                   "--proto =https" "$(grep '^curl' "$STUB_LOG")"
+check_match "curl: TLS 1.2 以上"                                 "--tlsv1.2" "$(grep '^curl' "$STUB_LOG")"
+check_match "curl: タイムアウト付き"                             "--max-time" "$(grep '^curl' "$STUB_LOG")"
+
+# (9e) macOS: gh が未認証なら、colima を起動して待つ前（2/5 の直後）に止まる。登録済みなら gh を見ない
+fresh_run early-mac STUB_GH_UNAUTH=1
+check_eq    "gh 未認証(macOS): colima を起動する前に止まる"      0 "$(calls 'brew services')"
+# 直前までのケースが作った launchd の状態（.service と plist）を消して、登録済みの初回として流す
+rm -f "$runner_dir/.service"; rm -rf "$home/Library"; : >"$STUB_LOG"
+run_setup STUB_GH_UNAUTH=1
+check_eq    "登録済み(macOS): gh が未認証でも進む"               0 "$rc"
+check_eq    "登録済み(macOS): gh の認証を確かめない"             0 "$(calls 'gh auth status')"
+
+# (9f) 登録済み（.runner あり）のホストは、入力の検証も gh も CPU 判定も飛ばして従来どおり進む（回帰防止）
+rm -f "$runner_dir/.service"; rm -rf "$home/Library"; : >"$STUB_LOG"
+run_setup RUNNER_NAME="bad name;rm" RUNNER_GROUP="-x" RUNNER_REPLACE=bogus RUNNER_GH_BIN=/nonexistent/gh
+check_eq    "登録済み: 不正な変数があっても進む"                 0 "$rc"
+check_eq    "登録済み: 検証で止まらない"                         0 "$(printf '%s' "$out" | grep -c '使えない文字')"
+
+# (9g) 相対パスの RUNNER_DIR・不正な RUNNER_REPLACE は、何も取得せず止まる
+fresh_run relpath RUNNER_DIR=rel/runner
+check_eq    "相対パスの RUNNER_DIR: 止まる"                      1 "$rc"
+check_match "相対パスの RUNNER_DIR: 絶対パスを案内する"          "絶対パスで指定してください" "$out"
+check_eq    "相対パスの RUNNER_DIR: 何も取得しない"              0 "$(( $(calls 'curl') + $(calls 'config.sh') ))"
+fresh_run badreplace RUNNER_REPLACE=yes
+check_eq    "不正な RUNNER_REPLACE: 止まる"                      1 "$rc"
+check_match "不正な RUNNER_REPLACE: 理由を出す"                  "RUNNER_REPLACE は 1" "$out"
+
+# (9h) マーカーの再開: 展開物に無いものがあれば消さず止まる／config.sh まで済んでいればマーカーを片付けて登録へ
+rm -rf "$tmp/fresh-resume-x"; mkdir -p "$tmp/fresh-resume-x/bin"; : >"$tmp/fresh-resume-x/.runner-extracting"; echo mine >"$tmp/fresh-resume-x/my-notes.txt"
+: >"$STUB_LOG"; fresh="$tmp/fresh-resume-x"
+run_setup RUNNER_DIR="$fresh"
+check_eq    "再開(展開物に無い物あり): 失敗で止まる"             1 "$rc"
+check_match "再開(展開物に無い物あり): 理由を出す"               "前回の展開の続きですが" "$out"
+check_eq    "再開(展開物に無い物あり): 既存のファイルを残す"     mine "$(cat "$fresh/my-notes.txt")"
+rm -rf "$tmp/fresh-resume-done" "$home/Library"; mkdir -p "$tmp/fresh-resume-done"
+cp "$tarsrc/config.sh" "$tmp/fresh-resume-done/config.sh"; : >"$tmp/fresh-resume-done/.runner-extracting"
+: >"$STUB_LOG"; : >"$STUB_LAUNCHD_LIST"; fresh="$tmp/fresh-resume-done"
+run_setup RUNNER_DIR="$fresh"
+check_eq    "再開(config.sh まで済み): 成功する"                 0 "$rc"
+check_eq    "再開(config.sh まで済み): 再ダウンロードしない"     0 "$(calls 'curl')"
+check_eq    "再開(config.sh まで済み): マーカーを片付ける"       0 "$([ -e "$fresh/.runner-extracting" ] && echo 1 || echo 0)"
+check_eq    "再開(config.sh まで済み): 登録する"                 1 "$(calls 'config.sh --unattended')"
+# 無関係な中身は、ダウンロードする前に断る
+rm -rf "$tmp/fresh-early"; mkdir -p "$tmp/fresh-early"; echo precious >"$tmp/fresh-early/my-notes.txt"; : >"$STUB_LOG"; fresh="$tmp/fresh-early"
+run_setup RUNNER_DIR="$fresh"
+check_eq    "無関係な中身: ダウンロードする前に止まる"           0 "$(calls 'curl')"
+check_eq    "無関係な中身: 失敗で止まる"                         1 "$rc"
+# チェックサム不一致では、展開を始めた印（マーカー）を置かない
+fresh_run nomarker STUB_DIGEST="sha256:$(printf '1%.0s' $(seq 1 64))"
+check_eq    "チェックサム不一致: マーカーを置かない"             0 "$([ -e "$fresh/.runner-extracting" ] && echo 1 || echo 0)"
+
+# (9i) Makefile は sudo の環境リセットを越えて変数を渡す（make runner-setup RUNNER_REPLACE=1 が黙って落ちない）
+mk_out=$(make -n -C "$DOTFILES_DIR" runner-setup RUNNER_REPLACE=1 RUNNER_ORG=x RUNNER_NAME=n RUNNER_GROUP=g 2>&1 || true)
+check_match "make: RUNNER_REPLACE を sudo に渡す"                'RUNNER_REPLACE="1"' "$mk_out"
+check_match "make: RUNNER_ORG を sudo に渡す"                    'RUNNER_ORG="x"' "$mk_out"
+check_match "make: RUNNER_NAME を sudo に渡す"                   'RUNNER_NAME="n"' "$mk_out"
+check_match "make: RUNNER_GROUP を sudo に渡す"                  'RUNNER_GROUP="g"' "$mk_out"
+check_no_match "make: 登録トークンを変数にしない"                 "TOKEN" "$mk_out"
+
+# (10) Linux の依存パッケージ: 失敗したら止まり、再実行でもう一度走る（取得済みの分岐でも飛ばさない）
+fresh_run deps-fail "${linux_boot_env[@]}" STUB_UNAME_M=x86_64 STUB_DEPS_FAIL=1
+check_eq    "依存導入の失敗(Linux): 失敗で止まる"                1 "$rc"
+check_eq    "依存導入の失敗(Linux): 登録しない"                  0 "$(calls 'config.sh')"
+check_eq    "依存導入の失敗(Linux): サービス化しない"            0 "$(calls 'svc.sh')"
+: >"$STUB_LOG"
+run_setup RUNNER_DIR="$fresh" "${linux_boot_env[@]}" STUB_UNAME_M=x86_64
+check_eq    "依存導入の再実行(Linux): 成功する"                  0 "$rc"
+check_match "依存導入の再実行(Linux): 取得済みと表示する"        "runner 本体は取得済み" "$out"
+check_eq    "依存導入の再実行(Linux): もう一度依存を入れる"      1 "$(calls 'installdependencies.sh')"
+check_eq    "依存導入の再実行(Linux): 再ダウンロードしない"      0 "$(calls 'curl')"
+
 exit "$fail"
