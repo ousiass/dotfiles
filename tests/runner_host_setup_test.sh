@@ -285,7 +285,8 @@ exit 0
 EOF
 
 run_setup() { # run_setup [VAR=value ...] : 出力を ${out}、終了コードを $rc に入れる
-    out=$(env PATH="$stubs:$PATH" RUNNER_USER=ci SUDOERS_FILE="$tmp/sudoers-github-runner" "$@" bash "$SETUP" 2>&1)
+    # RUNNER_BREW_PATHS="" で、実機の /opt/homebrew の本物の brew を拾わないようにする（個別のケースで上書きできる）。
+    out=$(env PATH="$stubs:$PATH" RUNNER_USER=ci SUDOERS_FILE="$tmp/sudoers-github-runner" RUNNER_BREW_PATHS="" "$@" bash "$SETUP" 2>&1)
     rc=$?
 }
 
@@ -313,6 +314,32 @@ check_match "ユーザー不在: メッセージ"            "ユーザーが見
 run_setup STUB_NO_CLT=1
 check_eq    "CLT 無し: 失敗で止まる"              1 "$rc"
 check_match "CLT 無し: 入れ方を案内する"          "xcode-select --install" "$out"
+
+# --- Homebrew の探し方（RUNNER_BREW_PATHS）。本物の brew が PATH やこのホストの /opt/homebrew にあっても影響されない ---
+# brew のスタブを除いたスタブ置き場と、brew を含むディレクトリを除いた PATH を作る。
+nobrew="$tmp/bin-nobrew"
+mkdir -p "$nobrew"
+for f in "$stubs"/*; do [ "$(basename "$f")" = brew ] || ln -s "$f" "$nobrew/$(basename "$f")"; done
+clean_path="$nobrew"
+IFS=: read -r -a path_dirs <<<"$PATH"
+for d in "${path_dirs[@]}"; do
+    [ -x "$d/brew" ] || clean_path="$clean_path:$d"
+done
+fake_brew_dir="$tmp/opt-homebrew/bin"
+mkdir -p "$fake_brew_dir"
+cp "$stubs/brew" "$fake_brew_dir/brew"
+
+# (2) 空にすると何も足さないので、brew は見つからず、案内して止まる（自動では入れない）
+: >"$STUB_LOG"
+run_setup PATH="$clean_path"
+check_eq    "Homebrew 無し: 失敗で止まる"                 1 "$rc"
+check_match "Homebrew 無し: 入れ方を案内する"             "https://brew.sh" "$out"
+check_eq    "Homebrew 無し: ツールを入れようとしない"     0 "$(calls 'brew')"
+# (1) 上書きでそこを指せば brew が見つかり、最後まで通る
+: >"$STUB_LOG"
+run_setup PATH="$clean_path" RUNNER_BREW_PATHS="$fake_brew_dir"
+check_eq    "RUNNER_BREW_PATHS の先に brew がある: 成功する" 0 "$rc"
+check_match "RUNNER_BREW_PATHS の先に brew がある: その brew を使う" "brew services start colima" "$(cat "$STUB_LOG")"
 
 # 足りない brew パッケージは、runner ユーザーとして brew install で入れる（入っているものは飛ばす）。
 run_setup STUB_BREW_MISSING="colima docker-buildx"

@@ -97,7 +97,7 @@ all_formulae="colima docker docker-buildx fnm gh jq shellcheck fish"
 
 # run [VAR=value ...] : 出力を $out、終了コードを $rc に入れる（PATH はスタブだけ）
 run() {
-    out=$(env PATH="$stubs" HOME="$tmp/home" XCODE_APP="$tmp/Xcode.app" RUNNER_TOOLS_EXTRA_PATH="" "$@" "$BASH" "$SCRIPT" 2>&1)
+    out=$(env PATH="$stubs" HOME="$tmp/home" XCODE_APP="$tmp/Xcode.app" RUNNER_BREW_PATHS="" "$@" "$BASH" "$SCRIPT" 2>&1)
     rc=$?
 }
 
@@ -166,21 +166,21 @@ nobrew="$tmp/bin-nobrew"
 mkdir -p "$nobrew"
 for f in "$stubs"/*; do [ "$(basename "$f")" = brew ] || ln -s "$f" "$nobrew/$(basename "$f")"; done
 reset
-out=$(env PATH="$nobrew" HOME="$tmp/home" XCODE_APP="$tmp/Xcode.app" RUNNER_TOOLS_EXTRA_PATH="" "$BASH" "$SCRIPT" 2>&1)
+out=$(env PATH="$nobrew" HOME="$tmp/home" XCODE_APP="$tmp/Xcode.app" RUNNER_BREW_PATHS="" "$BASH" "$SCRIPT" 2>&1)
 rc=$?
 check_eq    "Homebrew 無し: 失敗で止まる"         1 "$rc"
 check_match "Homebrew 無し: 入れ方を案内する"     "https://brew.sh" "$out"
 check_match "Homebrew 無し: 自動では入れないと分かる" "自動で入れません" "$out"
 check_eq    "Homebrew 無し: curl を呼ばない"      0 "$(calls '^curl')"
 
-# 既定の追加パス（/opt/homebrew/bin）は変数で差し替えられる。差し替え先にある brew は見つかる
+# 既定の追加パス（/opt/homebrew/bin）は RUNNER_BREW_PATHS で差し替えられる。差し替え先にある brew は見つかる
 # （Homebrew がある Mac でも「無し」のケースを再現できるよう、テストは既定で空にしている）。
 extra="$tmp/extra-brew"
 mkdir -p "$extra"
 cp "$stubs/brew" "$extra/brew"
 reset
 : >"$STUB_NODE_DEFAULT"
-out=$(env PATH="$nobrew" HOME="$tmp/home" XCODE_APP="$tmp/Xcode.app" RUNNER_TOOLS_EXTRA_PATH="$extra" STUB_BREW_INSTALL_FAIL="" "$BASH" "$SCRIPT" 2>&1)
+out=$(env PATH="$nobrew" HOME="$tmp/home" XCODE_APP="$tmp/Xcode.app" RUNNER_BREW_PATHS="$extra" STUB_BREW_INSTALL_FAIL="" "$BASH" "$SCRIPT" 2>&1)
 rc=$?
 check_eq    "追加パスに brew がある: 見つけて成功する" 0 "$rc"
 check_eq    "追加パスに brew がある: brew install する" 1 "$(calls '^brew install colima$')"

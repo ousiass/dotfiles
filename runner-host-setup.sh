@@ -60,7 +60,13 @@ Darwin)
 		exit 1
 	fi
 	# brew は /opt/homebrew/bin。sudo 経由では PATH に無いことがあるので、後ろへ足して探せるようにする。
-	export PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin"
+	# 環境変数 RUNNER_BREW_PATHS で差し替えられる（runner-tools-install.sh と同じ変数名・既定値。
+	# 空にすると何も足さない。`:-` ではなく `-` なので空文字も有効）。テストが、実機の本物の brew を
+	# 拾わないようにするため。
+	RUNNER_BREW_PATHS="${RUNNER_BREW_PATHS-/opt/homebrew/bin:/opt/homebrew/sbin}"
+	if [ -n "$RUNNER_BREW_PATHS" ]; then
+		export PATH="$PATH:$RUNNER_BREW_PATHS"
+	fi
 	;;
 *)
 	echo "対象外です: 未対応の OS です: ${OS}（Linux と macOS のみ対応）" >&2
@@ -202,7 +208,7 @@ if [ "$OS" = Darwin ]; then
 	# runner-tools-install.sh が、runner ユーザーとして brew で入れる（入っているものは飛ばす）。
 	# Homebrew 自体・Xcode 本体・署名証明書は入れない（案内か表示だけ）。
 	# docker-buildx 単体では docker CLI から見えないことがある。その場合は最後の確認で案内する。
-	sudo -u "$RUNNER_USER" -H env PATH="$PATH" bash "$SCRIPT_DIR/runner-tools-install.sh"
+	sudo -u "$RUNNER_USER" -H env PATH="$PATH" RUNNER_BREW_PATHS="$RUNNER_BREW_PATHS" bash "$SCRIPT_DIR/runner-tools-install.sh"
 	echo "  runner に要るツール: そろっている"
 
 	echo "== 3/5 colima =="
