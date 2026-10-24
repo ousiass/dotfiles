@@ -136,6 +136,23 @@ fi
 # ジョブの shell 相当の PATH（OS ごとに runner-path-guard.sh が定義する）。
 runner_path=$(runner_stable_path "$home")
 
+# Docker 公式 apt（docker-ce / docker-ce-cli）が入っているか。docker-ce は docker.io と Conflicts で、
+# Ubuntu の docker-buildx は docker.io に依存し docker-compose-v2 も docker.io を Recommends するので、
+# このホストでは docker.io 系を入れない。dpkg が管理中の状態（installed / unpacked / triggers-pending など）は
+# 入っている扱い（docker.io を入れると衝突する）。未導入・not-installed・removed 後に設定だけ残る config-files は
+# 入っていない扱いにする。
+is_docker_ce_host() {
+	local pkg status
+	for pkg in docker-ce docker-ce-cli; do
+		status=$(dpkg-query -W -f='${db:Status-Status}' "$pkg" 2>/dev/null) || continue
+		case "$status" in
+		not-installed | config-files | "") ;;
+		*) return 0 ;;
+		esac
+	done
+	return 1
+}
+
 # macOS: runner ユーザーとして、ジョブと同じ最小環境（非ログイン）でコマンドを実行する。
 # root のままだと colima の docker context（ユーザーの ~/.docker）が見えない。
 runner_exec() {
@@ -230,22 +247,35 @@ if [ "$OS" = Darwin ]; then
 	echo "  $RUNNER_USER で docker info が通った"
 else
 	echo "== 2/5 Docker / Buildx / Compose / C コンパイラ / zstd =="
-	# docker.io 単体では buildx が入らず、COPY --chmod を含む Dockerfile が
+	# docker.io ホストでは、docker.io 単体では buildx が入らず、COPY --chmod を含む Dockerfile が
 	# 「the --chmod option requires BuildKit」で失敗するため docker-buildx を明示する。
 	#
 	# build-essential は go test -race のため。競合検出は cgo（= gcc）を必要とし、
 	# actions/setup-go は Go ツールチェーンだけを入れて C コンパイラは入れない。
 	export DEBIAN_FRONTEND=noninteractive
 	apt-get update
-	# zstd は actions/cache が tar の圧縮に使う。docker-compose-v2 は Ubuntu の docker.io 前提の
-	# `docker compose` 用。すでに `docker compose version` が通るホスト（Docker 公式 apt の
-	# docker-compose-plugin など）では、cli-plugins/docker-compose が衝突するので入れない。
-	# docker.io 自体は従来どおり無条件に入れる（docker-ce のホストへの適用は想定しない）。
-	packages=(docker.io docker-buildx build-essential zstd)
-	if ! docker compose version >/dev/null 2>&1; then
-		packages+=(docker-compose-v2)
+	# zstd は actions/cache が tar の圧縮に使う。build-essential と同じく、docker の種類に関係なく入れる。
+	#
+	# docker の入れ方は 2 通りで、混ぜない。
+	#   - Docker 公式 apt（docker-ce / docker-ce-cli / docker-buildx-plugin / docker-compose-plugin）:
+	#     docker-ce は docker.io と Conflicts なので、docker.io を入れると衝突する。buildx / compose も
+	#     公式の plugin 側が持っているので、docker.io 系（docker-buildx / docker-compose-v2）は入れない。
+	#   - Ubuntu の docker.io: docker-buildx と、`docker compose` が通らないときだけ docker-compose-v2 を足す。
+	packages=(build-essential zstd)
+	if is_docker_ce_host; then
+		echo "  Docker 公式 apt の docker-ce / docker-ce-cli が入っているので、docker.io / docker-buildx / docker-compose-v2 は入れない"
+	else
+		packages=(docker.io docker-buildx "${packages[@]}")
+		if ! docker compose version >/dev/null 2>&1; then
+			packages+=(docker-compose-v2)
+		fi
 	fi
 	apt-get install -y "${packages[@]}"
+	# docker-ce-cli だけ（リモートの daemon を使う構成など）では docker.service が無い。runner は同じホストの daemon を使うので止める。
+	if ! systemctl cat docker.service >/dev/null 2>&1; then
+		echo "docker.service がありません。runner は同じホストの docker daemon を使うので、docker-ce（または docker.io）を入れてください。" >&2
+		exit 1
+	fi
 	systemctl enable --now docker
 
 	echo "== 3/5 docker グループ =="
@@ -454,7 +484,12 @@ if [ "$OS" = Darwin ]; then
 	fi
 else
 	docker --version
-	docker buildx version
+	# docker-ce ホストの buildx / compose は公式 apt の plugin（このスクリプトは入れない）。
+	# 無くてもここで止めず、後ろの検査まで流して案内だけ出す。
+	docker buildx version \
+		|| echo "  NG: docker buildx が使えません（docker.io ホストなら docker-buildx、Docker 公式 apt のホストなら docker-buildx-plugin を入れてください）" >&2
+	docker compose version \
+		|| echo "  NG: docker compose が使えません（docker.io ホストなら docker-compose-v2、Docker 公式 apt のホストなら docker-compose-plugin を入れてください）" >&2
 	gcc --version | head -1
 	echo "--- Runner.Listener の実 PATH から node / npx ---"
 	# .env を見るだけでは、runsvc.sh が .path で PATH を上書きするバグを検知できない。

@@ -374,12 +374,12 @@ Linux との違い:
 |---|---|---|
 | ユーザーのホーム | `getent passwd` | `dscl . -read /Users/<user> NFSHomeDirectory` |
 | `/etc/sudoers.d/github-runner` のグループ | `root` | `wheel`（`visudo -c` で検証してから置くのは同じ） |
-| 依存 | `apt-get install docker.io docker-buildx build-essential zstd`。`docker compose version` が通らないときだけ `docker-compose-v2` も入れる（Docker 公式 apt の docker-ce + docker-compose-plugin のホストでは入れない） | Xcode CLT・Homebrew の有無を確かめ（無ければ案内して止まる）、colima / docker / docker-buildx / docker-compose / zstd などは `runner-tools-install.sh` が brew で入れる |
+| 依存 | 常に `apt-get install build-essential zstd`。Docker 公式 apt の `docker-ce` / `docker-ce-cli` が入っているホストでは、`docker.io` と、`docker.io` に Depends する `docker-buildx`・Recommends する `docker-compose-v2` は入れない（`docker-ce` は `docker.io` と Conflicts で、`apt-get -s install docker.io` はエラーで終わる）。buildx / compose は公式の `docker-buildx-plugin` / `docker-compose-plugin` を使い、無ければ 5/5 で NG を案内する（入れるのは手動）。`docker-ce` が removed で設定だけ残る（rc）ホストは対象外で、通常の経路になる。入っていないホストでは `docker.io` と `docker-buildx` も入れ、`docker compose version` が通らないときだけ `docker-compose-v2` も入れる | Xcode CLT・Homebrew の有無を確かめ（無ければ案内して止まる）、colima / docker / docker-buildx / docker-compose / zstd などは `runner-tools-install.sh` が brew で入れる |
 | Docker の起動 | `systemctl enable --now docker` と docker グループ | runner ユーザーで `brew services start colima`（runner ユーザーのログイン後に自動で上がる）。`docker info` が通るまで最大 2 分待つ。docker CLI は `~/.docker/config.json` の docker context `colima` で colima に繋ぐ（下記） |
 | サービス | systemd（`svc.sh` が unit を作る） | launchd（`svc.sh` が `~/Library/LaunchAgents/` に plist を作る。`svc.sh` は root を拒否するので runner ユーザーとして呼ぶ） |
 | `.path` のガード | drop-in の `ExecStartPre=` | plist の `ProgramArguments` を `path-guard.sh --exec <runner dir> <home>` に差し替える。ガードが `.path` を直してから `runsvc.sh` へ `exec` する。起動のたびに走り、修復内容は `~/Library/Logs/<label>/stdout.log` に出る |
 | 安定 PATH | `/opt/nvim/bin`・`/usr/games`・`/snap/bin` など | `/opt/homebrew/bin`・`/opt/homebrew/sbin` を入れ、Linux 専用のものを外す（定義は `runner_stable_path`） |
-| 5/5 確認 | `/proc` の `Runner.Listener` の PATH と docker グループ | `/proc` も docker グループも無いので、runner ユーザーの最小環境で `docker info` / `docker buildx version` / `docker compose version` と、`.path` の PATH で `node` / `npx` / `cc` が引けるかを確かめる |
+| 5/5 確認 | `/proc` の `Runner.Listener` の PATH と docker グループ。`docker --version` と、`docker buildx version` / `docker compose version`（通らなければ NG を案内するだけで止めない） | `/proc` も docker グループも無いので、runner ユーザーの最小環境で `docker info` / `docker buildx version` / `docker compose version` と、`.path` の PATH で `node` / `npx` / `cc` が引けるかを確かめる |
 | runner のラベル | `[self-hosted, linux, x64]` | `[self-hosted, macOS, ARM64]` |
 
 稼働中の runner に `.path` / `.env` / plist の変更を反映するときは、ジョブが無ければ `svc.sh stop` / `start` で再起動する（ジョブ実行中は再起動せず、手順を案内する）。`svc.sh start` の中身は `launchctl load -w` で、読み込み済みのときの挙動は実機で確かめていないため、稼働中は `start` を呼ばない設計にした。2 回続けて回しても、plist・`.path` は書き換わらず、再起動もしない（これもスタブでの確認のみ）。
@@ -400,7 +400,7 @@ Linux との違い:
 | OS | 入れるもの |
 |---|---|
 | macOS | Homebrew で `colima` `docker` `docker-buildx` `docker-compose` `fnm` `gh` `jq` `shellcheck` `fish` `zstd`、fnm で Node.js LTS（default に設定。runner の安定 PATH は fnm の `aliases/default/bin` を指すため）、`~/.docker/config.json` の docker context と `cliPluginsExtraDirs`（上の「docker の接続と buildx / compose」） |
-| Linux | `apt` で `jq` `shellcheck` `fish`、`install.sh` と同じ関数（`lib/tools/fnm.sh` / `lib/tools/gh.sh`）で `fnm` と `gh`、fnm で Node.js LTS。Docker / Buildx / Compose / build-essential / zstd は `runner-host-setup.sh` が入れるので、`make runner-setup` からは呼ばず、単体で `make runner-tools` したときだけ使う |
+| Linux | `apt` で `jq` `shellcheck` `fish`、`install.sh` と同じ関数（`lib/tools/fnm.sh` / `lib/tools/gh.sh`）で `fnm` と `gh`、fnm で Node.js LTS。build-essential / zstd と、docker.io ホストの Docker / Buildx / Compose は `runner-host-setup.sh` が入れる（docker-ce ホストでは docker 系は入れない）ので、`make runner-setup` からは呼ばず、単体で `make runner-tools` したときだけ使う |
 
 入れない（案内か表示だけ）もの:
 
