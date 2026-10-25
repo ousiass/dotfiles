@@ -54,6 +54,13 @@ for a in "${args[@]}"; do
     if [[ -n "$val" && "$val" != "$SANDBOX_REPO" && "$val" != "github.com/$SANDBOX_REPO" ]]; then
         refuse "--repo が別の repo（${val}）を指している" "${args[@]}"
     fi
+    # URL の引数（gh pr view https://github.com/o/r/pull/1 など）は GH_REPO より優先されるので、別の repo のものは止める
+    case "$a" in
+    http://* | https://* | github.com/*)
+        [[ "$a" =~ ^(https?://)?(api\.)?github\.com/(repos/)?"$SANDBOX_REPO"([/?#.]|$) ]] || [[ "$a" =~ ^https://api\.github\.com/(graphql|user)?$ ]] ||
+            refuse "別の repo の URL を指している（${a}）" "${args[@]}"
+        ;;
+    esac
     prev="$a"
 done
 
@@ -61,7 +68,25 @@ done
 sub="${1:-}"
 cmd2="${2:-}"
 case "$sub $cmd2" in
-"auth status" | "repo view") ;;
+"auth status") ;;
+"repo view")
+    # repo view は位置引数の repo を見る（GH_REPO は効かない）。位置引数があれば固定の repo だけ許し、無ければ固定の repo を足す
+    # 位置引数 = 「-」で始まらず、直前の引数も「-」で始まらないもの（直前が旗なら、その旗の値とみなす: --json name など）
+    positional=0
+    prev=""
+    for a in "${args[@]:2}"; do
+        case "$a" in
+        -*) ;;
+        *)
+            case "$prev" in
+            -*) ;;
+            *) positional=1; [[ "$a" == "$SANDBOX_REPO" ]] || refuse "gh repo view が別の repo（${a}）を指している" "${args[@]}" ;;
+            esac
+            ;;
+        esac
+        prev="$a"
+    done
+    ;;
 "api "*) ;;
 "issue "* | "pr " | "pr "* | "label "*) ;;
 "run list" | "run view" | "run watch") ;;
@@ -94,6 +119,9 @@ case "$sub $cmd2" in
         prev="$a"
     done
     [[ "$has_eval" -eq 1 ]] || extra=(--label eval)
+    ;;
+"repo view")
+    [[ "$positional" -eq 1 ]] || extra=("$SANDBOX_REPO")
     ;;
 esac
 

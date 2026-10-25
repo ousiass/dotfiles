@@ -130,12 +130,27 @@ check_eq "gh ラッパー: gh api の /repos/ パスも止まる" "$before" "$(n
 wrap api repos/ousiass/dotfiles-eval-sandbox/issues >/dev/null
 check_eq "gh ラッパー: gh api が固定の repo なら通す" "$((before + 1))" "$(nreal)"
 before="$(nreal)"
+wrap pr view https://github.com/ousiass/dotfiles/pull/65 >/dev/null
+wrap api https://api.github.com/repos/ousiass/dotfiles/issues >/dev/null
+wrap repo view ousiass/dotfiles >/dev/null
+check_eq "gh ラッパー: 別の repo の URL・repo view の位置引数は止まる" "$before" "$(nreal)"
+wrap pr view https://github.com/ousiass/dotfiles-eval-sandbox/pull/1 >/dev/null
+check_eq "gh ラッパー: 固定の repo の URL は通す" "$((before + 1))" "$(nreal)"
+wrap pr view https://github.com/ousiass/dotfiles-eval-sandbox-evil/pull/1 >/dev/null
+check_eq "gh ラッパー: 固定の repo 名で始まる別の repo の URL は止まる" "$((before + 1))" "$(nreal)"
+wrap repo view --json name >/dev/null
+check_match "gh ラッパー: repo view は位置引数が無ければ固定の repo を足す" "--json name ousiass/dotfiles-eval-sandbox" "$(last_real)"
+before="$(nreal)"
+wrap issue comment 1 --body "see https://github.com/ousiass/dotfiles/pull/65" >/dev/null
+check_eq "gh ラッパー: 本文に別の repo の URL があっても止めない（引数が URL そのものの場合だけ止める）" "$((before + 1))" "$(nreal)"
+before="$(nreal)"
+
 for sc in "repo delete" "repo create" "auth login" "secret set" "workflow run" "release create" "ssh-key add" "gist create"; do
     # shellcheck disable=SC2086
     wrap $sc x >/dev/null
 done
 check_eq "gh ラッパー: 許可していない subcommand（repo delete など）は止まる" "$before" "$(nreal)"
-check_eq "gh ラッパー: 止めたものは unsupported で記録される（ここまでの別の拒否も含めて 15 件）" 15 "$(jq -s '[.[] | select(.result == "unsupported")] | length' "$state/actions.jsonl")"
+check_eq "gh ラッパー: 止めたものは unsupported で記録される（ここまでの別の拒否も含めて 19 件）" 19 "$(jq -s '[.[] | select(.result == "unsupported")] | length' "$state/actions.jsonl")"
 before="$(nreal)"
 wrap auth git-credential get >/dev/null
 check_eq "gh ラッパー: git の credential helper は通す（記録しない）" "$((before + 1))" "$(nreal)"

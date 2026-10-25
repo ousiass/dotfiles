@@ -90,16 +90,27 @@ else
         [[ "$mode" == "-rw-------" ]] && ok "gh-token のモードは 600" || ng "gh-token のモードが ${mode}（chmod 600 にしてください）"
     fi
     ok "GH_TOKEN がある（値は表示しない）"
-    # 読み取り専用の API で、試験用 repo に届くこと・ほかの repo に届かないことを確かめる
-    if command -v gh >/dev/null; then
+    # 読み取りだけの確認。repos API の .permissions は「トークン」ではなく「ユーザー」の権限を返す
+    # （公開 repo では、トークンが読み取り専用でも push: true になる）ので、書き込めるかは git-receive-pack の広告（GET）の応答で見る
+    # トークンに push の権限があれば 200、無ければ 403
+    receive_pack_code() {
+        printf 'header = "Authorization: Basic %s"\n' "$(printf 'x:%s' "$GH_TOKEN" | base64 | tr -d '\n')" |
+            curl -s -K - -o /dev/null -w '%{http_code}' "https://github.com/${1}.git/info/refs?service=git-receive-pack" 2>/dev/null || true
+    }
+    if command -v gh >/dev/null && command -v curl >/dev/null; then
         if gh api "repos/${repo}" --jq '.full_name' >/dev/null 2>&1; then ok "試験用 repo ${repo} を読める"; else ng "試験用 repo ${repo} を読めない（トークンの対象 repo と権限を確認）"; fi
-        if gh api "repos/ousiass/dotfiles" --jq '.permissions.push // false' 2>/dev/null | grep -qx true; then
-            ng "トークンが ousiass/dotfiles に書き込める。試験用 repo だけに絞った fine-grained トークンにしてください"
+        if [[ "$(receive_pack_code "$repo")" == 200 ]]; then ok "試験用 repo ${repo} に push できる（Contents: Read and write）"; else ng "試験用 repo ${repo} に push できない（トークンに Contents: Read and write が無い。.github/workflows/ci.yml を push するには Workflows: Read and write も要る）"; fi
+        if [[ "$(receive_pack_code ousiass/dotfiles)" == 200 ]]; then
+            ng "トークンが ousiass/dotfiles に push できる。試験用 repo だけに絞った fine-grained トークンにしてください"
         else
-            ok "ousiass/dotfiles には書き込めない"
+            ok "ousiass/dotfiles には push できない"
         fi
+        # gh run list / gh pr checks が読めること（Actions: Read / Checks: Read / Commit statuses: Read）
+        gh api "repos/${repo}/actions/runs?per_page=1" >/dev/null 2>&1 && ok "Actions を読める" || ng "Actions を読めない（トークンに Actions: Read が無い）"
+        gh api "repos/${repo}/commits/main/check-runs" >/dev/null 2>&1 && ok "Checks を読める" || ng "Checks を読めない（トークンに Checks: Read が無い）"
+        gh api "repos/${repo}/commits/main/status" >/dev/null 2>&1 && ok "Commit statuses を読める" || ng "Commit statuses を読めない（トークンに Commit statuses: Read が無い）"
     else
-        warn "gh が PATH に無い。トークンの到達範囲は確かめていない"
+        warn "gh か curl が PATH に無い。トークンの到達範囲は確かめていない"
     fi
 fi
 
