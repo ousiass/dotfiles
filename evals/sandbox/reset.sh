@@ -110,7 +110,7 @@ if [[ "$use_gh" -eq 1 ]]; then
         [[ -n "$n" ]] || continue
         case "$st" in
         OPEN) op CLOSE-PR "#${n}" "$head" ;;
-        MERGED) op SKIP-MERGED-PR "#${n}" "$head（マージ済み。戻せない）" ;;
+        MERGED) op SKIP-MERGED-PR "#${n}" "${head}（マージ済み。戻せない）" ;;
         esac
     done < <(jq -r '.[] | [.number, .headRefName, .state] | @tsv' <<<"$prs")
 
