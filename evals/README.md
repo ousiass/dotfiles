@@ -65,6 +65,10 @@ EVAL_CONFIRM_PAID=1 evals/run.sh --harness omp --live --model <id> --rep 2
 `--dry` は、`run.sh` が**本番と同じコマンド行**を組み立てたうえで、先頭の `claude` / `omp` だけを `lib/fake-agent.sh` に置き換えて直接呼ぶ（PATH の並びに頼らないので、本物を呼ぶ事故が起きない。`tests/evals_dry_test.sh` が、PATH に罠の `claude` / `omp` があっても呼ばれないことを確かめる）。fake-agent はその引数が本物として成り立つか（`-p`・位置引数のプロンプト、claude は `--output-format stream-json`、omp は `--session-dir` と `--cwd`）を確かめたうえで、シナリオの動き（git と偽 gh の操作）を**サンドボックスの中で実際に行い**、各ハーネスの形式で出力する。dry の `model` は `"fake"`（`compare.py` が offline stand-in として警告する）。
 そのため、`run.sh` → 出力の読み取り（`lib/adapt.sh`）→ 採点（`grade.sh`）→ `results.jsonl` の配線と、採点の判定式を、モデル無しで通せる。
 
+jq は jq 1.7.1（静的バイナリ）と jaq 3.1.1 の両方で `make test` が通ることを確かめた（真偽の判定は `jq -e` の終了コードに頼らず、`jq` が出す `true` の文字列で比べている。jq 1.6 は未確認）。
+
+`evals/estimate.sh` は Phase ごとに対象を分けて数える（Phase 1 は全タスク、Phase 2 / 3 は impl 系だけ。Issue の定義どおり）。使用量は 1 点でなく、下限（どのタスクも軽い impl の p25 並み）・中央・上限（実 repo の p75）の範囲で出す。上限は費用の確定値ではない。
+
 ### 本番に触れない理由
 
 - サンドボックスは `$TMPDIR`（無ければ `/tmp`）の下の使い捨てディレクトリだけ。`origin` はその中のローカル bare repo
