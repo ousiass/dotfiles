@@ -1,0 +1,45 @@
+{
+  "provenance": "~/.omp/agent/sessions の実測（omp。impl 8 セッション、issue-sweep の Issue 2〜3 件 7 セッション。実 repo での実行で、eval の題材より大きい。claude -p の実測は無い）。evals/observe-usage.sh で作り直せる",
+  "weights": {
+    "light": "impl_p25",
+    "normal": "impl_p50",
+    "heavy": "sweep_2to3_p75"
+  },
+  "classes": {
+    "impl_p25": {
+      "n": 8,
+      "calls": 151,
+      "out": 54646,
+      "fresh": 351221,
+      "cache_read": 9591374
+    },
+    "impl_p50": {
+      "n": 8,
+      "calls": 370,
+      "out": 224596,
+      "fresh": 1250622,
+      "cache_read": 34786186
+    },
+    "impl_p75": {
+      "n": 8,
+      "calls": 436,
+      "out": 342056,
+      "fresh": 2895549,
+      "cache_read": 65149805
+    },
+    "sweep_2to3_p50": {
+      "n": 7,
+      "calls": 321,
+      "out": 245338,
+      "fresh": 1697803,
+      "cache_read": 46517846
+    },
+    "sweep_2to3_p75": {
+      "n": 7,
+      "calls": 540,
+      "out": 263530,
+      "fresh": 2487341,
+      "cache_read": 91732637
+    }
+  }
+}
