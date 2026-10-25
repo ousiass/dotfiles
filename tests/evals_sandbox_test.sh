@@ -75,6 +75,35 @@ check_match "with-env: gh-token ファイルが GH_TOKEN になる" "GH_TOKEN=to
 check_match "with-env: 環境変数がファイルより優先" "GH_TOKEN=tok-env" "$(EVAL_GH_TOKEN=tok-env "$root/with-env" env)"
 rm -f "$root/gh-token"
 
+# --- doctor.sh のトークンの判定（偽の curl / gh。ネットワークに出ない） -------------------------------------
+mkdir -p "$tmp/fake-net"
+cat >"$tmp/fake-net/curl" <<'EOF'
+#!/bin/bash
+# -K - の設定（トークンを含む）を標準入力から読み捨てる。URL の repo ごとに、決めた HTTP コードだけを返す
+cat >/dev/null
+case "$*" in
+*dotfiles-eval-sandbox.git*) printf '%s' "${FAKE_PUSH_SANDBOX:-403}" ;;
+*) printf '%s' "${FAKE_PUSH_DOTFILES:-403}" ;;
+esac
+EOF
+printf '#!/bin/bash\nexit "${FAKE_GH_RC:-0}"\n' >"$tmp/fake-net/gh"
+chmod +x "$tmp/fake-net/curl" "$tmp/fake-net/gh"
+doctor_net() { # 偽の curl / gh を PATH の先頭に置いて doctor.sh を実行する。引数: 試験用 repo の push コード dotfiles の push コード [gh の終了コード]
+    FAKE_PUSH_SANDBOX="$1" FAKE_PUSH_DOTFILES="$2" FAKE_GH_RC="${3:-0}" EVAL_GH_TOKEN=tok-secret-123 PATH="$tmp/fake-net:$PATH" \
+        "$root/with-env" "$root/dotfiles/evals/sandbox/doctor.sh" 2>&1
+}
+nng() { printf '%s\n' "$1" | grep -c $'^\033\\[1;31mNG'; }
+out="$(doctor_net 200 403)"
+check_eq "doctor.sh: 試験用 repo に push できて dotfiles に push できなければ NG が無い" 0 "$(nng "$out")"
+check_match "doctor.sh: dotfiles に push できないと確かめる" "ousiass/dotfiles には push できない" "$out"
+out="$(doctor_net 403 403)"
+check_match "doctor.sh: 試験用 repo に push できなければ NG" "試験用 repo ousiass/dotfiles-eval-sandbox に push できない" "$out"
+out="$(doctor_net 200 200)"
+check_match "doctor.sh: dotfiles に push できたら NG" "トークンが ousiass/dotfiles に push できる" "$out"
+out="$(doctor_net 200 403 1)"
+check_match "doctor.sh: gh api が読めなければ NG（Actions）" "Actions を読めない" "$out"
+check_eq "doctor.sh: トークンの値を出さない" 0 "$(printf '%s\n' "$out" | grep -c 'tok-secret-123')"
+
 # 隔離フォルダの外（呼び出し元の HOME）には何も書かれていない
 check_eq "呼び出し元の HOME に何も作られていない" 0 "$(find "$HOME" -mindepth 1 | wc -l | tr -d ' ')"
 

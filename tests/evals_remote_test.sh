@@ -138,6 +138,14 @@ wrap pr view https://github.com/ousiass/dotfiles-eval-sandbox/pull/1 >/dev/null
 check_eq "gh ラッパー: 固定の repo の URL は通す" "$((before + 1))" "$(nreal)"
 wrap pr view https://github.com/ousiass/dotfiles-eval-sandbox-evil/pull/1 >/dev/null
 check_eq "gh ラッパー: 固定の repo 名で始まる別の repo の URL は止まる" "$((before + 1))" "$(nreal)"
+wrap pr view https://github.com/ousiass/dotfiles-eval-sandbox.evil/pull/1 >/dev/null
+check_eq "gh ラッパー: 固定の repo 名に . で続く別の repo の URL も止まる" "$((before + 1))" "$(nreal)"
+check_eq "gh ラッパー: repo view --web 別の repo は止まる (exit 1)" 1 "$(wrap repo view --web ousiass/dotfiles >/dev/null; echo $?)"
+wrap repo view -w dotfiles >/dev/null
+wrap repo view dotfiles --json name >/dev/null
+check_eq "gh ラッパー: owner を省いた repo view・旗のあとの位置引数も止まる" "$((before + 1))" "$(nreal)"
+wrap repo view --json nameWithOwner,isPrivate --jq .name >/dev/null
+check_match "gh ラッパー: 値を取る旗（--json / --jq）の値は位置引数にしない" "--json nameWithOwner,isPrivate --jq .name ousiass/dotfiles-eval-sandbox" "$(last_real)"
 wrap repo view --json name >/dev/null
 check_match "gh ラッパー: repo view は位置引数が無ければ固定の repo を足す" "--json name ousiass/dotfiles-eval-sandbox" "$(last_real)"
 before="$(nreal)"
@@ -150,7 +158,7 @@ for sc in "repo delete" "repo create" "auth login" "secret set" "workflow run" "
     wrap $sc x >/dev/null
 done
 check_eq "gh ラッパー: 許可していない subcommand（repo delete など）は止まる" "$before" "$(nreal)"
-check_eq "gh ラッパー: 止めたものは unsupported で記録される（ここまでの別の拒否も含めて 19 件）" 19 "$(jq -s '[.[] | select(.result == "unsupported")] | length' "$state/actions.jsonl")"
+check_eq "gh ラッパー: 止めたものは unsupported で記録される（ここまでの別の拒否も含めて 23 件）" 23 "$(jq -s '[.[] | select(.result == "unsupported")] | length' "$state/actions.jsonl")"
 before="$(nreal)"
 wrap auth git-credential get >/dev/null
 check_eq "gh ラッパー: git の credential helper は通す（記録しない）" "$((before + 1))" "$(nreal)"

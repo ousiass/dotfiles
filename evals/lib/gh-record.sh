@@ -57,7 +57,7 @@ for a in "${args[@]}"; do
     # URL の引数（gh pr view https://github.com/o/r/pull/1 など）は GH_REPO より優先されるので、別の repo のものは止める
     case "$a" in
     http://* | https://* | github.com/*)
-        [[ "$a" =~ ^(https?://)?(api\.)?github\.com/(repos/)?"$SANDBOX_REPO"([/?#.]|$) ]] || [[ "$a" =~ ^https://api\.github\.com/(graphql|user)?$ ]] ||
+        [[ "$a" =~ ^(https?://)?(api\.)?github\.com/(repos/)?"$SANDBOX_REPO"(\.git)?([/?#]|$) ]] || [[ "$a" =~ ^https://api\.github\.com/(graphql|user)?$ ]] ||
             refuse "別の repo の URL を指している（${a}）" "${args[@]}"
         ;;
     esac
@@ -71,18 +71,17 @@ case "$sub $cmd2" in
 "auth status") ;;
 "repo view")
     # repo view は位置引数の repo を見る（GH_REPO は効かない）。位置引数があれば固定の repo だけ許し、無ければ固定の repo を足す
-    # 位置引数 = 「-」で始まらず、直前の引数も「-」で始まらないもの（直前が旗なら、その旗の値とみなす: --json name など）
+    # 値を取る旗（--json など。--flag=value 形式は 1 引数）の次の引数だけを飛ばし、ほかの「-」で始まらない引数は全部、位置引数として検査する
+    # （--web ousiass/dotfiles や、owner を省いた dotfiles も止まる）
     positional=0
     prev=""
     for a in "${args[@]:2}"; do
+        case "$prev" in
+        --json | --jq | -q | --template | -t | --branch | -b) prev=""; continue ;;
+        esac
         case "$a" in
         -*) ;;
-        *)
-            case "$prev" in
-            -*) ;;
-            *) positional=1; [[ "$a" == "$SANDBOX_REPO" ]] || refuse "gh repo view が別の repo（${a}）を指している" "${args[@]}" ;;
-            esac
-            ;;
+        *) positional=1; [[ "$a" == "$SANDBOX_REPO" ]] || refuse "gh repo view が別の repo（${a}）を指している" "${args[@]}" ;;
         esac
         prev="$a"
     done
