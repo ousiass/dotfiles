@@ -30,7 +30,7 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── gh-dash/            # → ~/.config/gh-dash (GitHub Dashboard CLI)
 ├── herdr/              # → ~/.config/herdr (エージェント向けターミナルマルチプレクサ、tmux 準拠 keybinding)
 ├── systemd/            # → ~/.config/systemd/user（週次の自動掃除 timer / service）
-├── tests/              # cleanup.sh / runner-path-guard.sh / runner-host-setup.sh / runner-tools-install.sh の回帰テスト（make test。macOS 標準の bash 3.2 と BSD コマンドでも動く書き方）
+├── tests/              # cleanup.sh / runner-path-guard.sh / runner-host-setup.sh / runner-tools-install.sh の回帰テストと bash 3.2 可搬性テスト（make test。macOS 標準の bash 3.2 と BSD コマンドでも動く書き方。CI の `test` ジョブが ubuntu-latest と macos-latest の両方で実行する）
 └── fish/               # → ~/.config/fish
     ├── config.fish
     ├── fish_plugins
