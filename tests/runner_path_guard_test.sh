@@ -115,12 +115,16 @@ check_match    "macOS の安定 PATH: Application Support の fnm の aliases/de
 check_match    "macOS の安定 PATH: ~/.local/share/fnm の aliases/default/bin も含む" ":/h/.local/share/fnm/aliases/default/bin:" ":$mac_path:"
 check_match    "macOS の安定 PATH: Homebrew (Apple Silicon) を含む"   ":/opt/homebrew/bin:" ":$mac_path:"
 check_match    "macOS の安定 PATH: /opt/homebrew/sbin を含む"         ":/opt/homebrew/sbin:" ":$mac_path:"
+check_match    "macOS の安定 PATH: brew の Ruby（ruby@3.4）を含む"     ":$(runner_ruby_bin_dir):" ":$mac_path:"
+check_match    "macOS の安定 PATH: brew の Ruby は Homebrew の bin より前" "$(runner_ruby_bin_dir):/opt/homebrew/bin:" "$mac_path"
+check_eq       "macOS の安定 PATH: brew の Ruby はシステムの /usr/bin より前" 1 "$(case "$mac_path" in *"$(runner_ruby_bin_dir)"*":/usr/bin:"*) echo 1 ;; *) echo 0 ;; esac)"
 check_match    "macOS の安定 PATH: 標準の /usr/bin /bin を含む"       ":/usr/bin:/bin:" ":$mac_path:"
 for linux_only in /snap/bin /opt/nvim/bin /usr/games /usr/local/games /usr/local/sbin; do
     check_no_match "macOS の安定 PATH: Linux 専用の $linux_only を含まない" ":$linux_only:" ":$mac_path:"
 done
 check_match    "Linux の安定 PATH: /snap/bin を含む（従来どおり）"    ":/snap/bin:" ":$linux_path:"
 check_no_match "Linux の安定 PATH: /opt/homebrew を含まない"          "/opt/homebrew" "$linux_path"
+check_no_match "Linux の安定 PATH: brew の Ruby を含まない"           "ruby" "$linux_path"
 
 # macOS でも fnm_multishells を含む .path は macOS の安定 PATH へ直る
 new_runner mac-multishell yes
@@ -136,7 +140,7 @@ mkdir -p "$app_bin"
 printf '#!/bin/sh\n' >"$app_bin/node"
 cp "$app_bin/node" "$app_bin/npx"
 chmod +x "$app_bin/node" "$app_bin/npx"
-app_healthy="$app_bin:/usr/bin:/bin"
+app_healthy="$app_bin:$(runner_ruby_bin_dir):/usr/bin:/bin"
 echo "$app_healthy" >"$runner_dir/.path"
 out=$(uname() { echo Darwin; }; runner_path_guard_main "$runner_dir" "$home" 2>&1)
 check_eq "macOS: Application Support の fnm を指す .path は正常（書き換えない）" "$app_healthy" "$(<"$runner_dir/.path")"
@@ -145,6 +149,15 @@ echo "/usr/bin:/bin" >"$runner_dir/.path"
 ( uname() { echo Darwin; }; runner_path_guard_main "$runner_dir" "$home" >/dev/null 2>&1 )
 check_eq "macOS: どちらの fnm も無い .path は安定 PATH へ直る" "$(uname() { echo Darwin; }; runner_stable_path "$home")" "$(<"$runner_dir/.path")"
 check_match "macOS: 安定 PATH は Application Support の fnm を含む" ":$app_bin:" ":$(<"$runner_dir/.path"):"
+# Ruby 対応より前に書かれた .path（fnm は正常だが brew の Ruby を持たない）は、システムの Ruby 2.6 を見るので直す（#60）
+echo "$app_bin:/usr/bin:/bin" >"$runner_dir/.path"
+out=$(uname() { echo Darwin; }; runner_path_file_problem "$runner_dir/.path" "$home")
+check_match "macOS: brew の Ruby を含まない .path は修復対象" "brew の Ruby" "$out"
+( uname() { echo Darwin; }; runner_path_guard_main "$runner_dir" "$home" >/dev/null 2>&1 )
+check_match "macOS: 修復後の .path に brew の Ruby を含む" ":$(runner_ruby_bin_dir):" ":$(<"$runner_dir/.path"):"
+check_eq    "macOS: 修復後の .path は macOS の安定 PATH" "$(uname() { echo Darwin; }; runner_stable_path "$home")" "$(<"$runner_dir/.path")"
+# Linux では brew の Ruby を要求しない（.path に ruby が無くても理由に挙がらない）
+check_no_match "Linux: brew の Ruby を .path に要求しない" "brew の Ruby" "$(uname() { echo Linux; }; runner_path_file_problem "$runner_dir/.path" "$home")"
 # Linux では Application Support を見ない（従来どおり ~/.local/share/fnm のみ）
 new_runner linux-appsupport no
 mkdir -p "$home/Library/Application Support/fnm/aliases/default/bin"

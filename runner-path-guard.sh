@@ -25,6 +25,7 @@
 #   .path を検査し、次のどれかに当たれば安定 PATH へ書き直す。
 #     - fnm_multishells を含む
 #     - <home>/.local/share/fnm/aliases/default/bin を含まない
+#     - macOS で、brew の Ruby（runner_ruby_bin_dir）を含まない
 #     - その PATH で node / npx が引けない
 #   書き直す前に .path.bak-<日時> を残し、修復内容は標準出力へ出す
 #   （systemd の journal に入る: journalctl -u <unit> / macOS は <home>/Library/Logs/<label>/stdout.log）。
@@ -43,6 +44,17 @@ runner_fnm_default_bin_dirs() {
 	printf '%s\n' "$home/.local/share/fnm/aliases/default/bin"
 }
 
+# macOS の iOS ビルド（fastlane / CocoaPods）が使う Ruby の brew formula。システムの Ruby（2.6）は古く、
+# brew の `ruby` は 4.x へ進んでいるため、3.x の versioned formula を使う。versioned formula は keg-only で
+# /opt/homebrew/bin には linux されないので、bin の置き場所（opt 配下）を安定 PATH に足す。
+# runner-tools-install.sh もこの変数で入れる formula を決める（入れるものと PATH を食い違わせない）。
+RUNNER_RUBY_FORMULA=ruby@3.4
+
+# brew の Ruby（と同梱の bundler）の bin。macOS の安定 PATH で、システムの /usr/bin/ruby より前に置く。
+runner_ruby_bin_dir() {
+	printf '%s' "/opt/homebrew/opt/$RUNNER_RUBY_FORMULA/bin"
+}
+
 # 安定 PATH。ログイン時の一時パス（fnm_multishells）を含めない。
 # fnm の aliases/default は node の更新に追従するシンボリックリンクなので、バージョンを固定せずに済む。
 # OS（uname -s）で分ける。macOS は Homebrew（Apple Silicon の /opt/homebrew）を入れ、
@@ -51,7 +63,7 @@ runner_stable_path() {
 	local home=$1
 	case "$(uname -s)" in
 	Darwin)
-		printf '%s' "$home/Library/Application Support/fnm/aliases/default/bin:$home/.local/share/fnm/aliases/default/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/go/bin:$home/go/bin:$home/.cargo/bin:$home/.bun/bin:$home/.local/bin:$home/Library/Application Support/fnm:$home/.local/share/fnm:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+		printf '%s' "$home/Library/Application Support/fnm/aliases/default/bin:$home/.local/share/fnm/aliases/default/bin:$(runner_ruby_bin_dir):/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/go/bin:$home/go/bin:$home/.cargo/bin:$home/.bun/bin:$home/.local/bin:$home/Library/Application Support/fnm:$home/.local/share/fnm:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 		;;
 	*)
 		printf '%s' "$home/.local/share/fnm/aliases/default/bin:/opt/nvim/bin:/usr/local/go/bin:$home/go/bin:$home/.cargo/bin:$home/.bun/bin:$home/.local/bin:$home/.local/share/fnm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin"
@@ -67,7 +79,7 @@ runner_path_has_node() {
 
 # .path に修復が必要なら理由を出力して 0 を返す。正常なら何も出さず 1 を返す。
 runner_path_file_problem() {
-	local file=$1 home=$2 current fnm_dirs dir found
+	local file=$1 home=$2 current fnm_dirs dir found ruby_bin
 	if [ ! -f "$file" ]; then
 		echo "$file が無い"
 		return 0
@@ -90,6 +102,17 @@ runner_path_file_problem() {
 	if [ "$found" -ne 1 ]; then
 		echo "${fnm_dirs//$'\n'/ / } を含まない"
 		return 0
+	fi
+	# macOS は brew の Ruby を含まない .path も修復する（Ruby 対応より前に書かれた .path は、システムの Ruby 2.6 を見る）。
+	if [ "$(uname -s)" = Darwin ]; then
+		ruby_bin=$(runner_ruby_bin_dir)
+		case ":$current:" in
+		*":$ruby_bin:"*) ;;
+		*)
+			echo "brew の Ruby（${ruby_bin}）を含まない"
+			return 0
+			;;
+		esac
 	fi
 	if ! runner_path_has_node "$home" "$current"; then
 		echo "その PATH で node / npx が引けない"

@@ -21,8 +21,10 @@
 #       登録するため。別ユーザーでの実行やログイン前・SSH だけの実行は対象外として止まる）と、
 #       Xcode コマンドラインツール・Homebrew が入っていること（無ければ入れ方を案内して止まる）。
 #       colima / docker / docker-buildx / docker-compose / fnm / gh / jq / zstd などは runner-tools-install.sh が
-#       runner ユーザーとして brew で入れる（入っているものは飛ばす。Homebrew 自体・Xcode 本体・
-#       署名証明書は入れない）。再起動後の自動ログインは設定しない（README の前提）。
+#       runner ユーザーとして brew で入れる（入っているものは飛ばす。iOS ビルド用の Ruby 3.x と bundler は
+#       ruby@3.4。Homebrew 自体・Xcode 本体・署名証明書は入れない）。Xcode 本体（/Applications/Xcode.app。
+#       XCODE_APP で変更可）があれば、xcode-select の切り替えとライセンス同意を sudo -n で試す。
+#       再起動後の自動ログインは設定しない（README の前提）。
 #
 # 実行:
 #   make runner-setup
@@ -80,6 +82,9 @@ Darwin)
 	if [ -n "$RUNNER_BREW_PATHS" ]; then
 		export PATH="$PATH:$RUNNER_BREW_PATHS"
 	fi
+	# iOS ビルドの Xcode 本体の場所。runner-tools-install.sh にも渡す（sudo は環境変数を引き継がない）。
+	# 空文字でも既定になる（Makefile が空のまま渡すため）。
+	XCODE_APP="${XCODE_APP:-/Applications/Xcode.app}"
 	;;
 *)
 	echo "対象外です: 未対応の OS です: ${OS}（Linux と macOS のみ対応）" >&2
@@ -268,11 +273,12 @@ if [ "$OS" = Darwin ]; then
 		exit 1
 	fi
 	echo "  Homebrew: $brew_bin"
-	# 足りないツール（colima / docker / docker-buildx / docker-compose / fnm / gh / jq / shellcheck / zstd など）は
+	# 足りないツール（colima / docker / docker-buildx / docker-compose / fnm / gh / jq / shellcheck / zstd / ruby@3.4 など）は
 	# runner-tools-install.sh が、runner ユーザーとして brew で入れる（入っているものは飛ばす）。
-	# Homebrew 自体・Xcode 本体・署名証明書は入れない（案内か表示だけ）。
+	# Homebrew 自体・Xcode 本体・署名証明書は入れない（案内か表示だけ）。Xcode 本体があれば、同じスクリプトが
+	# xcode-select の切り替えとライセンス同意を sudo -n で試す（パスワードを求められるなら案内だけ）。
 	# docker-buildx / docker-compose 単体では docker CLI から見えないことがある。その場合は最後の確認で案内する。
-	sudo -u "$RUNNER_USER" -H env PATH="$PATH" RUNNER_BREW_PATHS="$RUNNER_BREW_PATHS" bash "$SCRIPT_DIR/runner-tools-install.sh"
+	sudo -u "$RUNNER_USER" -H env PATH="$PATH" RUNNER_BREW_PATHS="$RUNNER_BREW_PATHS" XCODE_APP="$XCODE_APP" bash "$SCRIPT_DIR/runner-tools-install.sh"
 	echo "  runner に要るツール: そろっている"
 	# gh は、いま入ったばかりかもしれないので解決し直す。未登録なら、colima を起動して待つ前に確かめて止まる。
 	if [ ! -f "$RUNNER_DIR/.runner" ]; then
@@ -562,6 +568,32 @@ if [ "$OS" = Darwin ]; then
 		echo "  OK: .path の PATH で node / npx / cc が見える"
 	else
 		echo "  NG: .path の PATH では node / npx / cc が見えません（fnm で node を入れ、fnm default を設定してください。cc は xcode-select --install）" >&2
+	fi
+	echo "--- iOS ビルドの前提（xcodebuild / ruby 3.x / bundler / bun）---"
+	# Xcode 本体が無いホストは NG にせず、表示だけにする（iOS ビルドを回さないホストもある）。
+	# xcodebuild は xcode-select の指す先を使う（ジョブと同じ最小環境で見る）。
+	if [ -d "$XCODE_APP" ]; then
+		runner_exec xcodebuild -version \
+			|| echo "  NG: xcodebuild が動きません（sudo xcode-select -s ${XCODE_APP%/}/Contents/Developer と sudo xcodebuild -license accept を実行してください。make runner-tools を流し直しても整えます）" >&2
+	else
+		echo "  Xcode 本体が無いホスト（${XCODE_APP}）: xcodebuild は確認しない"
+	fi
+	# ruby / bundle / bun は、上の node と同じく .path の PATH だけを頼りに引く（システムの Ruby 2.6 より brew の Ruby が先か）。
+	path_exec() { sudo -u "$RUNNER_USER" -H env -i HOME="$home" PATH="$(<"$path_file")" "$@"; }
+	if v=$(path_exec ruby -v 2>&1) && [[ "$v" == "ruby 3."* ]]; then
+		echo "  OK: ${v}"
+	else
+		echo "  NG: .path の PATH の ruby が 3.x ではありません（${v:-見つかりません}）。brew の ${RUNNER_RUBY_FORMULA} が .path の先にあるか確認してください（make runner-tools と make runner-setup を流し直す）" >&2
+	fi
+	if v=$(path_exec bundle -v 2>&1); then
+		echo "  OK: ${v}"
+	else
+		echo "  NG: .path の PATH で bundle が動きません（${v:-見つかりません}）。bundler は brew の ${RUNNER_RUBY_FORMULA} に同梱されます" >&2
+	fi
+	if v=$(path_exec bun --version 2>&1); then
+		echo "  OK: bun ${v}"
+	else
+		echo "  NG: .path の PATH で bun が動きません（${v:-見つかりません}）。./install.sh（lib/tools/bun.sh）で入れてください" >&2
 	fi
 else
 	docker --version

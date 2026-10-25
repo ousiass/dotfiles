@@ -11,7 +11,7 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── cleanup.sh          # キャッシュ類を掃除するスクリプト（make clean から呼ばれる）
 ├── runner-host-setup.sh # GitHub Actions self-hosted runner ホストのセットアップ（make runner-setup から呼ばれる）
 ├── runner-bootstrap.sh # runner 本体の取得（チェックサム確認）と登録（setup が source する関数群）
-├── runner-tools-install.sh # runner のジョブが使うツール（macOS は brew で colima/docker/fnm/gh/jq など）の足りないものだけ入れる（make runner-tools。macOS は runner-setup から呼ばれる）
+├── runner-tools-install.sh # runner のジョブが使うツール（macOS は brew で colima/docker/fnm/gh/jq/ruby@3.4 など。Xcode.app があれば xcode-select の切り替えとライセンス同意も sudo -n で）の足りないものだけ入れる（make runner-tools。macOS は runner-setup から呼ばれる）
 ├── runner-path-guard.sh # runner の .path を検査・修復するガード（安定 PATH の定義もここ。setup が source し、起動時にも実行される）
 ├── .env.example        # .env のテンプレート
 ├── .env                # 実体（gitignore 済、~/.env はこれへのシンボリックリンク）
@@ -337,7 +337,7 @@ make runner-setup RUNNER_REPLACE=1   # 同名の runner が org にあるとき�
 
 そこで `runner-host-setup.sh` は、一時パスを含めない安定 PATH（`<home>/.local/share/fnm/aliases/default/bin:/opt/nvim/bin:...`。定義は `runner-path-guard.sh` の `runner_stable_path` に 1 つだけ）を次の 2 か所へ書く。`aliases/default` は node の更新に追従する。
 
-- `<runner dir>/.path`: 実効的に効く側。`fnm_multishells` を含む / `aliases/default/bin` を含まない / その PATH で `node` `npx` が引けない、のどれかに当たるときだけ安定 PATH へ書き直す（正常な `.path` は触らない。書き直す前に `.path.bak-<日時>` を残す）
+- `<runner dir>/.path`: 実効的に効く側。`fnm_multishells` を含む / `aliases/default/bin` を含まない / macOS で brew の Ruby を含まない / その PATH で `node` `npx` が引けない、のどれかに当たるときだけ安定 PATH へ書き直す（正常な `.path` は触らない。書き直す前に `.path.bak-<日時>` を残す）
 - `<runner dir>/.env`: `PATH=` 行を置き換える（重複しない）。`.path` と二重化になるが害は少ない
 
 `.path` / `.env` は runner の起動時にしか読まれないため、どちらかを変えたとき、稼働中の runner は、ジョブ（`Runner.Worker`）が走っていなければスクリプトが再起動し、走っていれば再起動を促すメッセージだけ出す。
@@ -373,7 +373,7 @@ xcode-select --install   # C コンパイラ（cc）。go test -race の cgo に
 # Homebrew は https://brew.sh の手順で入れる（Apple Silicon は /opt/homebrew）。スクリプトは自動で入れない
 ```
 
-colima / docker / docker-buildx / docker-compose / fnm / gh / jq / shellcheck / fish / zstd と、fnm の default の Node.js LTS は、足りなければ `make runner-setup` が runner ユーザーとして入れる（下の「ツールのインストール」）。
+colima / docker / docker-buildx / docker-compose / fnm / gh / jq / shellcheck / fish / zstd / ruby@3.4（Ruby 3.x と bundler）と、fnm の default の Node.js LTS は、足りなければ `make runner-setup` が runner ユーザーとして入れる（下の「ツールのインストール」）。Xcode 本体は入れないが、あれば `xcode-select` の切り替えとライセンス同意まで整える。bun は `./install.sh` で入る（5/5 で見える場所にあるかだけ確かめる）。
 
 Linux との違い:
 
@@ -385,8 +385,8 @@ Linux との違い:
 | Docker の起動 | `systemctl enable --now docker` と docker グループ | runner ユーザーで `brew services start colima`（runner ユーザーのログイン後に自動で上がる）。`docker info` が通るまで最大 2 分待つ。docker CLI は `~/.docker/config.json` の docker context `colima` で colima に繋ぐ（下記） |
 | サービス | systemd（`svc.sh` が unit を作る） | launchd（`svc.sh` が `~/Library/LaunchAgents/` に plist を作る。`svc.sh` は root を拒否するので runner ユーザーとして呼ぶ） |
 | `.path` のガード | drop-in の `ExecStartPre=` | plist の `ProgramArguments` を `path-guard.sh --exec <runner dir> <home>` に差し替える。ガードが `.path` を直してから `runsvc.sh` へ `exec` する。起動のたびに走り、修復内容は `~/Library/Logs/<label>/stdout.log` に出る |
-| 安定 PATH | `/opt/nvim/bin`・`/usr/games`・`/snap/bin` など | `/opt/homebrew/bin`・`/opt/homebrew/sbin` を入れ、Linux 専用のものを外す（定義は `runner_stable_path`） |
-| 5/5 確認 | `/proc` の `Runner.Listener` の PATH と docker グループ。`docker --version` と、`docker buildx version` / `docker compose version`（通らなければ NG を案内するだけで止めない） | `/proc` も docker グループも無いので、runner ユーザーの最小環境で `docker info` / `docker buildx version` / `docker compose version` と、`.path` の PATH で `node` / `npx` / `cc` が引けるかを確かめる |
+| 安定 PATH | `/opt/nvim/bin`・`/usr/games`・`/snap/bin` など | `/opt/homebrew/bin`・`/opt/homebrew/sbin` を入れ、Linux 専用のものを外す。brew の Ruby（`/opt/homebrew/opt/ruby@3.4/bin`。keg-only なので `/opt/homebrew/bin` には出ない）をシステムの `/usr/bin` の Ruby より先に置く（定義は `runner_stable_path` / `runner_ruby_bin_dir`） |
+| 5/5 確認 | `/proc` の `Runner.Listener` の PATH と docker グループ。`docker --version` と、`docker buildx version` / `docker compose version`（通らなければ NG を案内するだけで止めない） | `/proc` も docker グループも無いので、runner ユーザーの最小環境で `docker info` / `docker buildx version` / `docker compose version` と、`.path` の PATH で `node` / `npx` / `cc` が引けるかを確かめる。さらに iOS ビルドの前提として `xcodebuild -version`（Xcode 本体が無いホストは NG にせず表示だけ）と、`.path` の PATH で `ruby -v`（3.x）・`bundle -v`・`bun --version` を確かめる |
 | runner のラベル | `[self-hosted, linux, x64]` | `[self-hosted, macOS, ARM64]` |
 
 稼働中の runner に `.path` / `.env` / plist の変更を反映するときは、ジョブが無ければ `svc.sh stop` / `start` で再起動する（ジョブ実行中は再起動せず、手順を案内する）。`svc.sh start` の中身は `launchctl load -w` で、読み込み済みのときの挙動は実機で確かめていないため、稼働中は `start` を呼ばない設計にした。2 回続けて回しても、plist・`.path` は書き換わらず、再起動もしない（これもスタブでの確認のみ）。
@@ -406,14 +406,20 @@ Linux との違い:
 
 | OS | 入れるもの |
 |---|---|
-| macOS | Homebrew で `colima` `docker` `docker-buildx` `docker-compose` `fnm` `gh` `jq` `shellcheck` `fish` `zstd`、fnm で Node.js LTS（default に設定。runner の安定 PATH は fnm の `aliases/default/bin` を指すため）、`~/.docker/config.json` の docker context と `cliPluginsExtraDirs`（上の「docker の接続と buildx / compose」） |
+| macOS | Homebrew で `colima` `docker` `docker-buildx` `docker-compose` `fnm` `gh` `jq` `shellcheck` `fish` `zstd` `ruby@3.4`（iOS ビルド用の Ruby 3.x。bundler 同梱。システムの Ruby 2.6 は使わない）、fnm で Node.js LTS（default に設定。runner の安定 PATH は fnm の `aliases/default/bin` を指すため）、`~/.docker/config.json` の docker context と `cliPluginsExtraDirs`（上の「docker の接続と buildx / compose」） |
 | Linux | `apt` で `jq` `shellcheck` `fish`、`install.sh` と同じ関数（`lib/tools/fnm.sh` / `lib/tools/gh.sh`）で `fnm` と `gh`、fnm で Node.js LTS。build-essential / zstd と、docker.io ホストの Docker / Buildx / Compose は `runner-host-setup.sh` が入れる（docker-ce ホストでは docker 系は入れない）ので、`make runner-setup` からは呼ばず、単体で `make runner-tools` したときだけ使う |
 
 入れない（案内か表示だけ）もの:
 
 - **Homebrew 自体**: 無ければ自動では入れず、`https://brew.sh` の手順を案内して止まる。
 - **Xcode コマンドラインツール**: 無ければ `xcode-select --install` を案内して止まる（GUI の確認が出るため）。
-- **Xcode 本体（`/Applications/Xcode.app`）とコード署名の証明書**: スクリプトでは入れず、あるか／無いかを表示するだけ（無くても失敗にはしない）。必要なジョブがあれば手動で入れる。
+- **Xcode 本体（`/Applications/Xcode.app`。`XCODE_APP` で場所を変えられる）とコード署名の証明書**: スクリプトでは入れない（Xcode は App Store 経由、署名は Apple ID・秘密鍵が要る）。Xcode 本体が無いホストでは、無いと表示するだけで失敗にしない。署名証明書は、あるか／無いかを表示するだけ。fastlane match や署名の設定は対象外。
+- **fastlane / CocoaPods などの gem**: 各リポジトリの Gemfile で、CI がそのつど（`vendor/bundle` へ）入れる。dotfiles では入れない。
+
+Xcode 本体があるときだけ、iOS ビルド（Expo + fastlane）に要る 2 点を整える。どちらも root が要るので `sudo -n`（パスワードを聞かずに失敗する）で試し、できなければ切り替え・同意をせずにコマンドを案内して続ける（全体は失敗にしない）。`make runner-setup` では 1/5 が runner ユーザーに NOPASSWD の sudo を入れるので通る。`make runner-tools` を単体で流し、NOPASSWD が無いときは案内になる。
+
+- `xcode-select -p` が Xcode 本体（`<Xcode.app>/Contents/Developer`）を向いていなければ `sudo xcode-select -s` で切り替える（コマンドラインツールを向いたままだと `xcodebuild` が動かない）。
+- ライセンスに同意済みでなければ（`xcodebuild -license check`）`sudo xcodebuild -license accept` を試す。
 
 1 つ入れるのに失敗しても残りは試し、最後に失敗したものを列挙して失敗で終わる。
 
