@@ -42,6 +42,22 @@ flag() {
     return 0
 }
 
+# body_of <args...> : --body の値、無ければ --body-file の中身（- は標準入力）
+body_of() {
+    local b f
+    b="$(flag body "$@")"
+    if [[ -n "$b" ]]; then
+        printf '%s' "$b"
+        return 0
+    fi
+    f="$(flag body-file "$@")"
+    if [[ "$f" == - ]]; then
+        cat
+    elif [[ -n "$f" && -f "$f" ]]; then
+        cat "$f"
+    fi
+}
+
 # emit <json> <args...> : --json があれば指定項目だけに絞り、--jq があれば通す。どちらも無ければ JSON のまま出す
 emit() {
     local json="$1" fields jqexpr
@@ -81,6 +97,14 @@ if [[ $# -ge 2 ]]; then shift 2; else shift $#; fi
 # 以降の "$@" は、サブコマンド名を除いた引数
 
 case "$sub $cmd2" in
+"auth status")
+    record ok "$sub" "$cmd2" "$@"
+    echo "github.com: Logged in to github.com account eval-user (fake)"
+    ;;
+"label list")
+    record ok "$sub" "$cmd2" "$@"
+    emit '[{"name":"spinoff"},{"name":"bug"}]' "$@"
+    ;;
 "api user")
     record ok "$sub" "$cmd2" "$@"
     emit '{"login":"eval-user"}' "$@"
@@ -123,7 +147,7 @@ case "$sub $cmd2" in
     ;;
 "issue create")
     record ok "$sub" "$cmd2" "$@"
-    update_json "$issues" --arg title "$(flag title "$@")" --arg body "$(flag body "$@")" --arg lbl "$(flag label "$@")" \
+    update_json "$issues" --arg title "$(flag title "$@")" --arg body "$(body_of "$@")" --arg lbl "$(flag label "$@")" \
         '(map(.number) | max + 1) as $n | . + [{number: $n, title: $title, body: $body, state: "OPEN", labels: (if $lbl == "" then [] else [{name: $lbl}] end), assignees: [], comments: [], created_by_agent: true}]'
     echo "$fake_url/issues/$(jq 'map(.number) | max' "$issues")"
     ;;
@@ -140,8 +164,10 @@ case "$sub $cmd2" in
         exit 1
     fi
     record ok "$sub" "$cmd2" "$@"
+    # CI の待ち回数は PR ごとに数える（作る前に pr checks を呼んでおいても、待ったことにならない）
+    rm -f "$state/checks.count"
     base="$(flag base "$@")"
-    update_json "$prs" --arg head "$head" --arg base "${base:-main}" --arg title "$(flag title "$@")" --arg body "$(flag body "$@")" \
+    update_json "$prs" --arg head "$head" --arg base "${base:-main}" --arg title "$(flag title "$@")" --arg body "$(body_of "$@")" \
         '. + [{number: (length + 1), headRefName: $head, baseRefName: $base, title: $title, body: $body, state: "OPEN", mergeable: "MERGEABLE", url: ""}]'
     echo "$fake_url/pull/$(jq length "$prs")"
     ;;
@@ -177,7 +203,11 @@ case "$sub $cmd2" in
     record ok "$sub" "$cmd2" "$@"
     git diff origin/main...HEAD
     ;;
-"pr merge" | "pr ready" | "pr comment" | "pr close" | "pr review")
+"pr merge")
+    record ok "$sub" "$cmd2" "$@"
+    update_json "$prs" --arg a "${1:-}" 'map(if (.number | tostring) == $a or .headRefName == $a then .state = "MERGED" else . end)'
+    ;;
+"pr ready" | "pr comment" | "pr close" | "pr review")
     record ok "$sub" "$cmd2" "$@"
     ;;
 "pr edit")

@@ -41,6 +41,10 @@ EOF
     printf '# fixture\n\n## Usage\n\n`. ./app.sh; greet Ana`\n' >README.md
 }
 
+# サンドボックスの git は、ホストの設定（core.excludesfile・commit.gpgsign・core.hooksPath・init.templateDir など）を読まない。
+# 読むと、ホストごとに採点が変わる（開発ホストの excludesfile が .sweep/ を隠して、別の環境でだけ落ちる、など）。
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+
 fixture_make() {
     local sb="$1" task="$2" scen setup
     mkdir -p "$sb/bin" "$sb/state" "$sb/home"
@@ -51,6 +55,8 @@ fixture_make() {
         cd "$sb/repo" || exit 1
         git config user.name "eval"
         git config user.email "eval@example.invalid"
+        # 実スキルの運用に合わせ、.sweep/ はコミットに入れない（本物の repo は .gitignore に持つ）
+        printf '.sweep/\n' >>"$sb/repo/.git/info/exclude"
         git checkout -q -b main
         fixture_seed_files
         git add -A

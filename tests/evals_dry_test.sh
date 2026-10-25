@@ -33,6 +33,9 @@ trap 'rm -rf "$tmp"' EXIT
 # 実行が一時ディレクトリを残さないことも見る（run.sh は $TMPDIR の下にだけ作る）
 export TMPDIR="$tmp/scratch"
 mkdir -p "$TMPDIR"
+# ホストの設定（~/.gitconfig など）に依存していないことを見るため、HOME も使い捨てにする
+export HOME="$tmp/home"
+mkdir -p "$HOME"
 
 n_tasks="$(jq -s length "$EVALS/tasks.jsonl")"
 n_violations="$(jq -s '[.[].violations[]?] | length' "$EVALS/tasks.jsonl")"
@@ -85,10 +88,16 @@ done
 n_watchdog="$(grep -cE '^## [0-9]+\.' "$DOTFILES_DIR/omp/WATCHDOG.md")"
 check_eq "WATCHDOG: 節は 6 件（増減したら evals/tasks.jsonl の watchdog を見直す）" 6 "$n_watchdog"
 for n in 1 2 3 4 5 6; do
-    has_task="$(jq -s --argjson n "$n" '[.[] | select((.watchdog // []) | index($n))] | length' "$EVALS/tasks.jsonl")"
-    # そのタスクに、逸脱の再現（violations）が 1 つ以上ある
-    has_violation="$(jq -s --argjson n "$n" '[.[] | select((.watchdog // []) | index($n)) | select((.violations // []) | length > 0)] | length' "$EVALS/tasks.jsonl")"
-    if [[ "$has_task" -ge 1 && "$has_violation" -ge 1 ]]; then ok "WATCHDOG $n: 検出タスクと逸脱の再現がある"; else ng "WATCHDOG $n: 検出タスクか逸脱の再現が無い"; fi
+    # `# watchdog: N` を持つ逸脱のスクリプトのうち、N を担当するタスクの violations に入っているものがある
+    # （タスクに別の逸脱があるだけで通ってしまわないよう、逸脱のスクリプト単位で突き合わせる）
+    found=""
+    for f in "$EVALS"/scenarios/violations/*.sh; do
+        grep -q "^# watchdog: $n\$" "$f" || continue
+        v="$(basename "$f" .sh)"
+        c="$(jq -s --argjson n "$n" --arg v "$v" '[.[] | select((.watchdog // []) | index($n)) | select((.violations // []) | index($v))] | length' "$EVALS/tasks.jsonl")"
+        [[ "$c" -ge 1 ]] && found="$found $v"
+    done
+    if [[ -n "$found" ]]; then ok "WATCHDOG ${n}: 検出タスクと逸脱の再現がある（${found}）"; else ng "WATCHDOG ${n}: 逸脱のスクリプト（# watchdog: ${n}）が、担当のタスクの violations に無い"; fi
 done
 
 # Break map: 各項目に、実在するタスクがあるか、該当なしの理由がある
@@ -111,6 +120,37 @@ mismatch="$(jq -s -r --slurpfile bm "$EVALS/breakmap.json" '
     | select($tagged != $listed)
     | "\($b): タスク側 \($tagged | join(",")) / breakmap 側 \($listed | join(","))"' "$EVALS/tasks.jsonl")"
 check_eq "Break map: タスクの breaks と breakmap.json が一致する" "" "$mismatch"
+
+# --- --live の課金ガード（ガードが壊れても気づけるように、モデルを呼ぶ手前で止まることを見る） ----------
+# PATH の先頭に「呼ばれたら記録して失敗する」claude / omp を置き、ガードを抜けて本物を呼ぶ事故を検出する
+mkdir -p "$tmp/trap-bin"
+for c in claude omp; do
+    printf '#!/bin/sh\necho called >>"%s/model-called"\nexit 1\n' "$tmp" >"$tmp/trap-bin/$c"
+    chmod +x "$tmp/trap-bin/$c"
+done
+run_live() { PATH="$tmp/trap-bin:$PATH" "$EVALS/run.sh" "$@" >/dev/null 2>&1; }
+run_live --harness claude --live --model m --out "$tmp/live1"
+check_eq "--live: EVAL_CONFIRM_PAID 無しは exit 2" 2 "$?"
+EVAL_CONFIRM_PAID=1 run_live --harness claude --live --out "$tmp/live2"
+check_eq "--live: --model 無しは exit 2" 2 "$?"
+EVAL_CONFIRM_PAID=1 run_live --harness omp --live --violate --model m --out "$tmp/live3"
+check_eq "--live: --violate との併用は exit 2" 2 "$?"
+run_live --harness claude
+check_eq "--dry も --live も無いときは exit 2" 2 "$?"
+run_live --harness
+check_eq "値の無い旗で止まる（無限ループしない）" 2 "$?"
+check_eq "ガードの手前で止まり、モデルを呼んでいない" 0 "$(ls "$tmp/model-called" 2>/dev/null | wc -l | tr -d ' ')"
+# dry は PATH に本物（ここでは罠）の claude / omp があっても、それを呼ばない
+PATH="$tmp/trap-bin:$PATH" "$EVALS/run.sh" --harness omp --dry --rep 1 --task refine-clean --out "$tmp/dry-trap" >/dev/null 2>&1
+check_eq "dry: PATH に claude / omp があっても呼ばない" 0 "$(ls "$tmp/model-called" 2>/dev/null | wc -l | tr -d ' ')"
+check_eq "dry: 罠がある PATH でも完走する" 1 "$(jq -s '[.[] | select(.status == "ok")] | length' "$tmp/dry-trap/results.jsonl" 2>/dev/null)"
+
+# --- estimate.sh -------------------------------------------------------------------
+est="$("$EVALS/estimate.sh" 2>&1)"
+check_eq "estimate.sh: 成功する" 0 "$?"
+case "$est" in *"タスク数: $n_tasks"*) ok "estimate.sh: タスク数が出る" ;; *) ng "estimate.sh: タスク数が出ない: $est" ;; esac
+"$EVALS/estimate.sh" --reps >/dev/null 2>&1
+check_eq "estimate.sh: 値の無い旗は exit 2" 2 "$?"
 
 # --- 本番に出ていない ------------------------------------------------------------
 check_eq "dry の実行が一時ディレクトリを残さない" 0 "$(find "$TMPDIR" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"

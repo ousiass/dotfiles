@@ -33,6 +33,15 @@ reps=2
 violate=0
 only=()
 while [[ $# -gt 0 ]]; do
+    # 値を取る旗に値が無いとき、shift 2 が失敗して無限ループになるのを防ぐ
+    case "$1" in
+    --harness | --model | --out | --rep | --task)
+        [[ $# -ge 2 ]] || {
+            echo "run.sh: $1 に値が必要です" >&2
+            exit 2
+        }
+        ;;
+    esac
     case "$1" in
     --harness)
         harness="${2:-}"
@@ -166,10 +175,9 @@ run_one() { # <task-json-line> <rep>
 
     local path="$sb/bin:$PATH"
     if [[ "$mode" == dry ]]; then
-        # claude / omp の名前で fake-agent.sh を呼ぶ（引数はそのまま渡る）
-        printf '#!/usr/bin/env bash\nexec bash "%s" claude "$@"\n' "$EVALS_DIR/lib/fake-agent.sh" >"$sb/bin/claude"
-        printf '#!/usr/bin/env bash\nexec bash "%s" omp "$@"\n' "$EVALS_DIR/lib/fake-agent.sh" >"$sb/bin/omp"
-        chmod +x "$sb/bin/claude" "$sb/bin/omp"
+        # PATH の解決に頼らず、fake-agent.sh を直接呼ぶ（本物の claude / omp を呼ばない保証を、PATH の並びに預けない）。
+        # 引数は本番のコマンド行のまま渡す（先頭の claude / omp だけを置き換える）
+        cmd=(bash "$EVALS_DIR/lib/fake-agent.sh" "$harness" "${cmd[@]:1}")
     fi
     raw="$sb/agent.out"
     t0=$SECONDS
@@ -193,10 +201,15 @@ run_one() { # <task-json-line> <rep>
         omp) adapt_omp "$sb/sessions" >"$norm" 2>"$sb/adapt.err" || status=error ;;
         esac
     fi
+    # 使用量がひとつも取れていない行を ok にすると、基準値が 0 トークンで汚れる。ハーネスのエラーとして残す
+    if [[ "$status" == ok && "$(jq '.calls | length' "$norm")" -eq 0 ]]; then
+        status=error
+        echo "モデル呼び出しの使用量が 1 件も取れなかった（$harness の出力形式の想定が外れている）" >"$sb/adapt.err"
+    fi
     if [[ "$status" != ok ]]; then
         # ハーネスのエラーは、採点せずに status=error で残す（compare.py は status!=ok の行を数えない）
         harness_errors=$((harness_errors + 1))
-        echo "run.sh: $id rep$rep: ハーネスのエラー（exit $rc）: $(head -c 300 "$sb/agent.err" "$sb/adapt.err" 2>/dev/null | tr '\n' ' ')" >&2
+        echo "run.sh: ${id} rep${rep}: ハーネスのエラー（exit ${rc}）: $(head -c 300 "$sb/agent.err" "$sb/adapt.err" 2>/dev/null | tr '\n' ' ')" >&2
         jq -nc --arg id "$id" --argjson rep "$rep" --arg harness "$harness" --arg mode "$mode" --arg model "$model" \
             '{prompt_id: $id, rep: $rep, harness: $harness, mode: $mode, model: (if $model == "" then null else $model end), status: "error"}' >>"$results"
         return
@@ -204,6 +217,8 @@ run_one() { # <task-json-line> <rep>
     graded="$("$EVALS_DIR/grade.sh" "$sb" "$taskfile" "$norm")" || {
         harness_errors=$((harness_errors + 1))
         echo "run.sh: $id rep$rep: 採点に失敗" >&2
+        jq -nc --arg id "$id" --argjson rep "$rep" --arg harness "$harness" --arg mode "$mode" --arg model "$model" \
+            '{prompt_id: $id, rep: $rep, harness: $harness, mode: $mode, model: (if $model == "" then null else $model end), status: "error"}' >>"$results"
         return
     }
     summary="$(norm_summary <"$norm")"
@@ -251,5 +266,5 @@ jq -n --arg harness "$harness" --arg mode "$mode" --arg model "$model" --arg sta
     --argjson runs "$n_runs" --argjson errors "$harness_errors" --argjson reps "$reps" --argjson violate "$violate" '
     {harness: $harness, mode: $mode, model: (if $model == "" then null else $model end), commit: $commit, args: $args,
      started_at: $started, ended_at: $ended, runs: $runs, harness_errors: $errors, reps: $reps, violate: ($violate == 1)}' >"$out/run.json"
-echo "run.sh: $harness/$mode 完了: $n_runs 回、ハーネスエラー $harness_errors（$results）"
+echo "run.sh: ${harness}/${mode} 完了: ${n_runs} 回、ハーネスエラー ${harness_errors}（${results}）"
 [[ "$harness_errors" -eq 0 ]]

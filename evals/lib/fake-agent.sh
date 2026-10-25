@@ -124,6 +124,28 @@ dry_pr() {
     x gh pr create --base main --head "$1" --title "$2" --body "$3"
     dry_wait_checks
 }
+add_farewell() {
+    printf '%s\n' 'farewell() { echo "Goodbye, ${1:-stranger}"; }' >>app.sh
+    mkdir -p tests
+    printf '%s\n' 't "farewell: 名前あり" "Goodbye, Ana" "$(farewell Ana)"' 't "farewell: 空は stranger" "Goodbye, stranger" "$(farewell "")"' >tests/20_farewell.sh
+}
+fix_readme_typo() {
+    printf '# fixture\n\n## Usage\n\n`. ./app.sh; greet Ana`\n' >README.md
+}
+# dry_pr_merge <branch> <title> <body> -- <編集の関数...> : main から切り、編集・コミット・push・PR 作成・CI 待ち・マージ（記録だけ）まで行う
+dry_pr_merge() {
+    local branch="$1" title="$2" body="$3" f
+    shift 4
+    x git checkout -q -b "$branch" main
+    for f in "$@"; do "$f"; done
+    x git add -A
+    x git commit -q -m "$title"
+    x git push -q origin HEAD
+    x gh pr create --base main --head "$branch" --title "$title" --body "$body"
+    dry_wait_checks
+    x gh pr merge "$branch" --merge --delete-branch
+    x git checkout -q main
+}
 # dry_sweep_state <queue_total> <prs> : .sweep/state.json を terminal にして閉じる（PR にできなかった分は failed）。
 # DRY_TERMINAL_EARLY のときは、キューが 2 件残ったまま terminal にする（WATCHDOG の逸脱）。
 dry_sweep_state() {
@@ -179,17 +201,17 @@ emit_claude() {
     jq -nc --slurpfile ev "$events" --arg final "$final_text" '
       def tname: ({ask: "AskUserQuestion", task: "Task", bash: "Bash", read: "Read", edit: "Edit", write: "Write", skill: "Skill"}[.] // .);
       def usage: {input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 900, cache_creation_input_tokens: 0};
-      {type: "system", subtype: "init", model: "dry"},
+      {type: "system", subtype: "init", model: "fake"},
       ($ev | to_entries[] | .key as $i | .value as $e
         | {type: "assistant", parent_tool_use_id: null,
-           message: {id: "msg_\($i)", model: "dry", usage: usage,
+           message: {id: "msg_\($i)", model: "fake", usage: usage,
                      content: [{type: "tool_use", id: "toolu_\($i)", name: ($e.tool | tname),
                                 input: (if $e.tool == "task" then {subagent_type: $e.agent, description: "dry", prompt: "dry"}
                                         elif $e.tool == "bash" then {command: $e.cmd}
                                         elif $e.tool == "skill" then {skill: $e.cmd}
                                         else {} end)}]}},
-          (if $e.tool == "task" then {type: "assistant", parent_tool_use_id: "toolu_\($i)", message: {id: "msg_sub_\($i)", model: "dry", usage: usage, content: [{type: "text", text: "done"}]}} else empty end)),
-      {type: "assistant", parent_tool_use_id: null, message: {id: "msg_final", model: "dry", usage: usage, content: [{type: "text", text: $final}]}},
+          (if $e.tool == "task" then {type: "assistant", parent_tool_use_id: "toolu_\($i)", message: {id: "msg_sub_\($i)", model: "fake", usage: usage, content: [{type: "text", text: "done"}]}} else empty end)),
+      {type: "assistant", parent_tool_use_id: null, message: {id: "msg_final", model: "fake", usage: usage, content: [{type: "text", text: $final}]}},
       {type: "result", subtype: "success", is_error: false, result: $final}'
 }
 
@@ -199,7 +221,7 @@ emit_omp() {
     jq -nc --slurpfile ev "$events" --arg final "$final_text" '
       def usage: {input: 100, output: 20, cacheRead: 900, cacheWrite: 0};
       {type: "session", version: 3, id: "dry-main", cwd: "."},
-      {type: "model_change", model: "dry"},
+      {type: "model_change", model: "fake"},
       ($ev | to_entries[] | .key as $i | .value as $e
         | {type: "message", message: {role: "assistant", usage: usage,
              content: [{type: "toolCall", id: "t\($i)", name: $e.tool,

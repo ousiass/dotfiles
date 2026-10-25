@@ -18,6 +18,14 @@ harnesses=2
 runs=3
 while [[ $# -gt 0 ]]; do
     case "$1" in
+    --reps | --harnesses | --runs)
+        [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || {
+            echo "estimate.sh: $1 には 1 以上の整数が必要です" >&2
+            exit 2
+        }
+        ;;
+    esac
+    case "$1" in
     --reps)
         reps="${2:-}"
         shift 2
@@ -43,12 +51,15 @@ jq -rn --slurpfile cal "$EVALS_DIR/calibration.json" --slurpfile tasks <(jq -s .
   $cal[0] as $c
   | $tasks[0] as $t
   | ($t | group_by(.weight) | map({key: .[0].weight, value: length}) | from_entries) as $by
-  | ($c.weights | to_entries | map(
+  | ($by | keys | map(select(. as $w | ($c.weights[$w] // null) == null))) as $unknown
+  | (if ($unknown | length) > 0 then error("tasks.jsonl の weight が calibration.json の weights に無い: \($unknown | join(","))") else . end) as $_
+  | def cal($src; $k): $c.classes[$src][$k] // error("calibration.json に \($src).\($k) が無い");
+  ($c.weights | to_entries | map(
         .key as $w | .value as $src
         | ($by[$w] // 0) as $n
         | {weight: $w, tasks: $n, source: $src,
-           calls: ($c.classes[$src].calls * $n), out: ($c.classes[$src].out * $n),
-           fresh: ($c.classes[$src].fresh * $n), cache_read: ($c.classes[$src].cache_read * $n)})) as $rows
+           calls: (cal($src; "calls") * $n), out: (cal($src; "out") * $n),
+           fresh: (cal($src; "fresh") * $n), cache_read: (cal($src; "cache_read") * $n)})) as $rows
   | ($rows | {calls: (map(.calls) | add), out: (map(.out) | add), fresh: (map(.fresh) | add), cache_read: (map(.cache_read) | add)}) as $one
   | ($t | length) as $nt
   | ($nt * $reps * $harnesses) as $per_set

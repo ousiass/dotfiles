@@ -29,7 +29,7 @@ adapt_claude() { # <agent.out>
                      cmd: (.input.command // null), path: (.input.file_path // .input.path // null), skill: (.input.skill // null)} ],
         calls: ([ $asst[] | {id: .message.id, owner: owner,
                            in: ((.message.usage.input_tokens // 0) + (.message.usage.cache_read_input_tokens // 0) + (.message.usage.cache_creation_input_tokens // 0)),
-                           out: (.message.usage.output_tokens // 0)} ] | unique_by(.id) | map(del(.id))),
+                           out: (.message.usage.output_tokens // 0)} ] | group_by(.id) | map(max_by(.out) | del(.id))),
         final_text: ([.[] | select(.type == "result") | .result] | last // "")
       }' "$1"
 }
