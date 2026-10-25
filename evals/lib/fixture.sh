@@ -45,8 +45,20 @@ EOF
 # 読むと、ホストごとに採点が変わる（開発ホストの excludesfile が .sweep/ を隠して、別の環境でだけ落ちる、など）。
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 
+# fixture_apply_scenario <scenario> : repo の中（cwd）で、シナリオの setup.sh を実行し、変更があればコミットして push する。
+# scenario が空・setup.sh が無いときは何もしない。run.sh の dry / live と、evals/sandbox/seed.sh が同じ初期状態を作るための共通部分。
+fixture_apply_scenario() {
+    local scen="$1" setup="$EVALS_DIR/scenarios/$1/setup.sh"
+    [[ -n "$scen" && -f "$setup" ]] || return 0
+    # shellcheck source=/dev/null
+    . "$setup"
+    git add -A
+    git diff --cached --quiet || git commit -q -m "chore: シナリオの初期状態 (${scen})"
+    git push -q origin HEAD 2>/dev/null
+}
+
 fixture_make() {
-    local sb="$1" task="$2" scen setup
+    local sb="$1" task="$2"
     mkdir -p "$sb/bin" "$sb/state" "$sb/home"
     git init -q --bare "$sb/origin.git"
     git -C "$sb/origin.git" symbolic-ref HEAD refs/heads/main
@@ -62,15 +74,7 @@ fixture_make() {
         git add -A
         git commit -q -m "chore: 初期コミット"
         git push -q -u origin main 2>/dev/null
-        scen="$(jq -r '.scenario // ""' "$task")"
-        setup="$EVALS_DIR/scenarios/$scen/setup.sh"
-        if [[ -n "$scen" && -f "$setup" ]]; then
-            # shellcheck source=/dev/null
-            . "$setup"
-            git add -A
-            git diff --cached --quiet || git commit -q -m "chore: シナリオの初期状態 ($scen)"
-            git push -q origin HEAD 2>/dev/null
-        fi
+        fixture_apply_scenario "$(jq -r '.scenario // ""' "$task")"
         git -C "$sb/origin.git" for-each-ref --format='%(refname:short) %(objectname)' refs/heads >"$sb/state/setup_heads"
     ) || return 1
     jq '(.issues // []) | to_entries | map(.value + {number: (.value.number // (.key + 1)), state: "OPEN", assignees: [], comments: [], labels: ((.value.labels // []) | map({name: .}))})' "$task" >"$sb/state/issues.json"
