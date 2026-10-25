@@ -370,6 +370,17 @@ for cmd in docker cc node npx ruby bundle bun xcodebuild; do
     check_eq "runner の安定 PATH で $cmd はスタブに解決される（本物の /opt/homebrew/bin より先）" "$fnm_bin/$cmd" "$resolved"
 done
 
+# 安定 PATH を実際に解決して、brew の Ruby が /usr/bin のシステムの Ruby（2.6）より先に見えること。
+# 本物の /opt/homebrew・/usr/bin には触れないよう、PATH の該当 2 要素をテスト用ディレクトリに置き換える。
+ruby_bin_dir=$(runner_ruby_bin_dir)
+mkdir -p "$tmp/brew-ruby-bin" "$tmp/system-ruby-bin"
+printf '#!/bin/sh\necho brew-ruby\n' >"$tmp/brew-ruby-bin/ruby" && chmod +x "$tmp/brew-ruby-bin/ruby"
+printf '#!/bin/sh\necho system-ruby-2.6\n' >"$tmp/system-ruby-bin/ruby" && chmod +x "$tmp/system-ruby-bin/ruby"
+order_path=$(runner_stable_path "$tmp/no-such-home") # home 配下（fnm の ruby スタブなど）を拾わない
+order_path=${order_path//:"$ruby_bin_dir":/:"$tmp/brew-ruby-bin":}
+order_path=${order_path//:\/usr\/bin:/:"$tmp/system-ruby-bin":}
+check_eq "安定 PATH の解決: ruby は brew の Ruby（システムの /usr/bin の Ruby より先）" "$tmp/brew-ruby-bin/ruby" "$(env -i PATH="$order_path" "$BASH" --noprofile --norc -c 'command -v ruby')"
+
 # --- runner ディレクトリ: 登録済み（.runner）と、macOS の svc.sh を模したスタブ ----------
 echo '{}' >"$runner_dir/.runner"
 stub "$runner_dir/svc.sh" <<'EOF'
@@ -512,7 +523,7 @@ check_match "macOS: 3/5 で docker info が通ったと表示する"           "
 check_match "macOS: 5/5 で docker info が通る"                       "OK: ci で docker info が通る" "$out"
 check_no_match "macOS: 5/5 で docker / buildx / compose の NG が出ない" "NG: docker" "$out"
 check_match "macOS: 5/5 で docker compose version を確かめる"        "docker compose version" "$(cat "$STUB_LOG")"
-check_no_match "macOS: 5/5 で iOS ビルドの前提の NG が出ない" "NG: .path の PATH" "$out"
+check_no_match "macOS: 5/5 で iOS ビルドの前提の NG が出ない" "NG: " "$out"
 check_eq    "macOS: ruby@3.4 は入っているので brew install しない" 0 "$(calls 'brew install ruby@3.4$')"
 check_eq    "macOS: svc.sh install を 1 回呼ぶ"   1 "$(calls 'svc.sh install')"
 check_eq    "macOS: svc.sh start を 1 回呼ぶ"     1 "$(calls 'svc.sh start')"

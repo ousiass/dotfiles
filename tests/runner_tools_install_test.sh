@@ -82,6 +82,7 @@ case "$1" in
 -p) [ -z "${STUB_NO_CLT:-}" ] || exit 2; cat "$STUB_XCODE_SELECTED" ;;
 -s)
     [ -n "${STUB_VIA_SUDO:-}" ] || { echo "xcode-select: error: setting the developer directory requires root" >&2; exit 1; }
+    [ -d "$2" ] || { echo "xcode-select: error: invalid developer directory '$2'" >&2; exit 1; }
     echo "$2" >"$STUB_XCODE_SELECTED"
     ;;
 esac
@@ -311,7 +312,7 @@ check_match "署名証明書無し: 無いと表示する"      "コード署名
 check_eq    "Xcode / 証明書が無くても成功する"     0 "$rc"
 check_eq    "Xcode / 証明書は入れようとしない"     0 "$(calls '^brew install\|^curl')"
 check_eq    "Xcode 本体無し: 切り替え・同意で sudo を呼ばない" 0 "$(calls '^sudo')"
-mkdir -p "$tmp/Xcode.app"
+mkdir -p "$tmp/Xcode.app/Contents/Developer"
 run STUB_IDENTITIES=2
 check_match "Xcode 本体あり: あると表示する"      "Xcode 本体: あり" "$out"
 check_match "署名証明書あり: あると表示する"      "コード署名の証明書: あり" "$out"

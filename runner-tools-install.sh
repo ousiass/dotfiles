@@ -120,8 +120,7 @@ ensure_xcode() {
 }
 
 # コード署名の証明書は、入れずに有無だけ表示する（Apple ID・秘密鍵が要るため）。
-report_apple_extras() {
-	ensure_xcode
+report_signing_identity() {
 	if security find-identity -v -p codesigning 2>/dev/null | grep -Eq '^ *[1-9][0-9]* valid identit'; then
 		log "コード署名の証明書: あり"
 	else
@@ -233,7 +232,8 @@ install_macos() {
 
 	ensure_docker_config
 	ensure_node_default
-	report_apple_extras
+	ensure_xcode
+	report_signing_identity
 }
 
 install_linux() {
