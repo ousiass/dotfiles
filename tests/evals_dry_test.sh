@@ -128,7 +128,15 @@ for c in claude omp; do
     printf '#!/bin/sh\necho called >>"%s/model-called"\nexit 1\n' "$tmp" >"$tmp/trap-bin/$c"
     chmod +x "$tmp/trap-bin/$c"
 done
-run_live() { PATH="$tmp/trap-bin:$PATH" "$EVALS/run.sh" "$@" >/dev/null 2>&1; }
+# 隔離フォルダの中（evals/sandbox の env.sh と同じ変数）に見せる。ほかのガードを個別に確かめるため
+run_live() {
+    EVAL_SANDBOX_ROOT="$tmp" CLAUDE_CONFIG_DIR="$tmp/home/.claude" PI_CODING_AGENT_DIR="$tmp/home/.omp/agent" \
+        PATH="$tmp/trap-bin:$PATH" "$EVALS/run.sh" "$@" >/dev/null 2>&1
+}
+# 隔離フォルダの外（本物の HOME・設定）では、課金の確認と --model が揃っていても --live を拒否する
+EVAL_CONFIRM_PAID=1 PATH="$tmp/trap-bin:$PATH" "$EVALS/run.sh" --harness omp --live --model m --out "$tmp/live0" >/dev/null 2>&1
+check_eq "--live: 隔離フォルダの外は exit 2" 2 "$?"
+check_eq "--live: 隔離フォルダの外では何も作らない" 0 "$(ls "$tmp/live0" 2>/dev/null | wc -l | tr -d ' ')"
 run_live --harness claude --live --model m --out "$tmp/live1"
 check_eq "--live: EVAL_CONFIRM_PAID 無しは exit 2" 2 "$?"
 EVAL_CONFIRM_PAID=1 run_live --harness claude --live --out "$tmp/live2"

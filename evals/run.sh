@@ -107,6 +107,11 @@ if [[ "$mode" == live ]]; then
         echo "run.sh: --live は課金されます。規模は evals/estimate.sh で確認し、実行するなら EVAL_CONFIRM_PAID=1 を付けてください" >&2
         exit 2
     }
+    # 隔離フォルダ（evals/sandbox/init.sh が作る <root>/with-env）の外では、本物の HOME・設定・gh のログインで動いてしまう
+    [[ -n "${EVAL_SANDBOX_ROOT:-}" && "${HOME:-}" == "$EVAL_SANDBOX_ROOT"/* && "${CLAUDE_CONFIG_DIR:-}" == "$EVAL_SANDBOX_ROOT"/* && "${PI_CODING_AGENT_DIR:-}" == "$EVAL_SANDBOX_ROOT"/* ]] || {
+        echo "run.sh: --live は隔離フォルダの中でだけ動かします。<root>/with-env を通してください（evals/sandbox/README.md）" >&2
+        exit 2
+    }
     [[ "$violate" -eq 0 ]] || {
         echo "run.sh: --violate は --dry でだけ使えます" >&2
         exit 2
@@ -117,7 +122,7 @@ command -v jq >/dev/null || {
     exit 2
 }
 
-[[ -n "$out" ]] || out="$EVALS_DIR/results/$(date +%Y%m%d-%H%M%S)-$harness-$mode"
+[[ -n "$out" ]] || out="${EVAL_RESULTS_DIR:-$EVALS_DIR/results}/$(date +%Y%m%d-%H%M%S)-$harness-$mode"
 mkdir -p "$out"
 results="$out/results.jsonl"
 : >"$results"

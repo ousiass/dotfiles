@@ -50,3 +50,4 @@ test: ## 回帰テストを実行（cleanup.sh / runner-path-guard.sh / runner-h
 	./tests/runner_tools_install_test.sh
 	./tests/portability_test.sh
 	./tests/evals_dry_test.sh
+	./tests/evals_sandbox_test.sh
