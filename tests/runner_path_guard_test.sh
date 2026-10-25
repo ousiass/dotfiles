@@ -90,15 +90,34 @@ check_eq "正常: バックアップを作らない"          0 "$(count_backups
 check_eq "正常: 何も出力しない"                  "" "$out"
 
 # --- node が無いとき: 直した上でエラーを出すが、起動は止めない -------------------
+# 安定 PATH は /usr/bin や /opt/homebrew/bin などシステムの場所も含む。GitHub のランナー
+# （ubuntu-latest / macos-latest）はそこに node を持っているので、実ホストの node を探す
+# runner_path_has_node のままでは「node 無し」を作れない。このケースだけ、渡された PATH から $home 配下
+# だけを残して本物の runner_path_has_node へ渡す版に差し替え、ガードの入口（runner_path_guard_main）を呼ぶ。
+# 本物の判定（env -i で node / npx を引く）は差し替えず、そのまま通る。
+eval "real_$(declare -f runner_path_has_node)"
+guard_without_host_node() {
+    (
+        runner_path_has_node() {
+            local home=$1 path=$2 dir kept=""
+            local IFS=:
+            for dir in $path; do
+                [[ "$dir" == "$home"/* ]] && kept="$kept:$dir"
+            done
+            real_runner_path_has_node "$home" "${kept#:}"
+        }
+        runner_path_guard_main "$@"
+    )
+}
 new_runner nonode no
 echo "$stale" >"$runner_dir/.path"
-out=$("$GUARD" "$runner_dir" "$home" 2>&1); rc=$?
+out=$(guard_without_host_node "$runner_dir" "$home" 2>&1); rc=$?
 check_eq    "node 無し: exit 0（起動を止めない）" 0 "$rc"
 check_eq    "node 無し: 安定 PATH に書き直す"      "$(runner_stable_path "$home")" "$(<"$runner_dir/.path")"
 check_match "node 無し: NG を出す"                 "NG: 安定 PATH でも node / npx が見えません" "$out"
 
 # --- 既に安定 PATH で node が無いとき: 書き直さず（バックアップも増やさず）NG だけ出す ----
-out=$("$GUARD" "$runner_dir" "$home" 2>&1); rc=$?
+out=$(guard_without_host_node "$runner_dir" "$home" 2>&1); rc=$?
 check_eq    "安定 PATH + node 無し: exit 0"         0 "$rc"
 check_eq    "安定 PATH + node 無し: バックアップ増えない" 1 "$(count_backups)"
 check_match "安定 PATH + node 無し: NG を出す"      "NG: 安定 PATH でも node / npx が見えません" "$out"
