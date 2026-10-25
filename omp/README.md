@@ -206,6 +206,9 @@ advisor だけが読む注意書き。omp は user レベル（`~/.omp/agent/WAT
 advisor のノート出力言語は上流 system prompt では設定できないため、`WATCHDOG.md` 先頭の
 「出力言語」節に `advise` 本文は日本語で書く旨を明記している（issue #21）。
 
+WATCHDOG の各節（番号つき）には、`evals/`（e2e eval 基盤、#56）に検出タスクがある（`evals/README.md` の対応表）。
+節を足したり減らしたりしたら、`evals/tasks.jsonl` の `watchdog` と `evals/scenarios/violations/` を合わせる（`tests/evals_dry_test.sh` が節の数を見張る）。
+
 ## extensions/
 
 `session_stop` などのイベントに載る拡張（`export default (pi) => pi.on(...)`）。

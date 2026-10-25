@@ -117,6 +117,9 @@ Task ツールの `subagent_type` で指定して使うカスタムエージェ�
 | `develop` | 最小限のコード変更を実装する。Claude Code は opus、Cursor は `.cursor/agents` で親継承 |
 | `review` | 読み取り専用レビュー。モデル方針は `develop` と同じ |
 
+エージェントの構成（`impl` の Plan → develop → review など）を変えるときは、先に `evals/`（リポジトリ直下）の e2e eval で基準値を取り、1 変更ずつ比べる。
+`claude -p` と `omp -p` の両方で動き、モデルを呼ばない dry モードで配線を確かめられる。使い方は `evals/README.md`。
+
 ## ツール (`tools/`)
 
 ### swm - LLMプロバイダー切り替えCLI

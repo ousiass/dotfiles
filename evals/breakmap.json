@@ -1,0 +1,10 @@
+[
+  {"id": "lost_rule", "label": "ルールの消失（サブエージェントのプロンプトにあった禁止・上限が、取り込みで弱くなる）", "tasks": ["impl-bugfix", "refine-defect"], "note": "テストの削除（WATCHDOG 3）と review の省略（WATCHDOG 2）を禁止の動きとして採点する"},
+  {"id": "shortcut", "label": "ショートカット（専門役が集めていた情報を、メインが道具だけで済ませる）", "tasks": ["impl-docs", "impl-spinoff"], "note": "impl-spinoff は、範囲外の欠陥（shout）を見つけるには app.sh を読み切る必要がある。見つけて Issue にしたかを採点する"},
+  {"id": "wrong_pick", "label": "Skill・ツールの選び違い（取り込みで経路が減り、別の Skill・ツール、または無しを選ぶ）", "tasks": ["impl-bugfix", "impl-auto"], "note": "impl-bugfix は verify-scope.sh を回したか（verify_scope_run）、impl-auto は --auto の経路（ask しない）を採点する"},
+  {"id": "unwanted_write", "label": "余計な書き込み（専門役にしかできなかった変更を、メインがしてしまう）", "tasks": ["impl-bugfix", "impl-spinoff", "impl-missing-target", "refine-clean"], "note": "どのタスクも、期待する書き込み（PR・Issue）以外を forbidden_actions で落とす。refine-clean と impl-missing-target は何も書かないのが正解"},
+  {"id": "context_lost", "label": "文脈の途切れ（受け渡しのたびに Issue の細部が落ちる）", "tasks": ["impl-feature", "refine-defect", "sweep-three", "sweep-impossible"], "note": "impl-feature は Issue 本文の細部（空の NAME は stranger、既存を変えない、両方のテスト）が Plan → develop → review を越えて残るかを採点する。-p は 1 回の指示なので、複数ターンの会話を引き継ぐ型は該当なし"},
+  {"id": "unhappy_path", "label": "異常系（存在しない対象・ツールの失敗への対処）", "tasks": ["impl-missing-target", "sweep-impossible"], "note": "対象のファイルが存在しない Issue。書き込まず、その旨を伝える。sweep は 3 件のうち 1 件が該当し、残りは進める"},
+  {"id": "cost_creep", "label": "コストの増加（メインの文脈が膨らむ、プロンプトとツールが増える）", "tasks": [], "na_reason": "専用のタスクは置かない（compare.py の方針）。results.jsonl の in_tokens / out_tokens / model_calls と by_agent を、基準値と比べて見る"},
+  {"id": "route_drift", "label": "経路の変化（メインのプロンプトの編集で、無関係なタスクが余計なエージェントを通る）", "tasks": [], "na_reason": "専用のタスクは置かない。compare.py の「Paths that changed」と、results.jsonl の by_agent の変化を読む"}
+]
