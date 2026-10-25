@@ -379,6 +379,8 @@ printf '#!/bin/sh\necho system-ruby-2.6\n' >"$tmp/system-ruby-bin/ruby" && chmod
 order_path=$(runner_stable_path "$tmp/no-such-home") # home 配下（fnm の ruby スタブなど）を拾わない
 order_path=${order_path//:"$ruby_bin_dir":/:"$tmp/brew-ruby-bin":}
 order_path=${order_path//:\/usr\/bin:/:"$tmp/system-ruby-bin":}
+check_match "安定 PATH の解決: brew の Ruby の置換が効いている" ":$tmp/brew-ruby-bin:" ":$order_path:"
+check_match "安定 PATH の解決: /usr/bin の置換が効いている"   ":$tmp/system-ruby-bin:" ":$order_path:"
 check_eq "安定 PATH の解決: ruby は brew の Ruby（システムの /usr/bin の Ruby より先）" "$tmp/brew-ruby-bin/ruby" "$(env -i PATH="$order_path" "$BASH" --noprofile --norc -c 'command -v ruby')"
 
 # --- runner ディレクトリ: 登録済み（.runner）と、macOS の svc.sh を模したスタブ ----------
