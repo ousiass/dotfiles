@@ -31,3 +31,18 @@ jobs:
 
       - name: JSON 構文チェック
         run: git ls-files '*.json' | xargs -r -n1 jq empty
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      # tests/*_test.sh は uname / sudo / brew / launchctl などをスタブに差し替えて動くので、
+      # OS を問わず実際のインストールや sudo は走らない。
+      - name: make test
+        run: make test
