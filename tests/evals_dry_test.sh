@@ -130,7 +130,7 @@ for c in claude omp; do
 done
 # 隔離フォルダの中（evals/sandbox の env.sh と同じ変数）に見せる。ほかのガードを個別に確かめるため
 run_live() {
-    EVAL_SANDBOX_ROOT="$tmp" CLAUDE_CONFIG_DIR="$tmp/home/.claude" PI_CODING_AGENT_DIR="$tmp/home/.omp/agent" \
+    HOME="$tmp/home" EVAL_SANDBOX_ROOT="$tmp" CLAUDE_CONFIG_DIR="$tmp/home/.claude" PI_CODING_AGENT_DIR="$tmp/home/.omp/agent" \
         PATH="$tmp/trap-bin:$PATH" "$EVALS/run.sh" "$@" >/dev/null 2>&1
 }
 # 隔離フォルダの外（本物の HOME・設定）では、課金の確認と --model が揃っていても --live を拒否する
