@@ -92,8 +92,10 @@ check_eq "正常: 何も出力しない"                  "" "$out"
 # --- node が無いとき: 直した上でエラーを出すが、起動は止めない -------------------
 # 安定 PATH は /usr/bin や /opt/homebrew/bin などシステムの場所も含む。GitHub のランナー
 # （ubuntu-latest / macos-latest）はそこに node を持っているので、実ホストの node を探す
-# runner_path_has_node のままでは「node 無し」を作れない。このケースだけ、$home 配下の PATH
-# だけを頼りに node / npx を探す版に差し替えて、ガードの入口（runner_path_guard_main）を呼ぶ。
+# runner_path_has_node のままでは「node 無し」を作れない。このケースだけ、渡された PATH から $home 配下
+# だけを残して本物の runner_path_has_node へ渡す版に差し替え、ガードの入口（runner_path_guard_main）を呼ぶ。
+# 本物の判定（env -i で node / npx を引く）は差し替えず、そのまま通る。
+eval "real_$(declare -f runner_path_has_node)"
 guard_without_host_node() {
     (
         runner_path_has_node() {
@@ -102,7 +104,7 @@ guard_without_host_node() {
             for dir in $path; do
                 [[ "$dir" == "$home"/* ]] && kept="$kept:$dir"
             done
-            env -i HOME="$home" PATH="${kept#:}" "$BASH" --noprofile --norc -c 'command -v node npx' >/dev/null 2>&1
+            real_runner_path_has_node "$home" "${kept#:}"
         }
         runner_path_guard_main "$@"
     )
