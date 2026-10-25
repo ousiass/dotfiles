@@ -94,7 +94,7 @@ check_eq "init.sh: 相対パスは拒否する" 1 "$?"
 check_eq "init.sh: 存在しない ref は失敗する" 1 "$?"
 
 # --- seed.sh --plan（ネットワークに出ない） ----------------------------------------------------
-plan="$("$SANDBOX/seed.sh" --plan --repo example/none 2>&1)"
+plan="$("$SANDBOX/seed.sh" --plan 2>&1)"
 check_eq "seed.sh --plan: 成功する" 0 "$?"
 n_issues="$(jq -s '[.[].issues[]?] | length' "$DOTFILES_DIR/evals/tasks.jsonl")"
 check_match "seed.sh --plan: Issue の件数がタスクセットと一致する" "Issue: ${n_issues} 件" "$plan"

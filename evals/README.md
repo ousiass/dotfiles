@@ -38,9 +38,11 @@ evals/
   scenarios/<name>/   setup.sh（初期状態）/ accept.sh（合格条件）/ pass.sh（dry の正しい動き）
   scenarios/violations/<name>.sh   dry で再現する WATCHDOG の逸脱
   lib/                fixture.sh（テスト用 repo）/ fake-gh.sh（偽 gh）/ fake-agent.sh（dry の代役）/ adapt.sh（出力の読み取り）
-  sandbox/            eval 専用の隔離フォルダ（init.sh）・試験用 repo（seed.sh）・隔離の確認（doctor.sh）。使い方は sandbox/README.md
+  sandbox/            eval 専用の隔離フォルダ（init.sh）・試験用 repo（seed.sh）・初期化（reset.sh）・隔離の確認（doctor.sh）。使い方は sandbox/README.md
+  lib/gh-record.sh    --remote で、エージェントの gh の前に置く記録用ラッパー（固定の repo 以外を止める）。lib/remote.sh は --remote の準備と取り出し
 tests/evals_dry_test.sh   dry の配線の回帰テスト（make test に入っている）
 tests/evals_sandbox_test.sh   隔離フォルダの作成・隔離・トークンの置き場の回帰テスト（make test に入っている）
+tests/evals_remote_test.sh   --remote の dry・gh ラッパー・reset.sh・seed.sh の回帰テスト（make test に入っている）
 ```
 
 ## 使い方

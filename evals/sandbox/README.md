@@ -5,7 +5,10 @@
 | ファイル | 役割 |
 |---|---|
 | `init.sh` | 隔離フォルダ（既定 `/mnt/nvme/eval-sandbox`）を作る。何度実行しても同じ結果。 |
-| `seed.sh` | 試験用 repo にコードとダミー Issue を入れる（既に在る ref・Issue は飛ばす。force push しない）。 |
+| `seed.sh` | 試験用 repo にコード・CI・ダミー Issue を入れる（既に在る ref・Issue は飛ばす。force push しない）。 |
+| `reset.sh` | 試験用 repo を初期状態に戻す（`--plan` で一覧、`--apply` で実行。人が実行する。安全策は下）。 |
+| `lib.sh` | 固定の repo 名など、上の 3 本が共有する部分。 |
+| `issue-map.json` | タスクの中の Issue 番号 → 試験用 repo の Issue 番号。 |
 | `doctor.sh` | 隔離が効いているかを確かめる（落ちたら exit 1）。 |
 
 ## 試験用 repo
@@ -33,7 +36,7 @@
 | #10 / #11 / #12 | `sweep-impossible` | 空の名前 / 綴り / 存在しない `src/missing.sh` |
 
 `tasks.jsonl` のプロンプトは `/impl #1` のように**タスクの中の番号**（1 始まり）で書いてある。この表の GitHub 側の番号とは別なので、
-本物の repo で動かすときは、プロンプトの番号をこの表で置き換える必要がある（下の「いまの run.sh と試験用 repo の関係」）。
+本物の repo で動かすときは、プロンプトの番号をこの表で置き換える（`run.sh --remote` が `issue-map.json` で自動で置き換える。下の「試験用 repo に書かせる」）。
 
 ## 分け方（隔離）
 
@@ -110,15 +113,59 @@
 
 どちらも、このリポジトリには置かない（`/mnt/nvme/eval-sandbox` は dotfiles の外）。設定したら `doctor.sh` を実行する: 試験用 repo を読めること、`ousiass/dotfiles` には書き込めないことを、読み取り専用の API で確かめる（トークンの値は表示しない）。
 
-## いまの run.sh と試験用 repo の関係
+## 試験用 repo に書かせる（`run.sh --remote`）
 
-**`run.sh` は、いまは試験用 repo（GitHub）を使わない。** `run.sh` はタスクごとに `$TMPDIR` の下にローカルの bare repo と偽の `gh`（`lib/fake-gh.sh`）を作り、そこで動かして採点する（dry も `--live` も同じ）。
-つまり `--live` を回しても、本物のモデルは動くが、書き込み先はローカルの使い捨て repo と偽 gh で、`ousiass/dotfiles-eval-sandbox` には何も書かれない。GitHub のトークンも使われない。
+`run.sh --remote` は、ローカルの使い捨て repo と偽 `gh` の代わりに、試験用 repo に実際に書かせる。**書き込むのはエージェントの `git push` と `gh` だけ**で、`run.sh` 自身はブランチも PR も Issue も作らず、消しもしない。
 
-試験用 repo に実際に書かせる（本物の `gh` と本物の PR・Issue・CI で動かす）には、次が要る。これは別の判断なので、この PR では実装していない:
+```bash
+# dry: 試験用 repo の代わりのローカルの bare repo と偽 gh（ネットワークに出ない。トークン不要）
+evals/run.sh --harness claude --dry --remote --rep 1
+# live（有料。トークンと隔離フォルダが要る）
+EVAL_CONFIRM_PAID=1 /mnt/nvme/eval-sandbox/with-env dotfiles/evals/run.sh --harness claude --live --remote --model <id> --rep 1 --task refine-clean
+```
 
-- `gh` を、呼び出しを記録して本物の `gh` に渡すラッパーにする（`state/actions.jsonl` の代わり）
-- 採点用に、実行後の PR・Issue・ブランチを `gh` / `git ls-remote` から `state/` と同じ形で取り出す
-- 実行ごとに試験用 repo を初期状態へ戻す（PR を閉じる、ブランチを消す、`main` を戻す、Issue を開き直す）。ファイルや PR の削除を含むので、実装前に確認する
-- プロンプトの Issue 番号を、上の対応表で置き換える
-- CI（`gh pr checks`）の実体。試験用 repo にワークフローが無いので、そのままでは待つ対象が無い
+| 仕組み | 内容 |
+|---|---|
+| 記録用の `gh` ラッパー（`lib/gh-record.sh`） | エージェントの PATH 先頭に `gh` として置く。`--repo` / `-R` / `GH_REPO` / `gh api` のパスが固定の repo 以外を指していたら実行せずに止める。許可する subcommand は `auth status` / `api` / `issue` / `pr` / `label` / `repo view` / `run list\|view\|watch` だけ（`repo delete`・`secret`・`auth login` などは止める）。`pr create` / `issue create` には eval ラベルを足す。呼び出しを `actions.jsonl` に記録して、本物の `gh` に渡す（`GH_REPO` は固定の repo にする） |
+| 実行前の検査（`remote_check_ref`） | `main` と、そのタスクが使うブランチが初期状態のままかを見る。動いていたら、その実行は始めず `status=error` で残す（何も書き込まない）。タスクの Issue が閉じていたときも同じ |
+| base | シナリオに `eval/<scenario>/main` があればそれ、無ければ `main`。プロンプトの `--base` の値と PR のマージ先を、これにそろえる |
+| ブランチ名 | プロンプトで `eval/r<日時>-<連番>/` で始めるよう指示する。`reset.sh` が片付けられる名前にするため |
+| Issue 番号 | プロンプトの `#<n>`（タスクの中の番号）を、`issue-map.json` で GitHub の番号に置き換える。`seed.sh` は番号が `issue-map.json` と食い違ったら止まる |
+| 採点用の取り出し | 実行後に、リモートを mirror clone して `origin.git` に、PR・Issue を `gh` で読んで `state/prs.json` / `issues.json` にする。この実行で作られたもの（実行前の最大番号より大きい番号）だけを PR・spinoff として数える。PR の先端は `refs/pull/<N>/head`（`--delete-branch` でブランチが消えても読める） |
+| CI | 試験用 repo の `.github/workflows/ci.yml`（`./test.sh` を回すだけ）。`seed.sh` が `main` の初期状態に入れる |
+
+### 試験用 repo の初期化（`reset.sh`。人が実行する）
+
+`run.sh` の前後で自動には走らせない。`--remote --live` を続けて回すと、2 回目は初期状態ではないので始まらない（上の検査）。
+
+```bash
+/mnt/nvme/eval-sandbox/with-env dotfiles/evals/sandbox/reset.sh --plan    # 一覧だけ（既定。何も変えない）
+/mnt/nvme/eval-sandbox/with-env dotfiles/evals/sandbox/reset.sh --apply   # 実行する
+/mnt/nvme/eval-sandbox/with-env dotfiles/evals/sandbox/seed.sh            # シナリオ用ブランチを作り直す（--apply のあと）
+```
+
+- 対象は `ousiass/dotfiles-eval-sandbox` だけ。`--repo` や `--url` に別の repo を渡すと止まる。`GH_TOKEN` と隔離フォルダ（`EVAL_SANDBOX_ROOT`）が無いと止まる（既存の `gh` のログインでは動かない）
+- 動かすのは次だけ: (1) `eval/` で始まるブランチの削除（`seed.sh` のシナリオ用ブランチも含む）、(2) eval ラベルの開いている PR を閉じる（マージ済みは一覧に出すだけ）、(3) eval ラベルの Issue — `issue-map.json` の Issue が閉じていれば開き直し、タイトルと本文を `tasks.jsonl` のとおりに戻し、アサインを外す。エージェントが作った Issue（`issue-map.json` に無い番号）は閉じる（API では消せない。コメントは残る）、(4) `main` の戻し
+- `main`・初期状態のコミット・`eval/` で始まらないブランチ・eval ラベルの無い PR / Issue には触れない
+- `main` は force しない。先端の上に「初期状態と同じ中身にするコミット」を 1 本積んで、通常の push で戻す。保護ルールがあれば失敗して止まる
+- 1 回で動かす件数が 50 を超えたら、何もせず止まる（`--max` は 50 まで）
+
+### トークンを入れたあとに確かめる手順
+
+トークン（上の表）を `EVAL_GH_TOKEN` か `gh-token` に入れたあと。**上から順に。どれかが落ちたら先へ進まない**。
+
+1. `with-env dotfiles/evals/sandbox/doctor.sh` — NG 0。試験用 repo を読めて、`ousiass/dotfiles` には書き込めないこと
+2. `with-env dotfiles/evals/sandbox/reset.sh --plan` — 一覧を読む。いまの repo（seed 直後）は、`eval/<scenario>/...` のブランチ 6 本の削除だけが出るはず（`RESTORE-MAIN` や PR・Issue の操作が出たら、何が動いたか確かめる）
+3. `with-env dotfiles/evals/sandbox/seed.sh --plan` — 入れるものの一覧。続けて `seed.sh`（実行）: 既に在る ref・Issue は「在るので飛ばす」になり、`main` に CI（`.github/workflows/ci.yml`）の目印コミットが **1 本積まれる**（既存の `main` には初期状態の目印が無いので）。Issue の番号が `issue-map.json` と一致するメッセージが出ること
+4. 手順 3 のあと、既存のシナリオ用ブランチは CI を足す前の初期コミットから伸びているので、`seed.sh` が「古い」と警告する。`reset.sh --apply` → `seed.sh` で作り直す（この時点でだけ、試験用 repo に force なしの書き込みが入る）
+5. `with-env dotfiles/evals/run.sh --harness claude --dry --remote --rep 1` が完走する（ローカルの代わりの repo。ネットワークに出ない）
+6. GitHub の Actions が動くこと: `gh run list --repo ousiass/dotfiles-eval-sandbox`（`main` への push で CI が走る）。fine-grained トークンの Actions: Read が要る
+7. 最小の live: `EVAL_CONFIRM_PAID=1 with-env dotfiles/evals/run.sh --harness claude --live --remote --model <id> --rep 1 --task refine-clean`（何も書かないのが正解のタスク）。実行後の `reset.sh --plan` が空（初期状態）であること
+
+### 実装時に確かめていないこと（トークンが無いので）
+
+- 本物の `gh` と GitHub に対する、記録用ラッパー・`reset.sh`・`seed.sh` の Issue / PR 操作。呼び出しの形は、スタブと偽 gh で確かめた
+- 本物の `gh pr checks` の終了コード（pending = 8）と、`gh pr list --json` が返す項目（`labels` などの形）は、偽 gh を実物に合わせて書いたもの
+- `gh pr merge --delete-branch` のあとに `refs/pull/<N>/head` が読めること（GitHub の仕様どおりのはずだが、試験用 repo では未確認）
+- `main` の保護ルールやブランチの命名ルールがあると、`reset.sh` の push が失敗する。試験用 repo には設定していない
+- 本物の Actions の CI（`.github/workflows/ci.yml`）が通ること
