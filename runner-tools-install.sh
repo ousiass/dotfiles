@@ -11,7 +11,9 @@
 # runner-host-setup.sh が apt で入れる）。足したいときだけ make runner-tools を単体で実行する。
 #
 # 入れるもの:
-#   macOS : Homebrew で colima docker docker-buildx docker-compose fnm gh jq shellcheck fish zstd
+#   macOS : Homebrew で colima docker docker-buildx docker-compose fnm gh jq shellcheck fish zstd ruby@3.4
+#             （ruby@3.4 は bundler 同梱。iOS ビルド用の Ruby 3.x。runner の PATH では runner-path-guard.sh の
+#              runner_stable_path がシステムの Ruby より先に置く）
 #           ＋ fnm で Node.js LTS（default に設定）
 #           ＋ ~/.docker/config.json に docker context colima（currentContext）と buildx / compose のプラグインの場所
 #             （cliPluginsExtraDirs）。colima の docker に繋がり、docker buildx / docker compose が使えるようにする
@@ -20,8 +22,10 @@
 #
 # 入れないもの（無いときは表示するだけ）:
 #   - Homebrew 自体（無ければ入れ方を案内して止まる）
-#   - Xcode 本体（Xcode.app）とコード署名の証明書
+#   - Xcode 本体（Xcode.app）とコード署名の証明書。Xcode.app（XCODE_APP で場所を変えられる）があるときだけ、
+#     xcode-select を本体へ切り替え（sudo -n。パスワードを求められるなら案内だけ）、ライセンス同意も sudo -n で試す
 #   - Xcode コマンドラインツール（無ければ xcode-select --install を案内して止まる。GUI の確認が出るため）
+#   - fastlane / CocoaPods などの gem（各リポジトリの Gemfile で CI が入れる）
 
 set -euo pipefail
 
@@ -36,6 +40,8 @@ export LOG_TAG=runner-tools
 . "$DOTFILES_DIR/lib/tools/fnm.sh"
 # shellcheck source=lib/tools/gh.sh
 . "$DOTFILES_DIR/lib/tools/gh.sh"
+# shellcheck source=runner-path-guard.sh
+. "$DOTFILES_DIR/runner-path-guard.sh"
 
 # 入れ損ねたもの（空白区切り）。最後にまとめて報告して失敗で終わる。
 failed=""
@@ -68,14 +74,53 @@ ensure_node_default() {
 	fi
 }
 
-# Xcode 本体とコード署名の証明書は、入れずに有無だけ表示する（ライセンス同意・Apple ID・秘密鍵が要るため）。
-report_apple_extras() {
+# sudo がパスワードを聞かずに使えるか（-n は聞かずに失敗する）。runner-host-setup.sh が 1/5 で NOPASSWD を入れるので、
+# make runner-setup の経由では通る。make runner-tools の単体実行で runner ユーザーに NOPASSWD が無いときは通らない。
+sudo_without_password() {
+	command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1
+}
+
+# Xcode 本体（Xcode.app）は入れない（App Store 経由・Apple ID が要る）。あるときだけ、iOS ビルドに要る 2 点を整える。
+#   1. xcode-select が本体を向いているか。コマンドラインツールを向いたままだと xcodebuild が動かない。
+#   2. ライセンスに同意済みか。未同意だと xcodebuild が毎回失敗する。
+# どちらも root が要るので sudo -n で試し、できなければ（パスワードを聞かれるなど）切り替えずに案内して続ける。
+# 本体が無い・切り替えられない・同意できないことでは、全体を失敗にしない（ジョブが要るホストだけが困る）。
+ensure_xcode() {
 	local xcode_app="${XCODE_APP:-/Applications/Xcode.app}"
-	if [ -d "$xcode_app" ]; then
-		log "Xcode 本体: あり（${xcode_app}）"
-	else
+	xcode_app="${xcode_app%/}"
+	local developer_dir="${xcode_app}/Contents/Developer"
+	if [ ! -d "$xcode_app" ]; then
 		warn "Xcode 本体が入っていません（${xcode_app}）。xcodebuild が要るジョブには App Store から手動で入れてください。このスクリプトでは入れません。"
+		return
 	fi
+	log "Xcode 本体: あり（${xcode_app}）"
+
+	if [ "$(xcode-select -p 2>/dev/null || true)" = "$developer_dir" ]; then
+		log "xcode-select は Xcode 本体を向いている"
+	elif ! sudo_without_password; then
+		warn "xcode-select が Xcode 本体を向いていません（$(xcode-select -p 2>/dev/null || echo 未設定)）。sudo がパスワードを求めるため切り替えません。次を実行してください:"
+		warn "  sudo xcode-select -s ${developer_dir}"
+		return
+	else
+		log "xcode-select を ${developer_dir} に切り替え"
+		if ! sudo -n xcode-select -s "$developer_dir"; then
+			warn "sudo xcode-select -s ${developer_dir} に失敗しました。手動で実行してください。"
+			return
+		fi
+	fi
+
+	if xcodebuild -license check >/dev/null 2>&1; then
+		log "Xcode のライセンス: 同意済み"
+	elif sudo_without_password && sudo -n xcodebuild -license accept >/dev/null 2>&1; then
+		log "Xcode のライセンスに同意した"
+	else
+		warn "Xcode のライセンスに同意できていません。次を実行してください:"
+		warn "  sudo xcodebuild -license accept"
+	fi
+}
+
+# コード署名の証明書は、入れずに有無だけ表示する（Apple ID・秘密鍵が要るため）。
+report_signing_identity() {
 	if security find-identity -v -p codesigning 2>/dev/null | grep -Eq '^ *[1-9][0-9]* valid identit'; then
 		log "コード署名の証明書: あり"
 	else
@@ -171,7 +216,8 @@ install_macos() {
 	fi
 
 	# 1 つ失敗しても残りは試す（既に non-brew で入っている pkg の link 衝突などで全部が止まらないように）。
-	local formulae=(colima docker docker-buildx docker-compose fnm gh jq shellcheck fish zstd) formula
+	# ruby@3.4（RUNNER_RUBY_FORMULA）は bundler 同梱。fastlane / CocoaPods などの gem は各リポジトリの Gemfile で CI が入れる。
+	local formulae=(colima docker docker-buildx docker-compose fnm gh jq shellcheck fish zstd "$RUNNER_RUBY_FORMULA") formula
 	for formula in "${formulae[@]}"; do
 		if brew list --formula "$formula" >/dev/null 2>&1; then
 			log "${formula} は既にインストール済み"
@@ -186,7 +232,8 @@ install_macos() {
 
 	ensure_docker_config
 	ensure_node_default
-	report_apple_extras
+	ensure_xcode
+	report_signing_identity
 }
 
 install_linux() {

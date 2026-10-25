@@ -115,6 +115,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
     -u) export STUB_ID_U=501; shift 2 ;;
     -H) export HOME="$STUB_HOME"; shift ;;
+    -n) shift ;;
     *) break ;;
     esac
 done
@@ -250,6 +251,7 @@ echo "     0 valid identities found"
 EOF
 stub "$stubs/xcode-select" <<'EOF'
 #!/bin/bash
+echo "xcode-select $*" >>"$STUB_LOG"
 [ -n "${STUB_NO_CLT:-}" ] && exit 2
 echo /Library/Developer/CommandLineTools
 EOF
@@ -343,13 +345,48 @@ stub "$fnm_bin/node" <<'EOF'
 exit 0
 EOF
 cp "$fnm_bin/node" "$fnm_bin/npx"
+# iOS ビルドの前提（Xcode / Ruby 3.x / bundler / bun）。ruby / bundle / xcodebuild の挙動は、env -i でも残る
+# $HOME 配下の目印ファイルで切り替える（.stub-ruby-version / .stub-no-bundle / .stub-xcodebuild-fail）。
+stub "$fnm_bin/ruby" <<'EOF'
+#!/bin/sh
+cat "$HOME/.stub-ruby-version" 2>/dev/null || echo "ruby 3.4.1 (stub)"
+EOF
+stub "$fnm_bin/bundle" <<'EOF'
+#!/bin/sh
+[ ! -e "$HOME/.stub-no-bundle" ] || exit 127
+echo "Bundler version 2.6.2 (stub)"
+EOF
+stub "$fnm_bin/bun" <<'EOF'
+#!/bin/sh
+echo "1.2.3"
+EOF
+stub "$fnm_bin/xcodebuild" <<'EOF'
+#!/bin/sh
+[ ! -e "$HOME/.stub-xcodebuild-fail" ] || { echo "xcode-select: error: tool 'xcodebuild' requires Xcode" >&2; exit 1; }
+echo "Xcode 99.0 (stub)"
+EOF
+# tools-install（root の PATH 側）の xcodebuild -license check / accept も同じスタブで通す
+cp "$fnm_bin/xcodebuild" "$stubs/xcodebuild"
 
 # 守り: runner の安定 PATH で docker / cc / node がスタブに解決されること。ここが崩れると、
 # 本物の Homebrew がある Mac だけでテストが落ちる（Linux や擬似環境では気づけない）。
-for cmd in docker cc node npx; do
+for cmd in docker cc node npx ruby bundle bun xcodebuild; do
     resolved=$(uname() { echo Darwin; }; env -i PATH="$(runner_stable_path "$home")" "$BASH" --noprofile --norc -c "command -v $cmd")
     check_eq "runner の安定 PATH で $cmd はスタブに解決される（本物の /opt/homebrew/bin より先）" "$fnm_bin/$cmd" "$resolved"
 done
+
+# 安定 PATH を実際に解決して、brew の Ruby が /usr/bin のシステムの Ruby（2.6）より先に見えること。
+# 本物の /opt/homebrew・/usr/bin には触れないよう、PATH の該当 2 要素をテスト用ディレクトリに置き換える。
+ruby_bin_dir=$(runner_ruby_bin_dir)
+mkdir -p "$tmp/brew-ruby-bin" "$tmp/system-ruby-bin"
+printf '#!/bin/sh\necho brew-ruby\n' >"$tmp/brew-ruby-bin/ruby" && chmod +x "$tmp/brew-ruby-bin/ruby"
+printf '#!/bin/sh\necho system-ruby-2.6\n' >"$tmp/system-ruby-bin/ruby" && chmod +x "$tmp/system-ruby-bin/ruby"
+order_path=$(runner_stable_path "$tmp/no-such-home") # home 配下（fnm の ruby スタブなど）を拾わない
+order_path=${order_path//:"$ruby_bin_dir":/:"$tmp/brew-ruby-bin":}
+order_path=${order_path//:\/usr\/bin:/:"$tmp/system-ruby-bin":}
+check_match "安定 PATH の解決: brew の Ruby の置換が効いている" ":$tmp/brew-ruby-bin:" ":$order_path:"
+check_match "安定 PATH の解決: /usr/bin の置換が効いている"   ":$tmp/system-ruby-bin:" ":$order_path:"
+check_eq "安定 PATH の解決: ruby は brew の Ruby（システムの /usr/bin の Ruby より先）" "$tmp/brew-ruby-bin/ruby" "$(env -i PATH="$order_path" "$BASH" --noprofile --norc -c 'command -v ruby')"
 
 # --- runner ディレクトリ: 登録済み（.runner）と、macOS の svc.sh を模したスタブ ----------
 echo '{}' >"$runner_dir/.runner"
@@ -388,7 +425,7 @@ EOF
 
 run_setup() { # run_setup [VAR=value ...] : 出力を ${out}、終了コードを $rc に入れる
     # RUNNER_BREW_PATHS="" で、実機の /opt/homebrew の本物の brew を拾わないようにする（個別のケースで上書きできる）。
-    out=$(env PATH="$stubs:$PATH" RUNNER_USER=ci SUDOERS_FILE="$tmp/sudoers-github-runner" RUNNER_BREW_PATHS="" "$@" bash "$SETUP" 2>&1)
+    out=$(env PATH="$stubs:$PATH" RUNNER_USER=ci SUDOERS_FILE="$tmp/sudoers-github-runner" RUNNER_BREW_PATHS="" XCODE_APP="$tmp/Xcode.app" "$@" bash "$SETUP" 2>&1)
     rc=$?
 }
 
@@ -444,11 +481,12 @@ check_eq    "RUNNER_BREW_PATHS の先に brew がある: 成功する" 0 "$rc"
 check_match "RUNNER_BREW_PATHS の先に brew がある: その brew を使う" "brew services start colima" "$(cat "$STUB_LOG")"
 
 # 足りない brew パッケージは、runner ユーザーとして brew install で入れる（入っているものは飛ばす）。
-run_setup STUB_BREW_MISSING="colima docker-buildx"
+run_setup STUB_BREW_MISSING="colima docker-buildx ruby@3.4"
 check_eq    "brew パッケージ不足: 成功する"                0 "$rc"
 check_eq    "brew パッケージ不足: colima を入れる"          1 "$(calls 'brew install colima$')"
 check_eq    "brew パッケージ不足: docker-buildx を入れる"   1 "$(calls 'brew install docker-buildx$')"
 check_eq    "brew パッケージ不足: そろっている docker は入れない" 0 "$(calls 'brew install docker$')"
+check_eq    "brew パッケージ不足: ruby@3.4 を入れる"        1 "$(calls 'brew install ruby@3.4$')"
 
 # 入れるのに失敗したものがあれば、サービス化まで進まず止まる
 : >"$STUB_LOG"
@@ -492,6 +530,8 @@ check_match "macOS: 3/5 で docker info が通ったと表示する"           "
 check_match "macOS: 5/5 で docker info が通る"                       "OK: ci で docker info が通る" "$out"
 check_no_match "macOS: 5/5 で docker / buildx / compose の NG が出ない" "NG: docker" "$out"
 check_match "macOS: 5/5 で docker compose version を確かめる"        "docker compose version" "$(cat "$STUB_LOG")"
+check_no_match "macOS: 5/5 で iOS ビルドの前提の NG が出ない" "NG: " "$out"
+check_eq    "macOS: ruby@3.4 は入っているので brew install しない" 0 "$(calls 'brew install ruby@3.4$')"
 check_eq    "macOS: svc.sh install を 1 回呼ぶ"   1 "$(calls 'svc.sh install')"
 check_eq    "macOS: svc.sh start を 1 回呼ぶ"     1 "$(calls 'svc.sh start')"
 check_eq    ".path は macOS の安定 PATH"          "$(runner_stable_path "$home")" "$(<"$runner_dir/.path")"
@@ -564,6 +604,56 @@ check_eq    "ラベルが前方一致の別 runner: 再起動と取り違えな�
 run_setup STUB_UNAME_M=x86_64 STUB_ARM64=1
 check_eq       "Rosetta: 成功する"          0 "$rc"
 check_no_match "Rosetta: 対象外にしない"    "対象外です" "$out"
+
+# --- iOS ビルドの前提（Xcode の切り替え・Ruby 3.x・bundler）。runner_ruby_bin 等は runner-path-guard.sh の値 ---
+# 既定（run_setup）は Xcode 本体が無いホスト: xcodebuild は確認せず表示だけにし、NG にしない。
+: >"$STUB_LOG"
+run_setup
+check_eq       "Xcode 本体無し: 成功する"                 0 "$rc"
+check_match    "Xcode 本体無し: xcodebuild は確認しないと表示する" "Xcode 本体が無いホスト" "$out"
+check_no_match "Xcode 本体無し: NG にしない"              "NG: xcodebuild" "$out"
+check_eq       "Xcode 本体無し: xcode-select を切り替えない" 0 "$(calls 'sudo -n xcode-select -s')"
+check_match    "5/5: ruby 3.x が .path の PATH で見える"   "OK: ruby 3.4.1" "$out"
+check_match    "5/5: bundler が .path の PATH で見える"    "OK: Bundler version" "$out"
+check_match    "5/5: bun が .path の PATH で見える"        "OK: bun 1.2.3" "$out"
+
+# Xcode 本体があれば、XCODE_APP が tools-install まで届き、そこへ切り替える（sudo は環境変数を引き継がない）
+mkdir -p "$tmp/Xcode.app"
+: >"$STUB_LOG"
+run_setup
+check_eq       "Xcode 本体あり: 成功する"                 0 "$rc"
+check_eq       "Xcode 本体あり: 本体へ sudo -n で切り替える" 1 "$(calls "sudo -n xcode-select -s $tmp/Xcode.app/Contents/Developer\$")"
+check_match    "Xcode 本体あり: 5/5 で xcodebuild -version が通る" "Xcode 99.0" "$out"
+check_no_match "Xcode 本体あり: NG が出ない"              "NG: xcodebuild" "$out"
+
+# xcodebuild が動かなければ NG を出す（サービス化までは進む）
+: >"$home/.stub-xcodebuild-fail"
+run_setup
+check_eq       "xcodebuild 不調: 成功する（NG は表示だけ）" 0 "$rc"
+check_match    "xcodebuild 不調: NG と直し方を出す"        "NG: xcodebuild が動きません" "$out"
+rm -f "$home/.stub-xcodebuild-fail"
+
+# Ruby が 3.x でない（システムの 2.6 が先に見える）・bundler が動かない・bun が無い: NG を出す
+echo "ruby 2.6.10p210 (2022-04-12 revision 67958) [universal.arm64e-darwin25]" >"$home/.stub-ruby-version"
+run_setup
+check_match    "ruby 2.x: NG を出す"                       "NG: .path の PATH の ruby が 3.x ではありません" "$out"
+check_no_match "ruby 2.x: OK とは言わない"                 "OK: ruby" "$out"
+rm -f "$home/.stub-ruby-version"
+: >"$home/.stub-no-bundle"
+run_setup
+check_match    "bundler 不調: NG を出す"                   "NG: .path の PATH で bundle が動きません" "$out"
+rm -f "$home/.stub-no-bundle"
+mv "$fnm_bin/bun" "$tmp/bun.stub"
+run_setup
+check_match    "bun 無し: NG を出す"                       "NG: .path の PATH で bun が動きません" "$out"
+mv "$tmp/bun.stub" "$fnm_bin/bun"
+rm -rf "$tmp/Xcode.app"
+
+# .path は brew の Ruby を、システムの Ruby（/usr/bin）と Homebrew の bin より前に持つ
+path_value=":$(<"$runner_dir/.path"):"
+check_match    ".path に brew の Ruby を含む"              ":$(runner_ruby_bin_dir):" "$path_value"
+check_match    ".path: brew の Ruby は /usr/bin より前"    "$(runner_ruby_bin_dir):" "${path_value%%:/usr/bin:*}:"
+check_match    ".path: brew の Ruby は /opt/homebrew/bin より前" "$(runner_ruby_bin_dir):" "${path_value%%:/opt/homebrew/bin:*}:"
 
 # --- plist が想定と違うときは壊さずに止まる ----------------------------------------
 rm -f "$runner_dir/.service"

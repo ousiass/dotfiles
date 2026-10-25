@@ -74,10 +74,46 @@ stub "$stubs/id" <<'EOF'
 #!/bin/bash
 [ "$1" = -u ] && echo "${STUB_ID_U:-501}" || echo staff
 EOF
+# xcode-select: -p は選択中のパス（STUB_XCODE_SELECTED）、-s は切り替え。実機と同じく -s は root（sudo 経由）だけ通す。
 stub "$stubs/xcode-select" <<'EOF'
 #!/bin/bash
-[ -z "${STUB_NO_CLT:-}" ] && echo /Library/Developer/CommandLineTools
+echo "xcode-select $*" >>"$STUB_LOG"
+case "$1" in
+-p) [ -z "${STUB_NO_CLT:-}" ] || exit 2; cat "$STUB_XCODE_SELECTED" ;;
+-s)
+    [ -n "${STUB_VIA_SUDO:-}" ] || { echo "xcode-select: error: setting the developer directory requires root" >&2; exit 1; }
+    [ -d "$2" ] || { echo "xcode-select: error: invalid developer directory '$2'" >&2; exit 1; }
+    echo "$2" >"$STUB_XCODE_SELECTED"
+    ;;
+esac
 EOF
+# xcodebuild: ライセンスの確認（-license check）と同意（-license accept。実機と同じく root だけ通す）。
+stub "$stubs/xcodebuild" <<'EOF'
+#!/bin/bash
+echo "xcodebuild $*" >>"$STUB_LOG"
+case "$*" in
+"-license check") [ -f "$STUB_LICENSE" ] ;;
+"-license accept")
+    [ -n "${STUB_VIA_SUDO:-}" ] || { echo "xcodebuild: error: requires root" >&2; exit 69; }
+    : >"$STUB_LICENSE"
+    ;;
+esac
+EOF
+# sudo: 必ず -n 付きで呼ばれること（無いと、本物はパスワード待ちで止まる）。STUB_SUDO_PASSWORD があれば
+# 「パスワードが要る」で失敗する。それ以外は root として実行する（STUB_VIA_SUDO）。
+stub "$stubs/sudo" <<'EOF'
+#!/bin/bash
+echo "sudo $*" >>"$STUB_LOG"
+[ "$1" = -n ] || { echo "sudo stub: -n が無い: $*" >&2; exit 99; }
+shift
+[ -z "${STUB_SUDO_PASSWORD:-}" ] || { echo "sudo: a password is required" >&2; exit 1; }
+[ "$1" = true ] && exit 0
+STUB_VIA_SUDO=1 exec "$@"
+EOF
+# xcode-select の選択先とライセンス同意の状態（スタブの状態）
+export STUB_XCODE_SELECTED="$tmp/xcode-selected"
+export STUB_LICENSE="$tmp/xcode-license"
+clt_dir=/Library/Developer/CommandLineTools
 stub "$stubs/security" <<'EOF'
 #!/bin/bash
 echo "     ${STUB_IDENTITIES:-0} valid identities found"
@@ -162,7 +198,7 @@ echo "LEAK: ネットワークからダウンロードしようとした" >>"$ST
 exit 99
 EOF
 
-all_formulae="colima docker docker-buildx docker-compose fnm gh jq shellcheck fish zstd"
+all_formulae="colima docker docker-buildx docker-compose fnm gh jq shellcheck fish zstd ruby@3.4"
 
 # run [VAR=value ...] : 出力を $out、終了コードを $rc に入れる（PATH はスタブだけ）
 run() {
@@ -174,6 +210,8 @@ reset() { # reset [installed formula ...]
     : >"$STUB_LOG"
     : >"$STUB_INSTALLED"
     rm -f "$STUB_NODE_DEFAULT"
+    echo "$clt_dir" >"$STUB_XCODE_SELECTED"
+    rm -f "$STUB_LICENSE"
     rm -rf "$tmp/home/.docker"
     : >"$STUB_CONTEXTS"
     mkdir -p "$plugin_dir"
@@ -194,7 +232,7 @@ reset docker jq shellcheck
 : >"$STUB_NODE_DEFAULT"
 run
 check_eq    "macOS 一部不足: 成功する"            0 "$rc"
-for f in colima docker-buildx docker-compose fnm gh fish zstd; do
+for f in colima docker-buildx docker-compose fnm gh fish zstd ruby@3.4; do
     check_eq "macOS 一部不足: $f を入れる"        1 "$(calls "^brew install $f\$")"
 done
 for f in docker jq shellcheck; do
@@ -273,10 +311,58 @@ check_match "Xcode 本体無し: 無いと表示する"      "Xcode 本体が入
 check_match "署名証明書無し: 無いと表示する"      "コード署名の証明書が見つかりません" "$out"
 check_eq    "Xcode / 証明書が無くても成功する"     0 "$rc"
 check_eq    "Xcode / 証明書は入れようとしない"     0 "$(calls '^brew install\|^curl')"
-mkdir -p "$tmp/Xcode.app"
+check_eq    "Xcode 本体無し: 切り替え・同意で sudo を呼ばない" 0 "$(calls '^sudo')"
+mkdir -p "$tmp/Xcode.app/Contents/Developer"
 run STUB_IDENTITIES=2
 check_match "Xcode 本体あり: あると表示する"      "Xcode 本体: あり" "$out"
 check_match "署名証明書あり: あると表示する"      "コード署名の証明書: あり" "$out"
+
+# --- macOS: Xcode 本体があれば、xcode-select を本体へ切り替え、ライセンスに同意する（#60） -------------
+# スタブは実機と同じく、xcode-select -s と xcodebuild -license accept を sudo 経由（root）でしか通さない。
+# sudo のスタブは -n 無しで呼ばれると失敗する（本物ならパスワード待ちで止まる）。
+xcode_dev="$tmp/Xcode.app/Contents/Developer"
+reset $all_formulae
+: >"$STUB_NODE_DEFAULT"
+run
+check_eq    "Xcode 切り替え: 成功する"                 0 "$rc"
+check_eq    "Xcode 切り替え: sudo -n で本体へ切り替える" 1 "$(calls "^sudo -n xcode-select -s $xcode_dev\$")"
+check_eq    "Xcode 切り替え: xcode-select -p が本体を向く" "$xcode_dev" "$(<"$STUB_XCODE_SELECTED")"
+check_eq    "Xcode ライセンス: sudo -n で同意する"       1 "$(calls '^sudo -n xcodebuild -license accept$')"
+check_eq    "Xcode ライセンス: 同意済みになる"           yes "$([ -f "$STUB_LICENSE" ] && echo yes || echo no)"
+: >"$STUB_LOG"
+run
+check_eq    "Xcode 2 回目: 成功する"                    0 "$rc"
+check_eq    "Xcode 2 回目: 切り替え・同意をやり直さない（sudo を呼ばない）" 0 "$(calls '^sudo')"
+
+# sudo がパスワードを求めるときは、切り替えずに案内して続ける（全体は失敗にしない）
+reset $all_formulae
+: >"$STUB_NODE_DEFAULT"
+run STUB_SUDO_PASSWORD=1
+check_eq    "sudo パスワード要: 成功して続ける"          0 "$rc"
+check_eq    "sudo パスワード要: 切り替えない"            0 "$(calls '^xcode-select -s')"
+check_eq    "sudo パスワード要: xcode-select は元のまま"  "$clt_dir" "$(<"$STUB_XCODE_SELECTED")"
+check_match "sudo パスワード要: 切り替えの案内を出す"     "sudo xcode-select -s $xcode_dev" "$out"
+check_eq    "sudo パスワード要: 切り替えられないのでライセンスも試さない" 0 "$(calls '^xcodebuild -license accept')"
+
+# すでに本体を向いていてライセンスだけ未同意: sudo が使えなければ案内だけ、使えれば同意する
+reset $all_formulae
+: >"$STUB_NODE_DEFAULT"
+echo "$xcode_dev" >"$STUB_XCODE_SELECTED"
+run STUB_SUDO_PASSWORD=1
+check_eq    "ライセンスのみ・sudo パスワード要: 成功して続ける" 0 "$rc"
+check_eq    "ライセンスのみ・sudo パスワード要: 切り替えは要らない" 0 "$(calls '^xcode-select -s')"
+check_match "ライセンスのみ・sudo パスワード要: 同意の案内を出す" "sudo xcodebuild -license accept" "$out"
+check_eq    "ライセンスのみ・sudo パスワード要: 同意されない" no "$([ -f "$STUB_LICENSE" ] && echo yes || echo no)"
+run
+check_eq    "ライセンスのみ・sudo 可: sudo -n で同意する"  1 "$(calls '^sudo -n xcodebuild -license accept$')"
+check_eq    "ライセンスのみ・sudo 可: 切り替えない"        0 "$(calls '^xcode-select -s')"
+
+# XCODE_APP で場所を変えられる（末尾のスラッシュがあっても、切り替え先は本体の Contents/Developer）
+mkdir -p "$tmp/Other.app/Contents/Developer"
+reset $all_formulae
+: >"$STUB_NODE_DEFAULT"
+run XCODE_APP="$tmp/Other.app/"
+check_eq    "XCODE_APP: 指した本体へ切り替える"          "$tmp/Other.app/Contents/Developer" "$(<"$STUB_XCODE_SELECTED")"
 
 # --- macOS: colima の docker に繋ぐ設定（~/.docker/config.json）。実機で docker info が通らず、
 #     docker buildx が unknown command になった（#53）。jq が無い環境ではこの検査だけ飛ばす ------------------
