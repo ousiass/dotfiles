@@ -9,6 +9,11 @@
 # colima の起動、brew services）の代わりにはならない。実機確認が必要な項目は PR 本文に挙げる。
 set -uo pipefail
 
+# runner-host-setup.sh が読む RUNNER_* は、ケースごとの指定だけにそろえる。GitHub Actions のジョブは
+# RUNNER_NAME="GitHub Actions 1000000041" のような値を環境に持っていて、そのまま引き継ぐと
+# RUNNER_NAME の検証（空白を許さない）で止まり、成功系のケースが全部落ちる。
+unset RUNNER_BREW_PATHS RUNNER_DIR RUNNER_GH_BIN RUNNER_GROUP RUNNER_NAME RUNNER_ORG RUNNER_REPLACE RUNNER_USER
+
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SETUP="$DOTFILES_DIR/runner-host-setup.sh"
 # shellcheck source=../runner-path-guard.sh
