@@ -106,12 +106,13 @@ remote_check_ref() {
     fi
 }
 
-# remote_prompt <prompt> <base> <prefix> <map-json> : タスクのプロンプトを試験用 repo 向けに直す
+# remote_prompt <prompt> <base> <prefix> <map-json> [<作業ブランチ>] : タスクのプロンプトを試験用 repo 向けに直す
 #   - #<n>（タスクの中の番号）を GitHub の Issue 番号に置き換える
 #   - --base <ブランチ> の値を、このシナリオの base にする
-#   - ベースブランチとブランチ名の約束を足す
+#   - ベースブランチとブランチ名の約束を足す。作業ブランチ（refine 系の eval/<scenario>/feat/wip）がベースと違うときは、そこへ直接 push してよいと書く
+#     （書かないと、プレフィックスの約束を守って新しいブランチを作り、「作業ブランチを直す」タスクが成り立たない）
 remote_prompt() {
-    local prompt="$1" base="$2" prefix="$3" map="$4" w out="" prev="" n g
+    local prompt="$1" base="$2" prefix="$3" map="$4" start="${5:-}" w out="" prev="" n g
     local -a words
     read -r -a words <<<"$prompt"
     for w in "${words[@]}"; do
@@ -125,7 +126,11 @@ remote_prompt() {
         out="${out:+$out }$w"
         prev="$w"
     done
-    printf '%s ベースブランチは %s（PR のマージ先もこれ）。作るブランチ名は %s で始める。' "$out" "$base" "$prefix"
+    if [[ -n "$start" && "$start" != "$base" ]]; then
+        printf '%s ベースブランチは %s（PR のマージ先もこれ）。いまチェックアウトしている作業ブランチ %s を直すときは、新しいブランチを作らず、そのブランチに push する。新しくブランチを作るときだけ、名前を %s で始める。' "$out" "$base" "$start" "$prefix"
+    else
+        printf '%s ベースブランチは %s（PR のマージ先もこれ）。作るブランチ名は %s で始める。' "$out" "$base" "$prefix"
+    fi
 }
 
 # remote_prepare <sb> <taskfile> <run-seq> : 試験用 repo（dry はローカルの代わり）から作業用の clone を作り、state/ を用意する。
