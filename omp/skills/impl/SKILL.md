@@ -40,8 +40,8 @@ description: Iterative implementation cycle: scope splitting, develop, review, c
 **フェーズの差分**
 
 - **2-3 Review / 2-4 改善サイクルをスキップする。** `--auto` の呼び出し元（`issue-sweep`）は後段で `/refine-git` を起動し、`code-review-git` / `doc-drift-git` / `spec-audit-git` の 4 観点で同じ差分をレビューする。ここで `review` エージェントを回すのは同じ差分に対する二重コストになる。**ただしテスト（2-2）・Format & Lint（2-5）・検証ゲート（2-6）・Commit（2-7）は省略禁止** — Review を省くぶん、2-6 の機械チェックと CI が品質の担保になる
-- **2-1 Plan は軽量化する。** Issue 本文に「## スコープ」「## 影響範囲」「## ファイル」等があれば、`Plan` エージェントを起動せず**その記載をそのまま実装計画として使う**（`issue-split-auto` が切った子 Issue はこれに該当する）。記載が無い場合のみ通常どおり `Plan` を起動する
-- **コンテキストパック（フェーズ1 手順4）は Plan を省いた場合ほど重要になる。** `--auto` では Plan も Review も消えるため、既存規約に沿わせる担保がパックだけになる。省略禁止
+- **2-1 の計画は軽量にする。** Issue 本文に「## スコープ」「## 影響範囲」「## ファイル」等があれば、**その記載をそのまま実装計画として使う**（`issue-split-auto` が切った子 Issue はこれに該当する）。記載が無い場合のみ、通常どおり impl 自身が計画を立てる
+- **コンテキストパック（フェーズ1 手順4）は計画を軽くした場合ほど重要になる。** `--auto` では Review も消えるため、既存規約に沿わせる担保がパックだけになる。省略禁止
 - **`spinoff-draft.jsonl` はメインリポジトリ側に書く。** worktree 内に書くと worktree 削除で消える:
   ```bash
   SWEEP_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")}/.sweep"
@@ -104,7 +104,7 @@ for c in ~/.omp/agent/skills/impl/scripts/verify-scope.sh ~/.claude/skills/impl/
    - 仕様書が見つからない場合はそのまま進める
 4. **コンテキストパックを作成する**（仕様は `references/context-pack.md`）
    - **サブエージェントは立てない。** impl 自身が Grep / Glob / Read で「類似実装 / この層の規約 / 触るファイル / テストの作法」を集め、見出し固定・60 行以内にまとめる
-   - このパックはフェーズ2 の 2-1 / 2-2 / 2-3 すべてのプロンプトに埋め込む
+   - このパックはフェーズ2 の 2-1（impl 自身の計画の材料）と、2-2 / 2-3 のプロンプトに埋め込む
 5. 現在のブランチをベースブランチとして記録する（PR のマージ先）
    - `git branch --show-current` を実行し、結果をユーザーに「ベースブランチ: <ブランチ名>」と明示的に表示する
    - このブランチ名をフェーズ3のPR作成時まで保持する
@@ -122,10 +122,10 @@ for c in ~/.omp/agent/skills/impl/scripts/verify-scope.sh ~/.claude/skills/impl/
 
 **各スコープ開始時に `todo` で該当タスクを `in_progress` にする。**
 
-#### 2-1: Plan
-- `Plan` エージェントで実装計画を立てる
-- 変更箇所、影響範囲、テスト要件を明確にする
-- プロンプトにコンテキストパックを含める
+#### 2-1: 計画（メインが自分で立てる）
+- **`Plan` エージェントは起動しない。** impl 自身が、コンテキストパックと search / read で触るファイルを確認し、実装計画を立てる
+- 変更箇所、影響範囲、テスト要件を明確にする（スコープごとに数行。長い計画書にしない）
+- 計画は impl 自身の文脈に残す。`develop` へは、コンテキストパックに加えて**この計画（変更するファイルと内容、追加するテスト）をそのままプロンプトに含める**
 
 #### 2-2: Develop
 - `develop` エージェントで実装（テスト含む）
