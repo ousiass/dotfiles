@@ -226,6 +226,11 @@ run_one() { # <task-json-line> <rep>
             export EVAL_GH_REAL="$r_gh_real" EVAL_BASE="$r_base" EVAL_BRANCH_PREFIX="$r_prefix" EVAL_ISSUE_MAP="$r_map"
             # live は、エージェントの git が隔離した HOME の .gitconfig（identity と gh の credential helper）を読む
             [[ "$mode" == dry ]] || export GIT_CONFIG_GLOBAL="$ORIG_GIT_CONFIG_GLOBAL"
+            # エージェントの git の credential helper には、path（owner/repo）を渡させる。ラッパーが、固定の repo 以外には認証情報を返さないため。
+            # 認証できないときに対話で聞かない（待ち続けない）
+            export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=credential.useHttpPath GIT_CONFIG_VALUE_0=true GIT_TERMINAL_PROMPT=0
+            # 普段の gh のログインを使う実行でも、エージェントの GH_CONFIG_DIR は隔離したまま（絶対パスで本物の gh を呼んでも認証が無い）
+            [[ -z "${r_isolated_gh_config:-}" ]] || export GH_CONFIG_DIR="$r_isolated_gh_config"
         fi
         if [[ "$mode" == dry ]]; then
             export EVAL_DRY_SCENARIO=pass

@@ -35,9 +35,26 @@ refuse() { # refuse <理由> <引数...>
     exit 1
 }
 
-# 認証のやりとり（git の credential helper）は素通し
+# 普段の gh のログイン（ユーザーの gh の設定ディレクトリ）を使う実行: トークンは環境変数にもファイルにも置かない。
+# 本物の gh を呼ぶときだけ、この wrapper が GH_CONFIG_DIR をそちらに向けて、GH_TOKEN を外す（エージェントの環境には出ない）
+if [[ -n "${EVAL_GH_USER_CONFIG_DIR:-}" ]]; then
+    export GH_CONFIG_DIR="$EVAL_GH_USER_CONFIG_DIR"
+    unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
+fi
+
+# git の credential helper。トークンを渡すのは、固定の repo に対する get だけ。
+# 別の repo・別のホスト・path が来ない（credential.useHttpPath が無い）ときは何も返さない（git は認証に失敗する）。store / erase は何もしない
 if [[ "${1:-}" == auth && "${2:-}" == git-credential ]]; then
-    exec "$real" "$@"
+    [[ "${3:-}" == get ]] || exit 0
+    req="$(cat)"
+    cred_host="$(printf '%s\n' "$req" | sed -n 's/^host=//p' | head -1)"
+    cred_path="$(printf '%s\n' "$req" | sed -n 's/^path=//p' | head -1)"
+    if [[ "$cred_host" == github.com && ( "$cred_path" == "$SANDBOX_REPO" || "$cred_path" == "${SANDBOX_REPO}.git" ) ]]; then
+        printf '%s\n' "$req" | "$real" "$@"
+        exit $?
+    fi
+    jq -nc --arg cmd "git credential get host=${cred_host} path=${cred_path}" --arg result "unsupported" --arg why "固定の repo 以外には認証情報を渡さない" '{cmd: $cmd, result: $result, why: $why}' >>"$actions"
+    exit 0
 fi
 
 args=("$@")
@@ -87,23 +104,38 @@ case "$sub $cmd2" in
     done
     ;;
 "api "*) ;;
+"issue transfer") refuse "gh issue transfer は別の repo に Issue を移せるので使えない" "${args[@]}" ;;
 "issue "* | "pr " | "pr "* | "label "*) ;;
 "run list" | "run view" | "run watch") ;;
 *) refuse "許可していない subcommand（gh ${sub} ${cmd2}）" "${args[@]}" ;;
 esac
-# gh api: パスが別の repo を指していたら止める（GraphQL は --repo の対象外。fine-grained トークンの範囲が最後の砦）
+# gh api: 叩ける先は固定の repo（repos/<固定の repo>/...）と user・rate_limit だけ。GraphQL・別の repo・orgs・gists・user/repos などは止める
+# （普段の gh のログインのように、試験用 repo 以外にも書けるトークンのとき、gh api が repo の固定をすり抜ける穴になるため）
+# エンドポイント = 値を取る旗の値を除いた最初の「-」で始まらない引数
 if [[ "$sub" == api ]]; then
+    endpoint=""
+    prev=""
     for a in "${args[@]:1}"; do
+        case "$prev" in
+        -X | --method | -H | --header | -f | --raw-field | -F | --field | -q | --jq | -t | --template | --input | -p | --preview | --hostname | --cache) prev=""; continue ;;
+        esac
+        prev="$a"
         case "$a" in
         -*) ;;
-        repos/*)
-            [[ "$a" == "repos/${SANDBOX_REPO}" || "$a" == "repos/${SANDBOX_REPO}/"* ]] || refuse "gh api のパスが別の repo を指している（${a}）" "${args[@]}"
-            ;;
-        /repos/*)
-            [[ "$a" == "/repos/${SANDBOX_REPO}" || "$a" == "/repos/${SANDBOX_REPO}/"* ]] || refuse "gh api のパスが別の repo を指している（${a}）" "${args[@]}"
+        *)
+            endpoint="$a"
+            break
             ;;
         esac
     done
+    ep="${endpoint#https://api.github.com/}"
+    ep="${ep#/}"
+    case "$ep" in
+    *..* | *%2[eE]* | *%2[fF]* | *\\*) refuse "gh api のパスに .. や %2e を含んでいる（${endpoint}）" "${args[@]}" ;;
+    "repos/${SANDBOX_REPO}" | "repos/${SANDBOX_REPO}/"* | "repos/${SANDBOX_REPO}?"*) ;;
+    user | user\?* | rate_limit | rate_limit\?*) ;;
+    *) refuse "gh api のパスが固定の repo 以外を指している（${endpoint:-なし}）。許すのは repos/${SANDBOX_REPO}/... と user・rate_limit だけ" "${args[@]}" ;;
+    esac
 fi
 
 # --- gh pr checks を Actions の API に置き換える -----------------------------------------------

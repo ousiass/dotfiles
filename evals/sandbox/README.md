@@ -150,6 +150,18 @@ EVAL_CONFIRM_PAID=1 /mnt/nvme/eval-sandbox/with-env dotfiles/evals/run.sh --harn
 - `main` は force しない。先端の上に「初期状態と同じ中身にするコミット」を 1 本積んで、通常の push で戻す。保護ルールがあれば失敗して止まる
 - 1 回で動かす件数が 50 を超えたら、何もせず止まる（`--max` は 50 まで）
 
+### 普段の gh のログインで回す（専用トークンの権限が足りないとき）
+
+`EVAL_GH_USER_CONFIG_DIR=<普段の gh の設定ディレクトリ>` を、その 1 回のコマンドにだけ付ける（`env.sh` やファイルは書き換えない）。
+
+```bash
+EVAL_CONFIRM_PAID=1 EVAL_GH_USER_CONFIG_DIR=$HOME_REAL/.config/gh /mnt/nvme/eval-sandbox/with-env dotfiles/evals/run.sh --harness claude --live --remote --model <id> --rep 1 --task impl-bugfix
+```
+
+- トークンは環境変数にもファイルにも出ない。`run.sh` 自身の gh・git だけがその設定ディレクトリで動き、エージェントの環境には `GH_TOKEN` が無く、`GH_CONFIG_DIR` は隔離したまま。エージェントの `gh` は記録用ラッパーを通り、**ラッパーが本物の `gh` を呼ぶときだけ**その設定ディレクトリを使う
+- 普段のログインは、試験用 repo 以外にも書ける。そのため、ラッパーは次の経路を塞ぐ: `--repo` / `-R` / `GH_REPO` / 別の repo の URL、`gh api`（許すのは `repos/<固定の repo>/...` と `user`・`rate_limit` だけ。GraphQL・orgs・gists・`user/repos`・`..` は止める）、`gh issue transfer`、許可リスト外の subcommand（`repo delete`・`secret`・`auth login` など）、git の認証（固定の repo への `get` だけに認証情報を返す。`credential.useHttpPath` を `run.sh` が付ける。`store` / `erase` は何もしない）
+- 塞げないこと: エージェントが、普段の gh の設定ファイル（`hosts.yml`）を絶対パスで直接読んで、自分で API を叩くこと（隔離は慣習で、境界ではない）。実行後に、試験用 repo 以外への書き込みが無いことを、`gh api users/<user>/events`（読み取り）で確かめる
+
 ### トークンを入れたあとに確かめる手順
 
 トークン（上の表）を `EVAL_GH_TOKEN` か `gh-token` に入れたあと。**上から順に。どれかが落ちたら先へ進まない**。

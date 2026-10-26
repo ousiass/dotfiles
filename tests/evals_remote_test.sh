@@ -95,8 +95,13 @@ state="$tmp/wstate"
 mkdir -p "$state"
 cat >"$tmp/real-gh" <<EOF
 #!/bin/bash
-echo "REAL \$GH_REPO | \$*" >>"$tmp/real-gh.log"
+t=unset; [ -n "\${GH_TOKEN:-}" ] && t=set
+echo "REAL \$GH_REPO | \$* CFG=\${GH_CONFIG_DIR:-} TOKEN=\$t" >>"$tmp/real-gh.log"
 case "\$1 \$2" in
+"auth git-credential")
+    cat >/dev/null
+    echo "password=stubpw"
+    ;;
 "pr view")
     [ "\${STUB_RC:-0}" = 0 ] && case "\$*" in *--json*) echo '{"headRefOid":"abc123","headRefName":"eval/x"}' ;; esac
     ;;
@@ -174,8 +179,40 @@ done
 check_eq "gh ラッパー: 許可していない subcommand（repo delete など）は止まる" "$before" "$(nreal)"
 check_eq "gh ラッパー: 止めたものは unsupported で記録される（ここまでの別の拒否も含めて 23 件）" 23 "$(jq -s '[.[] | select(.result == "unsupported")] | length' "$state/actions.jsonl")"
 before="$(nreal)"
-wrap auth git-credential get >/dev/null
-check_eq "gh ラッパー: git の credential helper は通す（記録しない）" "$((before + 1))" "$(nreal)"
+cred_req() { printf 'protocol=https\nhost=%s\n%s\n' "$1" "${2:+path=$2}"; }
+out="$(cred_req github.com ousiass/dotfiles-eval-sandbox.git | wrap auth git-credential get)"
+check_match "gh ラッパー: 固定の repo への git の認証は本物の gh に通す" "password=stubpw" "$out"
+check_eq "gh ラッパー: 固定の repo への git の認証は通す（1 回呼ぶ）" "$((before + 1))" "$(nreal)"
+out="$(cred_req github.com ousiass/dotfiles.git | wrap auth git-credential get)"
+check_eq "gh ラッパー: 別の repo への git の認証は何も返さない" "" "$out"
+out="$(cred_req github.com ousiass/dotfiles-eval-sandbox-evil.git | wrap auth git-credential get)"
+check_eq "gh ラッパー: 固定の repo 名で始まる別の repo にも何も返さない" "" "$out"
+out="$(cred_req github.com | wrap auth git-credential get)"
+check_eq "gh ラッパー: path が来ない（useHttpPath 無し）ときは何も返さない" "" "$out"
+out="$(cred_req evil.example.com ousiass/dotfiles-eval-sandbox.git | wrap auth git-credential get)"
+check_eq "gh ラッパー: 別のホストには何も返さない" "" "$out"
+cred_req github.com ousiass/dotfiles-eval-sandbox.git | wrap auth git-credential store >/dev/null
+cred_req github.com ousiass/dotfiles-eval-sandbox.git | wrap auth git-credential erase >/dev/null
+check_eq "gh ラッパー: store / erase は本物の gh に渡さない（get の 1 回だけ）" "$((before + 1))" "$(nreal)"
+# gh api: 固定の repo と user・rate_limit だけ。GraphQL・別の repo・orgs・gists・user/repos・.. は止める
+before="$(nreal)"
+for ep in graphql orgs/ousiass/repos gists user/repos "repos/ousiass/dotfiles-eval-sandbox/../dotfiles/issues" "repos/ousiass/dotfiles-eval-sandbox/%2e%2e/dotfiles" "repos/ousiass/dotfiles-eval-sandbox%2fx" users/ousiass/repos https://api.github.com/graphql; do
+    wrap api "$ep" >/dev/null
+    wrap api -X POST "$ep" -f title=x >/dev/null
+done
+wrap api graphql -f query='mutation{x}' >/dev/null
+check_eq "gh ラッパー: gh api の固定の repo 以外（GraphQL・orgs・gists・user/repos・..）は止まる" "$before" "$(nreal)"
+wrap api -X POST repos/ousiass/dotfiles-eval-sandbox/issues/1/comments -f body=x --jq .id >/dev/null
+wrap api --jq .login user >/dev/null
+wrap api rate_limit >/dev/null
+check_eq "gh ラッパー: 固定の repo・user・rate_limit は旗の値を除いて判定して通す" "$((before + 3))" "$(nreal)"
+wrap issue transfer 1 ousiass/dotfiles >/dev/null
+check_eq "gh ラッパー: issue transfer は止まる" "$((before + 3))" "$(nreal)"
+# 普段の gh のログイン（EVAL_GH_USER_CONFIG_DIR）: 本物の gh を呼ぶときだけ GH_CONFIG_DIR をそちらにして、GH_TOKEN を外す
+GH_TOKEN=should-be-unset EVAL_GH_USER_CONFIG_DIR="$tmp/user-gh" wrap issue list >/dev/null
+check_match "gh ラッパー: 普段の gh のログインの設定ディレクトリで呼ぶ" "CFG=$tmp/user-gh TOKEN=unset" "$(last_real)"
+GH_CONFIG_DIR="$tmp/iso-gh" GH_TOKEN=tok wrap issue list >/dev/null
+check_match "gh ラッパー: 普段のログインを指定しなければ環境のまま（GH_TOKEN を外さない）" "CFG=$tmp/iso-gh TOKEN=set" "$(last_real)"
 : >"$state/actions.jsonl"
 # gh pr checks は Actions の API（actions/runs?head_sha=）で置き換える。GraphQL の statusCheckRollup は呼ばない
 run_p='{"workflow_runs":[{"name":"CI","status":"in_progress","conclusion":null,"html_url":"u"}]}'
@@ -322,6 +359,7 @@ out="$("$EVALS/sandbox/reset.sh" 2>&1)"
 check_eq "reset: 既定の URL でトークンが無ければ止まる (exit 2)" 2 "$("$EVALS/sandbox/reset.sh" >/dev/null 2>&1; echo $?)"
 check_match "reset: トークン無しの理由を出す" "GH_TOKEN" "$out"
 check_eq "reset: GH_TOKEN があっても隔離フォルダの外では止まる (exit 2)" 2 "$(GH_TOKEN=x "$EVALS/sandbox/reset.sh" >/dev/null 2>&1; echo $?)"
+check_eq "reset: 普段の gh の設定ディレクトリに hosts.yml が無ければ止まる (exit 2)" 2 "$(EVAL_SANDBOX_ROOT=/x EVAL_GH_USER_CONFIG_DIR="$tmp/no-such-gh" "$EVALS/sandbox/reset.sh" >/dev/null 2>&1; echo $?)"
 e="$tmp/empty.git"
 git init -q --bare "$e"
 git init -q "$tmp/other-work"

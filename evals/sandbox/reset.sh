@@ -18,7 +18,7 @@
 #          1 本積んで、通常の push で戻す。force push はしない（保護ルールがあれば失敗して止まる）
 #   - 1 回で動かす件数（上の 1〜4 の合計）が上限（50）を超えたら、何もせず止まる
 #   - GitHub に対しては GH_TOKEN だけで動く（試験用 repo だけに書ける fine-grained トークン）。`<root>/with-env` の中で実行すること。
-#     既存の gh のログインでは動かさない（GH_TOKEN と EVAL_SANDBOX_ROOT が無ければ止まる）
+#     既存の gh のログインでは、EVAL_GH_USER_CONFIG_DIR を付けたときだけ動く（付けなければ GH_TOKEN と EVAL_SANDBOX_ROOT が無いと止まる）
 #   - 消したあとの seed.sh の再実行は人が行う（シナリオ用ブランチを作り直す）
 #
 # 環境変数 RESET_GH: gh の代わりに呼ぶコマンド（テスト用。repo は固定のまま渡る）。
@@ -70,7 +70,14 @@ if [[ "$local_url" -eq 1 ]]; then
     # テスト用。gh は RESET_GH が指定されたときだけ使う（本物の gh は呼ばない）
     [[ -n "${RESET_GH:-}" ]] || use_gh=0
 else
-    [[ -n "${GH_TOKEN:-}" ]] || sandbox_fail "GH_TOKEN が必要です（試験用 repo だけに書ける fine-grained トークン。既存の gh のログインでは動かしません）。evals/sandbox/README.md"
+    if [[ -n "${EVAL_GH_USER_CONFIG_DIR:-}" ]]; then
+        # 普段の gh のログインを使う（専用トークンの権限が足りないとき）。トークンは環境変数にもファイルにも出さない。操作の対象は固定の repo だけ
+        [[ -r "$EVAL_GH_USER_CONFIG_DIR/hosts.yml" ]] || sandbox_fail "EVAL_GH_USER_CONFIG_DIR（${EVAL_GH_USER_CONFIG_DIR}）に hosts.yml が無い"
+        export GH_CONFIG_DIR="$EVAL_GH_USER_CONFIG_DIR"
+        unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
+    else
+        [[ -n "${GH_TOKEN:-}" ]] || sandbox_fail "GH_TOKEN が必要です（試験用 repo だけに書ける fine-grained トークン。EVAL_GH_USER_CONFIG_DIR で普段の gh のログインも使える）。evals/sandbox/README.md"
+    fi
     [[ -n "${EVAL_SANDBOX_ROOT:-}" ]] || sandbox_fail "<root>/with-env の中で実行してください（EVAL_SANDBOX_ROOT が無い）"
     command -v gh >/dev/null || sandbox_fail "gh が必要です"
 fi

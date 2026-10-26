@@ -36,10 +36,24 @@ remote_init() {
             echo "run.sh: --remote --live には gh が要ります" >&2
             return 1
         }
-        [[ -n "${GH_TOKEN:-}" ]] || {
-            echo "run.sh: --remote --live には GH_TOKEN（試験用 repo だけに書ける fine-grained トークン）が要ります。evals/sandbox/README.md を参照" >&2
-            return 1
-        }
+        if [[ -n "${EVAL_GH_USER_CONFIG_DIR:-}" ]]; then
+            # 普段の gh のログインを使う。トークンは環境変数にもファイルにも出さない（gh が設定ディレクトリから読む）。
+            # run.sh 自身の gh・git（クローン・取り出し）はこの設定ディレクトリで動かし、エージェントには GH_TOKEN を渡さない。
+            # エージェントの gh は記録用ラッパー（lib/gh-record.sh）経由で、ラッパーだけが EVAL_GH_USER_CONFIG_DIR を使う
+            [[ -r "$EVAL_GH_USER_CONFIG_DIR/hosts.yml" ]] || {
+                echo "run.sh: EVAL_GH_USER_CONFIG_DIR（${EVAL_GH_USER_CONFIG_DIR}）に hosts.yml が無い" >&2
+                return 1
+            }
+            r_isolated_gh_config="${GH_CONFIG_DIR:-}"
+            export GH_CONFIG_DIR="$EVAL_GH_USER_CONFIG_DIR"
+            unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
+            echo "run.sh: 注意: 普段の gh のログイン（${EVAL_GH_USER_CONFIG_DIR}）を使う。書き込みは記録用ラッパーが固定の repo（${SANDBOX_REPO}）に絞る" >&2
+        else
+            [[ -n "${GH_TOKEN:-}" ]] || {
+                echo "run.sh: --remote --live には GH_TOKEN（試験用 repo だけに書ける fine-grained トークン）が要ります。evals/sandbox/README.md を参照" >&2
+                return 1
+            }
+        fi
     fi
 }
 
