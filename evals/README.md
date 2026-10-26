@@ -64,6 +64,11 @@ EVAL_CONFIRM_PAID=1 evals/run.sh --harness omp --live --model <id> --rep 2
 
 `EVAL_KEEP=1` を付けると、サンドボックスを消さずに場所を出す（採点が意図どおりか調べるとき用）。出力先の既定は `evals/results/<日時>-<harness>-<dry|live>/`（`results.jsonl` と、モデル・commit・引数・開始終了時刻を持つ `run.json`）。
 
+### 最終回答の読み取り（`answer_includes`）
+
+`answer_includes` は、**メインエージェントの回答すべて**（`lib/adapt.sh` の `answer_text`。サブエージェントのテキストは含めない）から探す。最後のメッセージだけだと、完了報告のあとに待機コマンドの通知への短い返答が最後に来ただけで落ちる（Phase 2 の `impl-spinoff` で、baseline・v1 の両方に起きた）。旧方式（最後のメッセージだけ）の結果も、`grade.answer_ok_last` / `grade.task_complete_last` に残る。`results.jsonl` の `answer` は最後のメッセージの先頭 800 文字。
+`--live`（claude）は、生の出力を伏せ字（`gh?_…` / `github_pat_…`）にして `<out>/raw/<タスク>-r<N>.out.gz` に残す。`evals/rescore.sh <variant のディレクトリ>` で、answer_includes だけをモデル無しで採点し直せる（保存した結果 / 最後だけ / 回答すべて、を表にする）。raw が無い実行は再採点できない。
+
 ### dry モードが確かめること
 
 `--dry` は、`run.sh` が**本番と同じコマンド行**を組み立てたうえで、先頭の `claude` / `omp` だけを `lib/fake-agent.sh` に置き換えて直接呼ぶ（PATH の並びに頼らないので、本物を呼ぶ事故が起きない。`tests/evals_dry_test.sh` が、PATH に罠の `claude` / `omp` があっても呼ばれないことを確かめる）。fake-agent はその引数が本物として成り立つか（`-p`・位置引数のプロンプト、claude は `--output-format stream-json`、omp は `--session-dir` と `--cwd`）を確かめたうえで、シナリオの動き（git と偽 gh の操作）を**サンドボックスの中で実際に行い**、各ハーネスの形式で出力する。dry の `model` は `"fake"`（`compare.py` が offline stand-in として警告する）。

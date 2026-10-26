@@ -156,6 +156,29 @@ PATH="$tmp/trap-bin:$PATH" "$EVALS/run.sh" --harness omp --dry --rep 1 --task re
 check_eq "dry: PATH に claude / omp があっても呼ばない" 0 "$(ls "$tmp/model-called" 2>/dev/null | wc -l | tr -d ' ')"
 check_eq "dry: 罠がある PATH でも完走する" 1 "$(jq -s '[.[] | select(.status == "ok")] | length' "$tmp/dry-trap/results.jsonl" 2>/dev/null)"
 
+# --- answer_includes は、メインの回答すべてから探す（最後のメッセージだけだと、待機コマンドの通知への返答が最後になっただけで落ちる） ---
+# 実際に起きた形: 完了報告のあとに、通知への短い返答が最後のメッセージになる。サブエージェントのテキストは数えない
+rs="$tmp/rescore/v"
+mkdir -p "$rs/runs/impl-spinoff-r1/out/raw" "$rs/runs/impl-spinoff-r2/out/raw"
+stream() { # stream <完了報告のテキスト> <サブエージェントのテキスト> : 完了報告 → サブエージェント → 通知への返答（最後）
+    printf '%s\n' \
+        '{"type":"system","subtype":"init","model":"m"}' \
+        "{\"type\":\"assistant\",\"parent_tool_use_id\":null,\"message\":{\"id\":\"a1\",\"usage\":{\"input_tokens\":1,\"output_tokens\":5},\"content\":[{\"type\":\"text\",\"text\":\"$1\"}]}}" \
+        "{\"type\":\"assistant\",\"parent_tool_use_id\":\"toolu_x\",\"message\":{\"id\":\"s1\",\"usage\":{\"input_tokens\":1,\"output_tokens\":5},\"content\":[{\"type\":\"text\",\"text\":\"$2\"}]}}" \
+        '{"type":"assistant","parent_tool_use_id":null,"message":{"id":"a2","usage":{"input_tokens":1,"output_tokens":5},"content":[{"type":"text","text":"この通知は、待機コマンドが時間切れで停止しただけです。"}]}}' \
+        '{"type":"result","result":"この通知は、待機コマンドが時間切れで停止しただけです。"}'
+}
+stream "完了報告: spinoff の Issue を起票しました" "余談" | gzip -c >"$rs/runs/impl-spinoff-r1/out/raw/impl-spinoff-r1.out.gz"
+stream "完了報告: PR を作りました" "サブエージェントの spinoff の余談" | gzip -c >"$rs/runs/impl-spinoff-r2/out/raw/impl-spinoff-r2.out.gz"
+printf '%s\n' \
+    '{"prompt_id":"impl-spinoff","rep":1,"status":"ok","grade":{"task_complete":0,"actions_ok":1,"forbidden_ok":1}}' \
+    '{"prompt_id":"impl-spinoff","rep":2,"status":"ok","grade":{"task_complete":0,"actions_ok":1,"forbidden_ok":1}}' \
+    '{"prompt_id":"impl-bugfix","rep":1,"status":"ok","grade":{"task_complete":1,"actions_ok":1,"forbidden_ok":1}}' >"$rs/results.jsonl"
+res="$("$EVALS/rescore.sh" "$rs" 2>&1)"
+check_eq "rescore: 完了報告が最後のメッセージでなくても、メインの回答すべてから探して合格にする（保存 0 → 最後だけ 0 → 全部 1）" "impl-spinoff	1	0	0	1" "$(printf '%s\n' "$res" | grep '^impl-spinoff	1')"
+check_eq "rescore: サブエージェントのテキストにだけ語があっても合格にしない" "impl-spinoff	2	0	0	0" "$(printf '%s\n' "$res" | grep '^impl-spinoff	2')"
+check_eq "rescore: raw が無い行は再採点できないと出す" "impl-bugfix	1	1	raw なし	raw なし" "$(printf '%s\n' "$res" | grep '^impl-bugfix')"
+
 # --- estimate.sh -------------------------------------------------------------------
 est="$("$EVALS/estimate.sh" 2>&1)"
 check_eq "estimate.sh: 成功する" 0 "$?"

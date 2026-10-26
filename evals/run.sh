@@ -241,6 +241,12 @@ run_one() { # <task-json-line> <rep>
     local rc=$?
     t1=$SECONDS
     [[ "$rc" -eq 0 ]] || status=error
+    # 生の出力を残す（採点の読み取りを後から変えたとき、再採点できるように。evals/rescore.sh）。claude のみ。
+    # gh のトークンらしい文字列（gh?_… / github_pat_…）は、保存の前に伏せる
+    if [[ "$harness" == claude && "$mode" == live && -s "$raw" ]]; then
+        mkdir -p "$out/raw"
+        sed -E 's/(gh[pousr]_|github_pat_)[A-Za-z0-9_*]+/\1[redacted]/g' "$raw" | gzip -c >"$out/raw/${id}-r${rep}.out.gz"
+    fi
 
     norm="$sb/norm.json"
     if [[ "$status" == ok ]]; then

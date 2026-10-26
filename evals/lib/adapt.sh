@@ -5,7 +5,8 @@
 #   { "model": "<id|null>",
 #     "events": [ {owner, tool, agent, cmd, path, skill} ... ],   tool は ask / task / bash / read / edit / write / skill ...
 #     "calls":  [ {owner, in, out} ... ],                         1 行 = モデル呼び出し 1 回。in は入力側の合計（新規 + cache 読み + cache 書き）
-#     "final_text": "<最後の回答>" }
+#     "final_text": "<最後の回答>",
+#     "answer_text": "<メインエージェントの回答すべて（採点の answer_includes はこれを読む）>" }
 # owner はその呼び出しをしたエージェント（main か、task の agent 名）。by_agent の集計に使う。
 #
 # 形式の根拠:
@@ -14,6 +15,11 @@
 #   claude `claude -p --output-format stream-json --verbose` の形（assistant 行の message.usage / content の tool_use、
 #          サブエージェントの行に付く parent_tool_use_id、同じ応答が複数行に分かれるため message.id で重複を除く）。
 #          この環境ではモデルを呼べないので、実機の出力で確かめていない（Phase 1 の最初に確かめる）。
+#
+# final_text と answer_text（なぜ 2 つか）: claude -p は、バックグラウンドの待機コマンドの通知（task-notification）などで、完了報告のあとに
+#   短い返答（「この通知は…時間切れで停止しただけです」など）を最後のメッセージとして出すことがある。最後のメッセージだけで answer_includes を
+#   採点すると、完了報告に書いてあっても落ちる（Phase 2 の rep 5 で観測）。answer_text はメインエージェントの回答のテキストをすべて
+#   つなげたもの（サブエージェントのテキストは含めない）。採点は answer_text を読み、final_text だけで採点した場合の結果も grade.answer_ok_last に残す。
 
 adapt_claude() { # <agent.out>
     jq -s '
@@ -30,7 +36,9 @@ adapt_claude() { # <agent.out>
         calls: ([ $asst[] | {id: .message.id, owner: owner,
                            in: ((.message.usage.input_tokens // 0) + (.message.usage.cache_read_input_tokens // 0) + (.message.usage.cache_creation_input_tokens // 0)),
                            out: (.message.usage.output_tokens // 0)} ] | group_by(.id) | map(max_by(.out) | del(.id))),
-        final_text: ([.[] | select(.type == "result") | .result] | last // "")
+        final_text: ([.[] | select(.type == "result") | .result] | last // ""),
+        answer_text: ([ ([$asst[] | select(.parent_tool_use_id == null) | .message.content[]? | select(.type == "text") | .text] | unique[]),
+                        ([.[] | select(.type == "result") | .result // empty] | unique[]) ] | unique | join("\n\n"))
       }' "$1"
 }
 
@@ -44,9 +52,10 @@ adapt_omp() { # <session-dir>
              model: ([.[] | select(.type == "model_change") | .model] | first // null),
              tools: [$asst[] | .message.content[]? | select(.type == "toolCall") | {name, arguments}],
              usage: [$asst[] | .message.usage | select(.) | {in: ((.input // 0) + (.cacheRead // 0) + (.cacheWrite // 0)), out: (.output // 0)}],
-             final_text: ([$asst[] | .message.content[]? | select(.type == "text") | .text] | last // "")}' "$f"
+             final_text: ([$asst[] | .message.content[]? | select(.type == "text") | .text] | last // ""),
+             answer_text: ([$asst[] | .message.content[]? | select(.type == "text") | .text] | join("\n\n"))}' "$f"
     done < <(find "$1" -name '*.jsonl' | sort) | jq -s '
-      (map(select(.parent == null)) | .[0] // {tools: [], usage: [], final_text: "", model: null}) as $main
+      (map(select(.parent == null)) | .[0] // {tools: [], usage: [], final_text: "", answer_text: "", model: null}) as $main
       | ([$main.tools[] | select(.name == "task") | .arguments.tasks[]? | {key: (.name // ""), value: (.agent // "task")}] | from_entries) as $amap
       | map(. + {owner: (if .parent == null then "main" else ($amap[.name] // "task") end)}) as $files
       | {model: $main.model,
@@ -54,7 +63,8 @@ adapt_omp() { # <session-dir>
                    | if .name == "task" then (.arguments.tasks[]? | {owner: $o, tool: "task", agent: (.agent // "task"), cmd: null, path: null, skill: null})
                      else {owner: $o, tool: .name, agent: null, cmd: (.arguments.command // null), path: (.arguments.path // null), skill: null} end ],
          calls: [ $files[] | .owner as $o | .usage[] | . + {owner: $o} ],
-         final_text: $main.final_text}'
+         final_text: $main.final_text,
+         answer_text: $main.answer_text}'
 }
 
 # norm_summary: 標準入力の共通形から、results.jsonl に入れる集計を出す（by_agent の項目名は compare.py に合わせる）
