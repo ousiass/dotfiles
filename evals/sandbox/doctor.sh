@@ -105,10 +105,18 @@ else
         else
             ok "ousiass/dotfiles には push できない"
         fi
-        # gh run list / gh pr checks が読めること（Actions: Read / Checks: Read / Commit statuses: Read）
-        gh api "repos/${repo}/actions/runs?per_page=1" >/dev/null 2>&1 && ok "Actions を読める" || ng "Actions を読めない（トークンに Actions: Read が無い）"
-        gh api "repos/${repo}/commits/main/check-runs" >/dev/null 2>&1 && ok "Checks を読める" || ng "Checks を読めない（トークンに Checks: Read が無い）"
-        gh api "repos/${repo}/commits/main/status" >/dev/null 2>&1 && ok "Commit statuses を読める" || ng "Commit statuses を読めない（トークンに Commit statuses: Read が無い）"
+        # CI の結果は Actions の API（runs・jobs）で読む。fine-grained トークンには Checks の権限が無く、check-runs / status は 403 になる
+        if gh api "repos/${repo}/actions/runs?per_page=1" >/dev/null 2>&1; then
+            ok "Actions の実行履歴を読める（Actions: Read）"
+            run_id="$(gh api "repos/${repo}/actions/runs?per_page=1" --jq '.workflow_runs[0].id // empty' 2>/dev/null || true)"
+            if [[ -n "$run_id" ]]; then
+                gh api "repos/${repo}/actions/runs/${run_id}/jobs" >/dev/null 2>&1 && ok "Actions のジョブを読める" || ng "Actions のジョブを読めない（Actions: Read を確認）"
+            else
+                warn "Actions の実行がまだ無いので、ジョブの読み取りは確かめていない（seed.sh で CI が走ったあとに再実行）"
+            fi
+        else
+            ng "Actions の実行履歴を読めない（トークンに Actions: Read が無い）"
+        fi
     else
         warn "gh か curl が PATH に無い。トークンの到達範囲は確かめていない"
     fi

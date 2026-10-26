@@ -97,12 +97,12 @@
 | Repository permissions: **Contents** | Read and write（clone・push・ブランチ削除・マージ） |
 | Repository permissions: **Pull requests** | Read and write（`gh pr create` / `view` / `merge` / `comment`） |
 | Repository permissions: **Issues** | Read and write（`gh issue view` / `create` / `edit` / `comment`、ラベル） |
-| Repository permissions: **Checks** | Read（`gh pr checks`） |
-| Repository permissions: **Commit statuses** | Read（`gh pr checks`） |
+| Repository permissions: **Actions** | Read（`gh run list` / `view`。CI の結果は Actions の API で読む。fine-grained トークンには Checks・Commit statuses の項目が無く、`check-runs` / `status` は 403 になる） |
+| Repository permissions: **Workflows** | Read and write（`seed.sh` が `.github/workflows/ci.yml` を push するときだけ。Contents だけで通れば要らない。seed のあとは外してよい） |
 | Repository permissions: **Metadata** | Read（自動で付く） |
-| 付けない | Administration / Workflows / Actions / Secrets / Environments / Pages / Webhooks / Account permissions のすべて |
+| 付けない | Administration / Secrets / Environments / Pages / Webhooks / Account permissions のすべて |
 
-試験用 repo に GitHub Actions のワークフローは置いていない。ワークフローを置く（CI を回す）なら、Contents に加えて **Workflows: Read and write** と **Actions: Read** が要る。
+試験用 repo には `seed.sh` が CI のワークフロー（`.github/workflows/ci.yml`）を置く。push するには Contents に加えて **Workflows: Read and write** が要るかもしれない（GitHub は、ワークフローのファイルを変える push を Workflows 権限が無いと拒否する）。CI の結果を読むには **Actions: Read** が要る。`gh pr checks`（エージェントが使う。GraphQL）が、Checks / Commit statuses の権限なしで動くかは、PR を作って確かめる（live の最初の実行で分かる）。
 
 置き場所（どちらか。両方あるときは環境変数が優先）:
 

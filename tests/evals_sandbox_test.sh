@@ -101,7 +101,7 @@ check_match "doctor.sh: 試験用 repo に push できなければ NG" "試験�
 out="$(doctor_net 200 200)"
 check_match "doctor.sh: dotfiles に push できたら NG" "トークンが ousiass/dotfiles に push できる" "$out"
 out="$(doctor_net 200 403 1)"
-check_match "doctor.sh: gh api が読めなければ NG（Actions）" "Actions を読めない" "$out"
+check_match "doctor.sh: gh api が読めなければ NG（Actions）" "Actions の実行履歴を読めない" "$out"
 check_eq "doctor.sh: トークンの値を出さない" 0 "$(printf '%s\n' "$out" | grep -c 'tok-secret-123')"
 
 # 隔離フォルダの外（呼び出し元の HOME）には何も書かれていない
