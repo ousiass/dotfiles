@@ -36,7 +36,7 @@ ORIG_GIT_CONFIG_GLOBAL="${GIT_CONFIG_GLOBAL:-}"
 
 remote=0
 # remote.sh の remote_prepare が決める値（--remote のとき）
-r_base="" r_prefix="" r_map="" r_gh_real=""
+r_base="" r_start="" r_prefix="" r_map="" r_gh_real=""
 harness=""
 mode=""
 model="${EVAL_MODEL:-}"
@@ -198,7 +198,7 @@ run_one() { # <task-json-line> <rep>
                 '{prompt_id: $id, rep: $rep, harness: $harness, mode: $mode, model: (if $model == "" then null else $model end), status: "error"}' >>"$results"
             return
         fi
-        prompt="$(remote_prompt "$(jq -r .prompt <<<"$line")" "$r_base" "$r_prefix" "$r_map")"
+        prompt="$(remote_prompt "$(jq -r .prompt <<<"$line")" "$r_base" "$r_prefix" "$r_map" "$r_start")"
     else
         if ! fixture_make "$sb" "$taskfile"; then
             echo "run.sh: $id rep$rep: サンドボックスを作れない" >&2

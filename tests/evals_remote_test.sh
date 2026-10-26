@@ -243,6 +243,22 @@ check_eq "gh ラッパー: 結果を pending / pass / fail / error で記録す�
 check_eq "gh ラッパー: 失敗した呼び出しは gh の標準エラーの先頭 1 行を why に残す" "boom: failed to delete local branch" "$(jq -s -r 'last | .why' "$state/actions.jsonl")"
 check_eq "gh ラッパー: 失敗の標準エラーは呼び出し元にもそのまま出る" "boom: failed to delete local branch" "$(STUB_RC=1 wrap pr view 1 2>&1 | head -1)"
 
+# live で見つかった誤検知（エージェントの正しい呼び出しを止めていた）: pr checks の --repo、gh api のブランチ名の %2F
+printf '%s\n' "$run_ok" >"$tmp/runs.queue"
+check_eq "gh ラッパー: pr checks N --repo <固定の repo> は通る (exit 0)" 0 "$(wrap pr checks 7 --repo ousiass/dotfiles-eval-sandbox >/dev/null; echo $?)"
+check_eq "gh ラッパー: pr checks N -R <固定の repo> は通る (exit 0)" 0 "$(wrap pr checks 7 -R ousiass/dotfiles-eval-sandbox >/dev/null; echo $?)"
+check_eq "gh ラッパー: pr checks N --repo <別の repo> は止まる (exit 1)" 1 "$(wrap pr checks 7 --repo ousiass/dotfiles >/dev/null; echo $?)"
+before="$(nreal)"
+wrap api "repos/ousiass/dotfiles-eval-sandbox/branches/eval%2Fsweep-impossible%2Fmain" --jq .commit.sha >/dev/null
+check_eq "gh ラッパー: gh api のブランチ名の %2F は通す" "$((before + 1))" "$(nreal)"
+wrap api "repos/ousiass/dotfiles-eval-sandbox/branches/eval%2f%2e%2e%2fx" >/dev/null
+check_eq "gh ラッパー: %2F があっても %2e（..）を含めば止まる" "$((before + 1))" "$(nreal)"
+# プロンプト: 作業ブランチがベースと違うとき（refine 系）は、そこへ直接 push してよいと書く
+prompt_new="$(EVALS_DIR="$EVALS"; . "$EVALS/lib/remote.sh"; remote_prompt '/refine-git --no-merge' eval/s/main eval/r1-1/ '[]' eval/s/feat/wip)"
+check_match "remote_prompt: 作業ブランチがベースと違えば、そこへ push してよいと書く" "eval/s/feat/wip を直すときは、新しいブランチを作らず" "$prompt_new"
+prompt_same="$(EVALS_DIR="$EVALS"; . "$EVALS/lib/remote.sh"; remote_prompt '/impl #1' main eval/r1-1/ '[3]' main)"
+check_eq "remote_prompt: 作業ブランチがベースと同じなら、従来の文面（番号の置き換えを含む）" "/impl #3 ベースブランチは main（PR のマージ先もこれ）。作るブランチ名は eval/r1-1/ で始める。" "$prompt_same"
+
 # --- 3. reset.sh ---------------------------------------------------------------------------------
 remote="$tmp/sandbox.git"
 git init -q --bare "$remote"

@@ -131,7 +131,8 @@ if [[ "$sub" == api ]]; then
     ep="${endpoint#https://api.github.com/}"
     ep="${ep#/}"
     case "$ep" in
-    *..* | *%2[eE]* | *%2[fF]* | *\\*) refuse "gh api のパスに .. や %2e を含んでいる（${endpoint}）" "${args[@]}" ;;
+    # %2F（ブランチ名の / のエンコード。repos/<固定の repo>/branches/eval%2Fx%2Fmain など）は許す。.. と %2e（.. のエンコード）、\ は止める
+    *..* | *%2[eE]* | *\\*) refuse "gh api のパスに .. や %2e を含んでいる（${endpoint}）" "${args[@]}" ;;
     "repos/${SANDBOX_REPO}" | "repos/${SANDBOX_REPO}/"* | "repos/${SANDBOX_REPO}?"*) ;;
     user | user\?* | rate_limit | rate_limit\?*) ;;
     *) refuse "gh api のパスが固定の repo 以外を指している（${endpoint:-なし}）。許すのは repos/${SANDBOX_REPO}/... と user・rate_limit だけ" "${args[@]}" ;;
@@ -153,13 +154,19 @@ pr_checks() {
             prev=""
             continue
             ;;
+        -R | --repo)
+            # 値は、上の repo の指定の検査で、固定の repo だと確かめ済み
+            prev=""
+            continue
+            ;;
         esac
         case "$a" in
         --watch) watch=1 ;;
-        -i | --interval) prev="$a" ;;
+        -i | --interval | -R | --repo) prev="$a" ;;
         --interval=*) interval="${a#--interval=}" ;;
+        --repo=*) ;;
         --fail-fast | --required) ;;
-        -*) refuse "gh pr checks の旗 ${a} には対応していない（--watch・--interval・--fail-fast・--required だけ）" "${args[@]}" ;;
+        -*) refuse "gh pr checks の旗 ${a} には対応していない（--watch・--interval・--fail-fast・--required・--repo だけ）" "${args[@]}" ;;
         *) sel="$a" ;;
         esac
     done
