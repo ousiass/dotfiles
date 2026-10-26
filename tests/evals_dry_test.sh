@@ -55,6 +55,9 @@ for harness in claude omp; do
     check_eq "$harness 正しい動き: モデル呼び出しと使用量が取れている" 0 "$(jq -s '[.[] | select((.model_calls // 0) < 1 or (.in_tokens // 0) < 1 or (.out_tokens // 0) < 1)] | length' "$out/results.jsonl")"
     check_eq "$harness 正しい動き: by_agent に main がある" 0 "$(jq -s '[.[] | select(.by_agent.main == null)] | length' "$out/results.jsonl")"
     check_eq "$harness 正しい動き: サブエージェントを by_agent に分けて数える（impl は plan / develop / review）" 3 "$(jq -s '[.[] | select(.prompt_id == "impl-bugfix")][0].by_agent | keys | map(select(. == "plan" or . == "develop" or . == "review")) | length' "$out/results.jsonl")"
+    # answer_includes が落ちたとき、採点が厳しいのか言い落としかを読めるように、最終回答（先頭 800 文字）を残す。採点した回答と同じものであること
+    check_eq "$harness 正しい動き: results.jsonl に最終回答（800 文字以内）が残る" 0 "$(jq -s '[.[] | select((.answer // "") == "" or (.answer | length) > 800)] | length' "$out/results.jsonl")"
+    check_eq "$harness 正しい動き: impl-spinoff の answer は answer_includes（スピンオフ|spinoff）を満たす" 1 "$(jq -s '[.[] | select(.prompt_id == "impl-spinoff" and (.answer | test("スピンオフ|spinoff")))] | length' "$out/results.jsonl")"
 
     # --- 2. 逸脱を検出する -------------------------------------------------------
     vout="$tmp/violate-$harness"
