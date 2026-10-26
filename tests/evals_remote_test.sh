@@ -96,7 +96,21 @@ mkdir -p "$state"
 cat >"$tmp/real-gh" <<EOF
 #!/bin/bash
 echo "REAL \$GH_REPO | \$*" >>"$tmp/real-gh.log"
-[ "\$1 \$2" = "pr checks" ] && exit "\${STUB_CHECKS_RC:-0}"
+case "\$1 \$2" in
+"pr view")
+    [ "\${STUB_RC:-0}" = 0 ] && case "\$*" in *--json*) echo '{"headRefOid":"abc123","headRefName":"eval/x"}' ;; esac
+    ;;
+"api repos/"*"/actions/runs"*)
+    # $tmp/runs.queue の先頭の 1 行を返す（最後の 1 行は残す）。空なら run が 1 つも無い
+    q="$tmp/runs.queue"
+    if [ -s "\$q" ]; then
+        head -1 "\$q"
+        if [ "\$(wc -l <"\$q" | tr -d ' ')" -gt 1 ]; then tail -n +2 "\$q" >"\$q.t" && mv "\$q.t" "\$q"; fi
+    else
+        echo '{"workflow_runs":[]}'
+    fi
+    ;;
+esac
 exit "\${STUB_RC:-0}"
 EOF
 chmod +x "$tmp/real-gh"
@@ -163,10 +177,31 @@ before="$(nreal)"
 wrap auth git-credential get >/dev/null
 check_eq "gh ラッパー: git の credential helper は通す（記録しない）" "$((before + 1))" "$(nreal)"
 : >"$state/actions.jsonl"
-STUB_CHECKS_RC=8 wrap pr checks >/dev/null
-STUB_CHECKS_RC=0 wrap pr checks >/dev/null
+# gh pr checks は Actions の API（actions/runs?head_sha=）で置き換える。GraphQL の statusCheckRollup は呼ばない
+run_p='{"workflow_runs":[{"name":"CI","status":"in_progress","conclusion":null,"html_url":"u"}]}'
+run_ok='{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"success","html_url":"u"},{"name":"lint","status":"completed","conclusion":"skipped","html_url":"u"}]}'
+run_ng='{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"failure","html_url":"u"},{"name":"lint","status":"in_progress","conclusion":null,"html_url":"u"}]}'
+: >"$tmp/real-gh.log"
+printf '%s\n' "$run_p" >"$tmp/runs.queue"
+out="$(wrap pr checks)"
+check_eq "gh ラッパー: pr checks は実行中が残っていれば exit 8" 8 "$(wrap pr checks >/dev/null; echo $?)"
+check_match "gh ラッパー: pr checks は run を表で出す" "CI" "$out"
+printf '%s\n' "$run_ok" >"$tmp/runs.queue"
+check_eq "gh ラッパー: pr checks は全部成功（skipped を含む）なら exit 0" 0 "$(wrap pr checks 7 >/dev/null; echo $?)"
+printf '%s\n' "$run_ng" >"$tmp/runs.queue"
+check_eq "gh ラッパー: pr checks は失敗があれば（実行中が残っていても）exit 1" 1 "$(wrap pr checks >/dev/null; echo $?)"
+: >"$tmp/runs.queue"
+out="$(wrap pr checks)"
+check_match "gh ラッパー: pr checks は run が 1 つも無ければ no checks reported" "no checks reported on the 'eval/x' branch" "$out"
+check_eq "gh ラッパー: pr checks は run が 1 つも無ければ exit 1" 1 "$(wrap pr checks >/dev/null; echo $?)"
+printf '%s\n%s\n%s\n' "$run_p" "$run_p" "$run_ok" >"$tmp/runs.queue"
+check_eq "gh ラッパー: pr checks --watch は実行中が無くなるまで待って exit 0" 0 "$(wrap pr checks --watch --interval 0 >/dev/null; echo $?)"
+check_eq "gh ラッパー: 未対応の旗（--json）は止まる (exit 1)" 1 "$(wrap pr checks --json name >/dev/null; echo $?)"
+check_eq "gh ラッパー: pr checks は本物の pr checks を呼ばない" 0 "$(grep -c '| pr checks' "$tmp/real-gh.log" || true)"
+check_match "gh ラッパー: pr checks は PR の先端の sha で Actions を読む" "actions/runs?head_sha=abc123" "$(grep 'actions/runs' "$tmp/real-gh.log" | tail -1)"
+check_match "gh ラッパー: pr checks の選択子（PR の番号）を pr view に渡す" "pr view 7 --json" "$(grep 'pr view' "$tmp/real-gh.log" | sed -n 3p)"
 STUB_RC=1 wrap pr view 1 >/dev/null
-check_eq "gh ラッパー: 結果を pending / pass / error で記録する" "pending,pass,error" "$(jq -s -r 'map(.result) | join(",")' "$state/actions.jsonl")"
+check_eq "gh ラッパー: 結果を pending / pass / fail / error で記録する" "pending,pending,pass,fail,fail,fail,pass,unsupported,error" "$(jq -s -r 'map(.result) | join(",")' "$state/actions.jsonl")"
 
 # --- 3. reset.sh ---------------------------------------------------------------------------------
 remote="$tmp/sandbox.git"

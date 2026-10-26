@@ -98,11 +98,11 @@
 | Repository permissions: **Pull requests** | Read and write（`gh pr create` / `view` / `merge` / `comment`） |
 | Repository permissions: **Issues** | Read and write（`gh issue view` / `create` / `edit` / `comment`、ラベル） |
 | Repository permissions: **Actions** | Read（`gh run list` / `view`。CI の結果は Actions の API で読む。fine-grained トークンには Checks・Commit statuses の項目が無く、`check-runs` / `status` は 403 になる） |
-| Repository permissions: **Workflows** | Read and write（`seed.sh` が `.github/workflows/ci.yml` を push するときだけ。Contents だけで通れば要らない。seed のあとは外してよい） |
+| Repository permissions: **Workflows** | 不要（Contents: Read and write だけで、`seed.sh` の `.github/workflows/ci.yml` の push が通ったことを実測した）。GitHub が拒否するトークンでは、`seed.sh` の `main` の push が最初に失敗する（ブランチ・Issue の作成には進まない） |
 | Repository permissions: **Metadata** | Read（自動で付く） |
 | 付けない | Administration / Secrets / Environments / Pages / Webhooks / Account permissions のすべて |
 
-試験用 repo には `seed.sh` が CI のワークフロー（`.github/workflows/ci.yml`）を置く。push するには Contents に加えて **Workflows: Read and write** が要るかもしれない（GitHub は、ワークフローのファイルを変える push を Workflows 権限が無いと拒否する）。CI の結果を読むには **Actions: Read** が要る。`gh pr checks`（エージェントが使う。GraphQL）が、Checks / Commit statuses の権限なしで動くかは、PR を作って確かめる（live の最初の実行で分かる）。
+試験用 repo には `seed.sh` が CI のワークフロー（`.github/workflows/ci.yml`）を置く。CI の結果を読むには **Actions: Read** が要る。fine-grained トークンには Checks・Commit statuses の項目が無く、GraphQL の `statusCheckRollup` は `FORBIDDEN`（`Resource not accessible by personal access token`）になる実測だった。`gh pr checks` はこの項目を読むので、**記録用ラッパーが `gh pr checks` を Actions の API（`actions/runs?head_sha=<PR の先端>`）に置き換える**（終了コード 0 = 全部成功 / 1 = 失敗、または run が無い / 8 = 実行中が残っている。`--watch`・`--interval` に対応）。本物の `gh pr checks` は呼ばない。
 
 置き場所（どちらか。両方あるときは環境変数が優先）:
 
@@ -132,7 +132,7 @@ EVAL_CONFIRM_PAID=1 /mnt/nvme/eval-sandbox/with-env dotfiles/evals/run.sh --harn
 | ブランチ名 | プロンプトで `eval/r<日時>-<連番>/` で始めるよう指示する。`reset.sh` が片付けられる名前にするため |
 | Issue 番号 | プロンプトの `#<n>`（タスクの中の番号）を、`issue-map.json` で GitHub の番号に置き換える。`seed.sh` は番号が `issue-map.json` と食い違ったら止まる |
 | 採点用の取り出し | 実行後に、リモートを mirror clone して `origin.git` に、PR・Issue を `gh` で読んで `state/prs.json` / `issues.json` にする。この実行で作られたもの（実行前の最大番号より大きい番号）だけを PR・spinoff として数える。PR の先端は `refs/pull/<N>/head`（`--delete-branch` でブランチが消えても読める） |
-| CI | 試験用 repo の `.github/workflows/ci.yml`（`./test.sh` を回すだけ）。`seed.sh` が `main` の初期状態に入れる |
+| CI | 試験用 repo の `.github/workflows/ci.yml`（`./test.sh` を回すだけ）。`seed.sh` が `main` の初期状態に入れる。エージェントの `gh pr checks` は、ラッパーが Actions の API に置き換える（上） |
 
 ### 試験用 repo の初期化（`reset.sh`。人が実行する）
 
@@ -162,10 +162,10 @@ EVAL_CONFIRM_PAID=1 /mnt/nvme/eval-sandbox/with-env dotfiles/evals/run.sh --harn
 6. GitHub の Actions が動くこと: `gh run list --repo ousiass/dotfiles-eval-sandbox`（`main` への push で CI が走る）。fine-grained トークンの Actions: Read が要る
 7. 最小の live: `EVAL_CONFIRM_PAID=1 with-env dotfiles/evals/run.sh --harness claude --live --remote --model <id> --rep 1 --task refine-clean`（何も書かないのが正解のタスク）。実行後の `reset.sh --plan` が空（初期状態）であること
 
-### 実装時に確かめていないこと（トークンが無いので）
+### 実装時に確かめていないこと
 
-- 本物の `gh` と GitHub に対する、記録用ラッパー・`reset.sh`・`seed.sh` の Issue / PR 操作。呼び出しの形は、スタブと偽 gh で確かめた
-- 本物の `gh pr checks` の終了コード（pending = 8）と、`gh pr list --json` が返す項目（`labels` などの形）は、偽 gh を実物に合わせて書いたもの
+- 本物の GitHub に対する、`reset.sh`、および記録用ラッパー・`seed.sh` の PR 操作（`seed.sh` の `main` の push と Issue の突き合わせ、`gh issue list` / `pr list` の読み取りは確かめた。`seed.sh` の `main` の CI は success）。呼び出しの形は、スタブと偽 gh で確かめた
+- `gh pr list --json` が返す項目（`labels` などの形）は、偽 gh を実物に合わせて書いたもの（PR が 0 件の状態では空配列しか見ていない）
+- 置き換えた `gh pr checks`: 実物の `actions/runs?head_sha=` の応答を読む jq までは確かめた。PR を通した流れ（`pr view` → `actions/runs`）は未確認
 - `gh pr merge --delete-branch` のあとに `refs/pull/<N>/head` が読めること（GitHub の仕様どおりのはずだが、試験用 repo では未確認）
 - `main` の保護ルールやブランチの命名ルールがあると、`reset.sh` の push が失敗する。試験用 repo には設定していない
-- 本物の Actions の CI（`.github/workflows/ci.yml`）が通ること

@@ -5,7 +5,7 @@
 #      --repo / -R・GH_REPO・gh api のパスが別の repo を指していたら、実行せずに止める
 #      許す subcommand を絞る（auth status|git-credential、api、issue、pr、label、repo view、run）。ほかは止める
 # 2. 呼び出しを $EVAL_STATE/actions.jsonl に 1 行 1 JSON で記録する（採点が「書き込みの動き」として読む）
-#      result: gh pr checks は exit 0 = pass / 8 = pending / それ以外 = fail。ほかは exit 0 = ok / それ以外 = error。止めたものは unsupported
+#      result: gh pr checks は Actions の API で置き換える（下の pr_checks）。exit 0 = pass / 8 = pending / それ以外 = fail。ほかは exit 0 = ok / それ以外 = error。止めたものは unsupported
 # 3. gh pr create と gh issue create には、ラベル eval を足す（reset.sh が eval ラベルの PR・Issue だけを片付ける）
 # 4. 本物の gh（$EVAL_GH_REAL）に渡す。EVAL_GH_REAL は必須（PATH からは探さない。自分自身を呼ぶ無限ループを避ける）。
 #    dry では、EVAL_GH_REAL に偽の gh（evals/lib/fake-gh.sh を呼ぶもの）が入る。本物の gh は呼ばない
@@ -106,6 +106,67 @@ if [[ "$sub" == api ]]; then
     done
 fi
 
+# --- gh pr checks を Actions の API に置き換える -----------------------------------------------
+# gh pr checks は GraphQL の statusCheckRollup を読むが、fine-grained トークンには Checks・Commit statuses の権限が無く FORBIDDEN になる。
+# 代わりに、PR の先端（gh pr view の headRefOid）の Actions の run（actions/runs?head_sha=）を読んで、gh pr checks と同じ終了コードにする:
+# 0 = 全部成功（skipped・neutral を含む）、1 = 失敗がある（run が 1 つも無いときも 1。gh と同じ）、8 = 実行中が残っている（失敗が無いとき）
+# 対応する旗: --watch、-i / --interval N、--fail-fast・--required（無視）。位置引数は PR の番号・ブランチ・URL
+pr_checks() {
+    local sel="" watch=0 interval=10 i a prev="" view sha runs rows rc n_total n_fail n_pending
+    for ((i = 2; i < ${#args[@]}; i++)); do
+        a="${args[$i]}"
+        case "$prev" in
+        -i | --interval)
+            interval="$a"
+            prev=""
+            continue
+            ;;
+        esac
+        case "$a" in
+        --watch) watch=1 ;;
+        -i | --interval) prev="$a" ;;
+        --interval=*) interval="${a#--interval=}" ;;
+        --fail-fast | --required) ;;
+        -*) refuse "gh pr checks の旗 ${a} には対応していない（--watch・--interval・--fail-fast・--required だけ）" "${args[@]}" ;;
+        *) sel="$a" ;;
+        esac
+    done
+    [[ "$interval" =~ ^[0-9]+$ ]] || refuse "gh pr checks の --interval が数字ではない（${interval}）" "${args[@]}"
+    export GH_REPO="$SANDBOX_REPO"
+    while :; do
+        if ! view="$("$real" pr view ${sel:+"$sel"} --json headRefOid,headRefName 2>&1)"; then
+            printf '%s\n' "$view" >&2
+            log_call fail "${args[@]}"
+            exit 1
+        fi
+        sha="$(jq -r '.headRefOid // empty' <<<"$view")"
+        if [[ -z "$sha" ]] || ! runs="$("$real" api "repos/${SANDBOX_REPO}/actions/runs?head_sha=${sha}&per_page=100" 2>&1)"; then
+            printf '%s\n' "${runs:-$view}" >&2
+            log_call fail "${args[@]}"
+            exit 1
+        fi
+        rows="$(jq -r '.workflow_runs[]? | (.conclusion // "") as $c | [.name, (if .status != "completed" then "pending" elif (["success", "skipped", "neutral"] | index($c)) != null then "pass" else "fail" end), "", .html_url] | @tsv' <<<"$runs")"
+        n_total="$(printf '%s' "$rows" | grep -c . || true)"
+        n_fail="$(printf '%s' "$rows" | awk -F'\t' '$2 == "fail"' | grep -c . || true)"
+        n_pending="$(printf '%s' "$rows" | awk -F'\t' '$2 == "pending"' | grep -c . || true)"
+        if [[ "$n_total" -eq 0 ]]; then
+            echo "no checks reported on the '$(jq -r '.headRefName // empty' <<<"$view")' branch" >&2
+            rc=1
+        else
+            printf '%s\n' "$rows"
+            if [[ "$n_fail" -gt 0 ]]; then rc=1; elif [[ "$n_pending" -gt 0 ]]; then rc=8; else rc=0; fi
+        fi
+        if [[ "$watch" -eq 1 && "$rc" -eq 8 ]]; then
+            sleep "$interval"
+            continue
+        fi
+        break
+    done
+    case "$rc" in 0) log_call pass "${args[@]}" ;; 8) log_call pending "${args[@]}" ;; *) log_call fail "${args[@]}" ;; esac
+    exit "$rc"
+}
+[[ "$sub $cmd2" == "pr checks" ]] && pr_checks
+
 # --- ラベル eval を足す ---------------------------------------------------------------------
 extra=()
 case "$sub $cmd2" in
@@ -130,10 +191,6 @@ export GH_REPO="$SANDBOX_REPO"
 "$real" "${args[@]}" ${extra[@]+"${extra[@]}"}
 rc=$?
 result=error
-if [[ "$sub $cmd2" == "pr checks" ]]; then
-    case "$rc" in 0) result=pass ;; 8) result=pending ;; *) result=fail ;; esac
-elif [[ "$rc" -eq 0 ]]; then
-    result=ok
-fi
+[[ "$rc" -eq 0 ]] && result=ok
 log_call "$result" "${args[@]}"
 exit "$rc"

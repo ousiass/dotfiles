@@ -127,6 +127,18 @@ case "$sub $cmd2" in
     record ok "$sub" "$cmd2" "$@"
     emit '{"login":"eval-user"}' "$@"
     ;;
+"api repos/"*"/actions/runs"*)
+    # gh-record.sh が gh pr checks を置き換えるときに読む Actions の API。pr checks と同じく、1・2 回目は実行中、3 回目から成功
+    record ok "$sub" "$cmd2" "$@"
+    counter="$state/checks.count"
+    c=$(($(cat "$counter" 2>/dev/null || echo 0) + 1))
+    echo "$c" >"$counter"
+    if [[ "$c" -lt 3 ]]; then
+        printf '{"total_count":1,"workflow_runs":[{"name":"CI","status":"in_progress","conclusion":null,"html_url":"%s/actions/1"}]}\n' "$fake_url"
+    else
+        printf '{"total_count":1,"workflow_runs":[{"name":"CI","status":"completed","conclusion":"success","html_url":"%s/actions/1"}]}\n' "$fake_url"
+    fi
+    ;;
 "repo view")
     record ok "$sub" "$cmd2" "$@"
     emit '{"nameWithOwner":"eval/fixture","name":"fixture","owner":{"login":"eval"},"defaultBranchRef":{"name":"main"},"isPrivate":true,"url":"'"$fake_url"'"}' "$@"
