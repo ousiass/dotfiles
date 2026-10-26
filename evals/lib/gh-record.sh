@@ -25,7 +25,7 @@ actions="$state/actions.jsonl"
 log_call() {
     local result="$1"
     shift
-    jq -nc --arg cmd "gh $*" --arg result "$result" '{cmd: $cmd, result: $result}' >>"$actions"
+    jq -nc --arg cmd "gh $*" --arg result "$result" --arg why "${LOG_WHY:-}" '{cmd: $cmd, result: $result} + (if $why == "" then {} else {why: $why} end)' >>"$actions"
 }
 refuse() { # refuse <理由> <引数...>
     local why="$1"
@@ -220,9 +220,15 @@ esac
 # 実行。対象の repo は GH_REPO でも固定する（git の remote に左右されない）
 export GH_REPO="$SANDBOX_REPO"
 # 空の配列の展開は、bash 3.2（macOS）で set -u に引っかかるので、+ で囲む
-"$real" "${args[@]}" ${extra[@]+"${extra[@]}"}
+errf="$(mktemp "${TMPDIR:-/tmp}/eval-gh-err.XXXXXX")"
+"$real" "${args[@]}" ${extra[@]+"${extra[@]}"} 2>"$errf"
 rc=$?
+cat "$errf" >&2
 result=error
 [[ "$rc" -eq 0 ]] && result=ok
+# 失敗の理由（gh の標準エラーの先頭 1 行）を残す。トークンは gh のエラーに含まれない
+LOG_WHY=""
+[[ "$rc" -eq 0 ]] || LOG_WHY="$(head -1 "$errf" | cut -c1-200)"
+rm -f "$errf"
 log_call "$result" "${args[@]}"
 exit "$rc"

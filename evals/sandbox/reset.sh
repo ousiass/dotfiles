@@ -110,6 +110,7 @@ fi
 
 issue_map="$EVALS_DIR/sandbox/issue-map.json"
 tasks="$EVALS_DIR/tasks.jsonl"
+merged_n=0 # マージ済みの PR は戻せないので、一覧には出さず件数だけ数える
 if [[ "$use_gh" -eq 1 ]]; then
     # 2. eval ラベルの付いた PR
     prs="$("$GH" pr list --repo "$REPO" --label eval --state all --limit 500 --json number,headRefName,state 2>/dev/null)" || sandbox_fail "PR の一覧を読めない"
@@ -117,7 +118,7 @@ if [[ "$use_gh" -eq 1 ]]; then
         [[ -n "$n" ]] || continue
         case "$st" in
         OPEN) op CLOSE-PR "#${n}" "$head" ;;
-        MERGED) op SKIP-MERGED-PR "#${n}" "${head}（マージ済み。戻せない）" ;;
+        MERGED) merged_n=$((merged_n + 1)) ;;
         esac
     done < <(jq -r '.[] | [.number, .headRefName, .state] | @tsv' <<<"$prs")
 
@@ -140,7 +141,7 @@ fi
 
 # --- 一覧 -------------------------------------------------------------------------------------
 total="$(grep -c . "$ops" || true)"
-actionable="$(grep -vc '^SKIP-' "$ops" || true)"
+actionable="$total"
 echo "対象 repo: ${REPO}（push 先: ${url}）"
 if [[ "$total" -eq 0 ]]; then
     echo "戻すものはありません（初期状態です）"
@@ -148,6 +149,7 @@ else
     awk -F'\t' '{ printf "  %-20s %-40s %s\n", $1, $2, $3 }' "$ops"
 fi
 echo "動かす件数: ${actionable}（上限 ${max}）"
+[[ "$merged_n" -eq 0 ]] || echo "マージ済みの eval の PR: ${merged_n} 件（戻せないので対象外。GitHub では PR を削除できない）"
 [[ "$use_gh" -eq 1 ]] || echo "（ローカルの push 先で gh の指定が無いので、PR・Issue は調べていない）"
 
 if [[ "$actionable" -gt "$max" ]]; then

@@ -116,6 +116,7 @@ case "\$1 \$2" in
     fi
     ;;
 esac
+[ "\${STUB_RC:-0}" = 0 ] || printf 'boom: failed to delete local branch\nsecond line\n' >&2
 exit "\${STUB_RC:-0}"
 EOF
 chmod +x "$tmp/real-gh"
@@ -239,6 +240,8 @@ check_match "gh ラッパー: pr checks は PR の先端の sha で Actions を�
 check_match "gh ラッパー: pr checks の選択子（PR の番号）を pr view に渡す" "pr view 7 --json" "$(grep 'pr view' "$tmp/real-gh.log" | sed -n 3p)"
 STUB_RC=1 wrap pr view 1 >/dev/null
 check_eq "gh ラッパー: 結果を pending / pass / fail / error で記録する" "pending,pending,pass,fail,fail,fail,pass,unsupported,error" "$(jq -s -r 'map(.result) | join(",")' "$state/actions.jsonl")"
+check_eq "gh ラッパー: 失敗した呼び出しは gh の標準エラーの先頭 1 行を why に残す" "boom: failed to delete local branch" "$(jq -s -r 'last | .why' "$state/actions.jsonl")"
+check_eq "gh ラッパー: 失敗の標準エラーは呼び出し元にもそのまま出る" "boom: failed to delete local branch" "$(STUB_RC=1 wrap pr view 1 2>&1 | head -1)"
 
 # --- 3. reset.sh ---------------------------------------------------------------------------------
 remote="$tmp/sandbox.git"
@@ -303,7 +306,8 @@ branches_before="$(git -C "$remote" for-each-ref --format='%(refname) %(objectna
 plan="$(rreset --plan)"
 check_match "reset --plan: eval/ のブランチを消す" "DELETE-BRANCH" "$plan"
 check_match "reset --plan: 開いている eval の PR を閉じる" "CLOSE-PR             #13" "$plan"
-check_match "reset --plan: マージ済みの PR は一覧に出すだけ" "SKIP-MERGED-PR       #14" "$plan"
+check_match "reset --plan: マージ済みの PR は一覧に出さず件数だけ出す" "マージ済みの eval の PR: 1 件" "$plan"
+check_no_match "reset --plan: マージ済みの PR は操作に数えない" "SKIP-MERGED-PR" "$plan"
 check_match "reset --plan: 閉じた Issue を開き直す" "REOPEN-ISSUE         #1" "$plan"
 check_match "reset --plan: アサインを外す" "UNASSIGN-ISSUE       #2" "$plan"
 check_match "reset --plan: タイトルを戻す" "RESTORE-ISSUE-TEXT   #3" "$plan"
