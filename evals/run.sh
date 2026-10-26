@@ -279,7 +279,7 @@ run_one() { # <task-json-line> <rep>
     summary="$(norm_summary <"$norm")"
     # 書き込みの動き（compare.py の actions）: 状態を変える gh の呼び出し
     acts="$(jq -sc '
-        [ .[] | select(.cmd | test("^gh (pr (create|merge|edit|comment|close|ready|review)|issue (create|comment|edit|close|reopen))")) | {name: (.cmd | split(" ") | .[0:3] | join(" "))} ]' "$sb/state/actions.jsonl")"
+        [ .[] | select(.cmd | test("^gh (pr (create|merge|edit|comment|close|ready|review)|issue (create|comment|edit|close|reopen))")) | {name: (.cmd | split(" ") | .[0:3] | join(" ")), result: .result} ]' "$sb/state/actions.jsonl")"
     # 止められた（unsupported）・失敗した（error / fail）gh の呼び出し。state は実行後に消えるので、原因を後から調べられるように残す
     problems="$(jq -sc '[ .[] | select(.result == "unsupported" or .result == "error" or .result == "fail") | {cmd: (.cmd | split(" ") | .[0:4] | join(" ")), result: .result, why: (.why // null)} ]' "$sb/state/actions.jsonl")"
     jq -nc --argjson task "$line" --argjson g "$graded" --argjson s "$summary" --argjson acts "$acts" --argjson problems "$problems" \
