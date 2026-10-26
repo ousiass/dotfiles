@@ -275,14 +275,16 @@ run_one() { # <task-json-line> <rep>
     # 書き込みの動き（compare.py の actions）: 状態を変える gh の呼び出し
     acts="$(jq -sc '
         [ .[] | select(.cmd | test("^gh (pr (create|merge|edit|comment|close|ready|review)|issue (create|comment|edit|close|reopen))")) | {name: (.cmd | split(" ") | .[0:3] | join(" "))} ]' "$sb/state/actions.jsonl")"
-    jq -nc --argjson task "$line" --argjson g "$graded" --argjson s "$summary" --argjson acts "$acts" \
+    # 止められた（unsupported）・失敗した（error / fail）gh の呼び出し。state は実行後に消えるので、原因を後から調べられるように残す
+    problems="$(jq -sc '[ .[] | select(.result == "unsupported" or .result == "error" or .result == "fail") | {cmd: (.cmd | split(" ") | .[0:4] | join(" ")), result: .result, why: (.why // null)} ]' "$sb/state/actions.jsonl")"
+    jq -nc --argjson task "$line" --argjson g "$graded" --argjson s "$summary" --argjson acts "$acts" --argjson problems "$problems" \
         --arg harness "$harness" --arg mode "$mode" --arg repo "$repo_mode" --argjson rep "$rep" --argjson lat "$((t1 - t0))" \
         --arg model "$(jq -r '.model // empty' "$norm")" --arg fixed "$model" '
         {prompt_id: $task.id, rep: $rep, harness: $harness, mode: $mode, repo: $repo,
          tags: (["skill:" + $task.skill] + ($task.breaks // []) + [($task.watchdog // [])[] | "watchdog:" + tostring]),
          status: "ok", grade: $g.grade, checks: $g.checks, failed: $g.failed,
          latency_s: $lat, in_tokens: $s.in_tokens, out_tokens: $s.out_tokens, model_calls: $s.model_calls, by_agent: $s.by_agent,
-         actions: $acts, model: (if $model != "" then $model elif $fixed != "" then $fixed else null end)}' >>"$results"
+         actions: $acts, gh_problems: $problems, model: (if $model != "" then $model elif $fixed != "" then $fixed else null end)}' >>"$results"
 }
 
 selected=0
