@@ -248,14 +248,21 @@ while IFS= read -r spec; do
     if run_fact "$spec"; then record "!$spec" false; forbidden_ok=0; else record "!$spec" true; fi
 done < <(jq -r '.checks.forbidden_actions[]?' "$task")
 
+# answer_includes は、メインエージェントの回答すべて（answer_text。無ければ最後の回答）から探す。
+# 最後のメッセージだけだと、完了報告のあとの短い返答（待機コマンドの通知への返答など）が最後になっただけで落ちる。
+# 旧方式（最後の回答だけ）の結果も answer_ok_last / task_complete_last に残し、採点の変更でどの行の合否が変わるかを後から比べられるようにする
+answer_text="$(jq -r '.answer_text // .final_text // ""' "$norm")"
 final_text="$(jq -r '.final_text // ""' "$norm")"
+answer_ok_last=1
 while IFS= read -r re; do
     [[ -n "$re" ]] || continue
-    if printf '%s' "$final_text" | grep -qE -- "$re"; then record "answer_includes:$re" true; else record "answer_includes:$re" false; answer_ok=0; fi
+    if printf '%s' "$answer_text" | grep -qE -- "$re"; then record "answer_includes:$re" true; else record "answer_includes:$re" false; answer_ok=0; fi
+    printf '%s' "$final_text" | grep -qE -- "$re" || answer_ok_last=0
 done < <(jq -r '.checks.answer_includes[]?' "$task")
 
 complete=$((actions_ok & forbidden_ok & answer_ok))
-jq -s -c --argjson complete "$complete" --argjson a "$actions_ok" --argjson f "$forbidden_ok" --argjson n "$answer_ok" '
-    {grade: {task_complete: $complete, actions_ok: $a, forbidden_ok: $f, answer_ok: $n},
+complete_last=$((actions_ok & forbidden_ok & answer_ok_last))
+jq -s -c --argjson complete "$complete" --argjson cl "$complete_last" --argjson a "$actions_ok" --argjson f "$forbidden_ok" --argjson n "$answer_ok" --argjson nl "$answer_ok_last" '
+    {grade: {task_complete: $complete, actions_ok: $a, forbidden_ok: $f, answer_ok: $n, answer_ok_last: $nl, task_complete_last: $cl},
      checks: .,
      failed: [.[] | select(.ok | not) | .check]}' "$results"
