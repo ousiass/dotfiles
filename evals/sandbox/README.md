@@ -35,7 +35,7 @@
 | #7 / #8 / #9 | `sweep-three` | 空の名前 / farewell / 綴り |
 | #10 / #11 / #12 | `sweep-impossible` | 空の名前 / 綴り / 存在しない `src/missing.sh` |
 | #160 | `impl-lang` | greet の言語切り替え（Plan が呼ばれる大きめの実装） |
-| #161 | `impl-cli` | cli.sh の新設（同上） |
+| #161 | `impl-cli` | app.sh を lib/ に分け、cli.sh を新設（同上） |
 
 `tasks.jsonl` のプロンプトは `/impl #1` のように**タスクの中の番号**（1 始まり）で書いてある。この表の GitHub 側の番号とは別なので、
 本物の repo で動かすときは、プロンプトの番号をこの表で置き換える（`run.sh --remote` が `issue-map.json` で自動で置き換える。下の「試験用 repo に書かせる」）。
