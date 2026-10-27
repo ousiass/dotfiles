@@ -86,6 +86,8 @@ sub="${1:-}"
 cmd2="${2:-}"
 case "$sub $cmd2" in
 "auth status") ;;
+# gh --version（バージョンの確認。リモートにも何にも触れない）
+"--version "*) ;;
 "repo view")
     # repo view は位置引数の repo を見る（GH_REPO は効かない）。位置引数があれば固定の repo だけ許し、無ければ固定の repo を足す
     # 値を取る旗（--json など。--flag=value 形式は 1 引数）の次の引数だけを飛ばし、ほかの「-」で始まらない引数は全部、位置引数として検査する
@@ -143,9 +145,31 @@ fi
 # gh pr checks は GraphQL の statusCheckRollup を読むが、fine-grained トークンには Checks・Commit statuses の権限が無く FORBIDDEN になる。
 # 代わりに、PR の先端（gh pr view の headRefOid）の Actions の run（actions/runs?head_sha=）を読んで、gh pr checks と同じ終了コードにする:
 # 0 = 全部成功（skipped・neutral を含む）、1 = 失敗がある（run が 1 つも無いときも 1。gh と同じ）、8 = 実行中が残っている（失敗が無いとき）
-# 対応する旗: --watch、-i / --interval N、--fail-fast・--required（無視）。位置引数は PR の番号・ブランチ・URL
+# checks_once <選択子> : PR の先端の Actions の run を 1 回読む。ck_rows（run の表）・ck_rc（0 / 1 / 8）・ck_head（ブランチ名）を設定する。
+# PR か run を読めなかったら、ck_err に理由を入れて 2 を返す。gh pr view --json statusCheckRollup の結果の記録にも使う（下）
+checks_once() {
+    local sel="$1" view sha runs n_total n_fail n_pending
+    ck_err="" ck_rows="" ck_head="" ck_rc=1
+    if ! view="$("$real" pr view ${sel:+"$sel"} --json headRefOid,headRefName 2>&1)"; then
+        ck_err="$view"
+        return 2
+    fi
+    sha="$(jq -r '.headRefOid // empty' <<<"$view")"
+    if [[ -z "$sha" ]] || ! runs="$("$real" api "repos/${SANDBOX_REPO}/actions/runs?head_sha=${sha}&per_page=100" 2>&1)"; then
+        ck_err="${runs:-$view}"
+        return 2
+    fi
+    ck_head="$(jq -r '.headRefName // empty' <<<"$view")"
+    ck_rows="$(jq -r '.workflow_runs[]? | (.conclusion // "") as $c | [.name, (if .status != "completed" then "pending" elif (["success", "skipped", "neutral"] | index($c)) != null then "pass" else "fail" end), "", .html_url] | @tsv' <<<"$runs")"
+    n_total="$(printf '%s' "$ck_rows" | grep -c . || true)"
+    n_fail="$(printf '%s' "$ck_rows" | awk -F'\t' '$2 == "fail"' | grep -c . || true)"
+    n_pending="$(printf '%s' "$ck_rows" | awk -F'\t' '$2 == "pending"' | grep -c . || true)"
+    if [[ "$n_total" -eq 0 || "$n_fail" -gt 0 ]]; then ck_rc=1; elif [[ "$n_pending" -gt 0 ]]; then ck_rc=8; else ck_rc=0; fi
+    return 0
+}
+# pr_checks の対応する旗: --watch、-i / --interval N、--fail-fast・--required（無視）。位置引数は PR の番号・ブランチ・URL
 pr_checks() {
-    local sel="" watch=0 interval=10 i a prev="" view sha runs rows rc n_total n_fail n_pending
+    local sel="" watch=0 interval=10 i a prev="" rc
     for ((i = 2; i < ${#args[@]}; i++)); do
         a="${args[$i]}"
         case "$prev" in
@@ -173,28 +197,17 @@ pr_checks() {
     [[ "$interval" =~ ^[0-9]+$ ]] || refuse "gh pr checks の --interval が数字ではない（${interval}）" "${args[@]}"
     export GH_REPO="$SANDBOX_REPO"
     while :; do
-        if ! view="$("$real" pr view ${sel:+"$sel"} --json headRefOid,headRefName 2>&1)"; then
-            printf '%s\n' "$view" >&2
+        if ! checks_once "$sel"; then
+            printf '%s\n' "$ck_err" >&2
             log_call fail "${args[@]}"
             exit 1
         fi
-        sha="$(jq -r '.headRefOid // empty' <<<"$view")"
-        if [[ -z "$sha" ]] || ! runs="$("$real" api "repos/${SANDBOX_REPO}/actions/runs?head_sha=${sha}&per_page=100" 2>&1)"; then
-            printf '%s\n' "${runs:-$view}" >&2
-            log_call fail "${args[@]}"
-            exit 1
-        fi
-        rows="$(jq -r '.workflow_runs[]? | (.conclusion // "") as $c | [.name, (if .status != "completed" then "pending" elif (["success", "skipped", "neutral"] | index($c)) != null then "pass" else "fail" end), "", .html_url] | @tsv' <<<"$runs")"
-        n_total="$(printf '%s' "$rows" | grep -c . || true)"
-        n_fail="$(printf '%s' "$rows" | awk -F'\t' '$2 == "fail"' | grep -c . || true)"
-        n_pending="$(printf '%s' "$rows" | awk -F'\t' '$2 == "pending"' | grep -c . || true)"
-        if [[ "$n_total" -eq 0 ]]; then
-            echo "no checks reported on the '$(jq -r '.headRefName // empty' <<<"$view")' branch" >&2
-            rc=1
+        if [[ -z "$ck_rows" ]]; then
+            echo "no checks reported on the '${ck_head}' branch" >&2
         else
-            printf '%s\n' "$rows"
-            if [[ "$n_fail" -gt 0 ]]; then rc=1; elif [[ "$n_pending" -gt 0 ]]; then rc=8; else rc=0; fi
+            printf '%s\n' "$ck_rows"
         fi
+        rc="$ck_rc"
         if [[ "$watch" -eq 1 && "$rc" -eq 8 ]]; then
             sleep "$interval"
             continue
@@ -233,6 +246,26 @@ rc=$?
 cat "$errf" >&2
 result=error
 [[ "$rc" -eq 0 ]] && result=ok
+# gh pr view --json statusCheckRollup は、CI の状態を読む別の方法（gh pr checks と同じ目的）。採点が「CI の通過を確かめた」と読めるように、
+# 呼び出しの結果は pr checks と同じ pass / pending / fail で記録する（Actions の run の状態。pr checks と同じ読み方）。読めなければ ok のまま
+if [[ "$rc" -eq 0 && "$sub $cmd2" == "pr view" && " ${args[*]} " == *statusCheckRollup* ]]; then
+    sel=""
+    prev=""
+    for ((i = 2; i < ${#args[@]}; i++)); do
+        a="${args[$i]}"
+        case "$prev" in
+        --json | --jq | -q | --template | -t | -R | --repo) prev=""; continue ;;
+        esac
+        case "$a" in
+        --json | --jq | -q | --template | -t | -R | --repo) prev="$a" ;;
+        -*) ;;
+        *) [[ -n "$sel" ]] || sel="$a" ;;
+        esac
+    done
+    if checks_once "$sel"; then
+        case "$ck_rc" in 0) result=pass ;; 8) result=pending ;; *) result=fail ;; esac
+    fi
+fi
 # 失敗の理由（gh の標準エラーの先頭 1 行）を残す。トークンは gh のエラーに含まれない
 LOG_WHY=""
 [[ "$rc" -eq 0 ]] || LOG_WHY="$(head -1 "$errf" | cut -c1-200)"

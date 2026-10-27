@@ -248,6 +248,26 @@ printf '%s\n' "$run_ok" >"$tmp/runs.queue"
 check_eq "gh ラッパー: pr checks N --repo <固定の repo> は通る (exit 0)" 0 "$(wrap pr checks 7 --repo ousiass/dotfiles-eval-sandbox >/dev/null; echo $?)"
 check_eq "gh ラッパー: pr checks N -R <固定の repo> は通る (exit 0)" 0 "$(wrap pr checks 7 -R ousiass/dotfiles-eval-sandbox >/dev/null; echo $?)"
 check_eq "gh ラッパー: pr checks N --repo <別の repo> は止まる (exit 1)" 1 "$(wrap pr checks 7 --repo ousiass/dotfiles >/dev/null; echo $?)"
+
+# gh --version（エージェントが gh の版を確かめる）は、本物の gh に渡す。repo には触れない
+before="$(nreal)"
+check_eq "gh ラッパー: gh --version は通る (exit 0)" 0 "$(wrap --version >/dev/null; echo $?)"
+check_eq "gh ラッパー: gh --version は本物の gh に渡す" "$((before + 1))" "$(nreal)"
+check_match "gh ラッパー: gh --version は ok で記録する" '"cmd":"gh --version","result":"ok"' "$(tail -1 "$state/actions.jsonl")"
+# gh pr view --json statusCheckRollup は、CI の状態を pr checks と同じ pass / pending / fail で記録する（Actions の run の状態）
+printf '%s\n' "$run_ok" >"$tmp/runs.queue"
+wrap pr view 7 --json title,statusCheckRollup >/dev/null
+check_match "gh ラッパー: pr view --json statusCheckRollup は、全部成功なら pass で記録する" '"cmd":"gh pr view 7 --json title,statusCheckRollup","result":"pass"' "$(tail -1 "$state/actions.jsonl")"
+printf '%s\n' "$run_p" >"$tmp/runs.queue"
+wrap pr view 7 --json statusCheckRollup >/dev/null
+check_match "gh ラッパー: pr view --json statusCheckRollup は、実行中が残っていれば pending で記録する" '"result":"pending"' "$(tail -1 "$state/actions.jsonl")"
+printf '%s\n' "$run_ng" >"$tmp/runs.queue"
+wrap pr view 7 --json statusCheckRollup >/dev/null
+check_match "gh ラッパー: pr view --json statusCheckRollup は、失敗があれば fail で記録する" '"result":"fail"' "$(tail -1 "$state/actions.jsonl")"
+printf '%s\n' "$run_ok" >"$tmp/runs.queue"
+wrap pr view 7 --json title >/dev/null
+check_match "gh ラッパー: statusCheckRollup を読まない pr view は ok のまま" '"result":"ok"' "$(tail -1 "$state/actions.jsonl")"
+check_eq "gh ラッパー: pr view --json statusCheckRollup の呼び出し自体は 1 行だけ記録する（Actions の読み取りは記録しない）" 5 "$(tail -5 "$state/actions.jsonl" | grep -c 'gh pr view\|gh --version')"
 before="$(nreal)"
 wrap api "repos/ousiass/dotfiles-eval-sandbox/branches/eval%2Fsweep-impossible%2Fmain" --jq .commit.sha >/dev/null
 check_eq "gh ラッパー: gh api のブランチ名の %2F は通す" "$((before + 1))" "$(nreal)"

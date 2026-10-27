@@ -146,12 +146,14 @@ done
 
 issues_plan="$(jq -c '. as $t | (.issues // []) | to_entries[] | {task: $t.id, local: (.key + 1), title: .value.title, body: .value.body}' "$tasks")"
 
+SEED_LABELS=(eval spinoff bug type:bug type:feat type:chore type:refactor type:docs severity:critical severity:high severity:medium severity:low priority:high priority:medium priority:low area:app)
 if [[ "$plan" -eq 1 ]]; then
     echo "push 先: ${url}（固定 repo: ${SANDBOX_REPO}）"
     echo "main                      （題材と CI。初期状態のコミットを作る。既に在る main には、先端の上に CI と目印を積む）"
     for r in $refs; do echo "${r#*:refs/heads/}"; done
     echo "Issue: $(printf '%s\n' "$issues_plan" | grep -c .) 件"
     printf '%s\n' "$issues_plan" | jq -r '"  task:\(.task) #\(.local) \(.title)"'
+    echo "ラベル: ${SEED_LABELS[*]}"
     exit 0
 fi
 
@@ -190,19 +192,32 @@ if [[ "$issues" -eq 0 ]]; then
     exit 0
 fi
 command -v gh >/dev/null || sandbox_fail "gh が必要です（Issue を作る）"
-for l in eval spinoff; do gh label create "$l" --repo "$repo" --force >/dev/null 2>&1 || true; done
+# gh の呼び出し（ラベル・Issue。操作の対象は --repo の固定の repo だけ）。専用トークンに Issues / Labels の書き込みが無いときは、
+# EVAL_GH_USER_CONFIG_DIR（普段の gh のログインの設定ディレクトリ）を付けると、この呼び出しだけがそちらで動く（git の push には使わない。reset.sh と同じ約束）
+sgh() {
+    if [[ -n "${EVAL_GH_USER_CONFIG_DIR:-}" ]]; then
+        [[ -r "$EVAL_GH_USER_CONFIG_DIR/hosts.yml" ]] || sandbox_fail "EVAL_GH_USER_CONFIG_DIR（${EVAL_GH_USER_CONFIG_DIR}）に hosts.yml が無い"
+        env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN GH_CONFIG_DIR="$EVAL_GH_USER_CONFIG_DIR" gh "$@"
+    else
+        gh "$@"
+    fi
+}
+# ラベル: eval・spinoff に加えて、spinoff-issue が付けるラベル（type:* / severity:* / priority:* / bug / area:app）。
+# spinoff-issue は「spinoff 以外の不足ラベルは作らず、ユーザーの承認を取る」決まりで、非対話の claude -p では承認が取れず、
+# 起票で止まる実行が出る（Phase 2 の baseline3 の impl-spinoff r1）。題材のモジュール（app.sh）の area:app も入れる
+for l in "${SEED_LABELS[@]}"; do sgh label create "$l" --repo "$repo" --force >/dev/null 2>&1 || true; done
 map="[]"
 while IFS= read -r row; do
     [[ -n "$row" ]] || continue
     task="$(jq -r .task <<<"$row")"
     local_n="$(jq -r .local <<<"$row")"
-    gh label create "task:${task}" --repo "$repo" --force >/dev/null 2>&1 || true
-    existing="$(gh issue list --repo "$repo" --state all --label "task:${task}" --json number,title --jq "map(select(.title == $(jq -c .title <<<"$row"))) | .[0].number // empty" 2>/dev/null)"
+    sgh label create "task:${task}" --repo "$repo" --force >/dev/null 2>&1 || true
+    existing="$(sgh issue list --repo "$repo" --state all --label "task:${task}" --json number,title --jq "map(select(.title == $(jq -c .title <<<"$row"))) | .[0].number // empty" 2>/dev/null)"
     if [[ -n "$existing" ]]; then
         n="$existing"
         echo "seed.sh: task:${task} #${local_n} は在る（#${n}）ので飛ばす"
     else
-        out="$(gh issue create --repo "$repo" --title "$(jq -r .title <<<"$row")" --body "$(jq -r .body <<<"$row")" --label eval --label "task:${task}")" || {
+        out="$(sgh issue create --repo "$repo" --title "$(jq -r .title <<<"$row")" --body "$(jq -r .body <<<"$row")" --label eval --label "task:${task}")" || {
             echo "seed.sh: Issue を作れない（トークンに Issues 書き込みが無い、など）" >&2
             exit 1
         }
