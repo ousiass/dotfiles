@@ -169,7 +169,8 @@ stream() { # stream <完了報告のテキスト> <サブエージェントの�
         '{"type":"result","result":"この通知は、待機コマンドが時間切れで停止しただけです。"}'
 }
 stream "完了報告: spinoff の Issue を起票しました" "余談" | gzip -c >"$rs/runs/impl-spinoff-r1/out/raw/impl-spinoff-r1.out.gz"
-stream "完了報告: PR を作りました" "サブエージェントの spinoff の余談" | gzip -c >"$rs/runs/impl-spinoff-r2/out/raw/impl-spinoff-r2.out.gz"
+# phase-run.sh は 1 実行ごとに run.sh --rep 1 を呼ぶので、rep 2 のディレクトリにも、ファイル名は ...-r1.out.gz で入る
+stream "完了報告: PR を作りました" "サブエージェントの spinoff の余談" | gzip -c >"$rs/runs/impl-spinoff-r2/out/raw/impl-spinoff-r1.out.gz"
 printf '%s\n' \
     '{"prompt_id":"impl-spinoff","rep":1,"status":"ok","grade":{"task_complete":0,"actions_ok":1,"forbidden_ok":1}}' \
     '{"prompt_id":"impl-spinoff","rep":2,"status":"ok","grade":{"task_complete":0,"actions_ok":1,"forbidden_ok":1}}' \
