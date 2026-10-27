@@ -175,9 +175,9 @@ printf '%s\n' \
     '{"prompt_id":"impl-spinoff","rep":2,"status":"ok","grade":{"task_complete":0,"actions_ok":1,"forbidden_ok":1}}' \
     '{"prompt_id":"impl-bugfix","rep":1,"status":"ok","grade":{"task_complete":1,"actions_ok":1,"forbidden_ok":1}}' >"$rs/results.jsonl"
 res="$("$EVALS/rescore.sh" "$rs" 2>&1)"
-check_eq "rescore: 完了報告が最後のメッセージでなくても、メインの回答すべてから探して合格にする（保存 0 → 最後だけ 0 → 全部 1）" "impl-spinoff	1	0	0	1" "$(printf '%s\n' "$res" | grep '^impl-spinoff	1')"
-check_eq "rescore: サブエージェントのテキストにだけ語があっても合格にしない" "impl-spinoff	2	0	0	0" "$(printf '%s\n' "$res" | grep '^impl-spinoff	2')"
-check_eq "rescore: raw が無い行は再採点できないと出す" "impl-bugfix	1	1	raw なし	raw なし" "$(printf '%s\n' "$res" | grep '^impl-bugfix')"
+check_eq "rescore: 完了報告が最後のメッセージでなくても、メインの回答すべてから探して合格にする（保存 0 → 最後だけ 0 → 全部 1 → 補正 1）" "impl-spinoff	1	0	0	1	1" "$(printf '%s\n' "$res" | grep '^impl-spinoff	1')"
+check_eq "rescore: サブエージェントのテキストにだけ語があっても合格にしない" "impl-spinoff	2	0	0	0	0" "$(printf '%s\n' "$res" | grep '^impl-spinoff	2')"
+check_eq "rescore: raw が無い行は再採点できないと出す" "impl-bugfix	1	1	raw なし	raw なし	raw なし" "$(printf '%s\n' "$res" | grep '^impl-bugfix')"
 
 # --- estimate.sh -------------------------------------------------------------------
 est="$("$EVALS/estimate.sh" 2>&1)"
