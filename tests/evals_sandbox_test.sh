@@ -129,5 +129,8 @@ n_issues="$(jq -s '[.[].issues[]?] | length' "$DOTFILES_DIR/evals/tasks.jsonl")"
 check_match "seed.sh --plan: Issue の件数がタスクセットと一致する" "Issue: ${n_issues} 件" "$plan"
 check_match "seed.sh --plan: refine のブランチを入れる" "eval/refine-defect/feat/wip" "$plan"
 check_match "seed.sh --plan: シナリオの main を入れる" "eval/docs-typo/main" "$plan"
+for l in type:bug type:feat type:docs severity:low priority:medium area:app; do
+    check_match "seed.sh --plan: spinoff-issue が付けるラベル（${l}）を入れる" " ${l} " "$(printf '%s \n' "$(grep '^ラベル:' <<<"$plan")")"
+done
 
 exit "$fail"

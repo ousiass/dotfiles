@@ -219,6 +219,19 @@ res2="$("$EVALS/rescore.sh" "$rs2" 2>&1)"
 check_eq "rescore: --remote の GitHub の番号（#12）で書いた回答を合格にする" "sweep-impossible	1	0	1	1" "$(printf '%s\n' "$res2" | grep '^sweep-impossible')"
 check_eq "rescore: つなげて呼んだ検証ゲートを合格にする" "impl-bugfix	2	0	1	1" "$(printf '%s\n' "$res2" | grep '^impl-bugfix')"
 
+# --- ci_waited: 最後の PR 作成のあとに、pass を返した gh pr checks か gh pr view --json statusCheckRollup がある（CI_WAITED_JQ） ---
+ci_waited() { # ci_waited <actions.jsonl の行>... : 行を 1 つずつ渡す
+    printf '%s\n' "$@" | jq -s "$CI_WAITED_JQ"
+}
+c_pr='{"cmd":"gh pr create --title t","result":"ok"}'
+check_eq "ci_waited: pr checks が pass なら満たす" true "$(ci_waited "$c_pr" '{"cmd":"gh pr checks 7","result":"pass"}')"
+check_eq "ci_waited: pr view --json statusCheckRollup が pass でも満たす" true "$(ci_waited "$c_pr" '{"cmd":"gh pr view 7 --json title,statusCheckRollup","result":"pass"}')"
+check_eq "ci_waited: statusCheckRollup が pending なら満たさない" false "$(ci_waited "$c_pr" '{"cmd":"gh pr view 7 --json statusCheckRollup","result":"pending"}')"
+check_eq "ci_waited: statusCheckRollup が fail なら満たさない" false "$(ci_waited "$c_pr" '{"cmd":"gh pr view 7 --json statusCheckRollup","result":"fail"}')"
+check_eq "ci_waited: statusCheckRollup を読まない pr view は満たさない" false "$(ci_waited "$c_pr" '{"cmd":"gh pr view 7 --json title","result":"ok"}')"
+check_eq "ci_waited: PR 作成より前の確認は数えない" false "$(ci_waited '{"cmd":"gh pr view 7 --json statusCheckRollup","result":"pass"}' "$c_pr")"
+check_eq "ci_waited: PR を作っていなければ満たさない" false "$(ci_waited '{"cmd":"gh pr checks 7","result":"pass"}')"
+
 # --- estimate.sh -------------------------------------------------------------------
 est="$("$EVALS/estimate.sh" 2>&1)"
 check_eq "estimate.sh: 成功する" 0 "$?"

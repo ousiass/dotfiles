@@ -182,10 +182,8 @@ fact_verify_scope_run() { jq_true --arg re "$VERIFY_SCOPE_GATE_RE" 'any(.events[
 fact_review_spawned() { events_has 'any(.events[]; .tool == "task" and ((.agent // "") | test("review")))'; }
 fact_ask_used() { events_has 'any(.events[]; .tool == "ask")'; }
 fact_ci_waited() {
-    # 最後の PR 作成のあとに、pass を返した gh pr checks がある
-    jq_true -s '
-        (to_entries | map(select(.value.cmd | startswith("gh pr create"))) | last | .key) as $i
-        | $i != null and (to_entries | any(.key > $i and (.value.cmd | startswith("gh pr checks")) and .value.result == "pass"))' "$state/actions.jsonl"
+    # 最後の PR 作成のあとに、CI の通過を確かめた呼び出しがある: pass を返した gh pr checks、または gh pr view --json statusCheckRollup（lib/regex.sh）
+    jq_true -s "$CI_WAITED_JQ" "$state/actions.jsonl"
 }
 # ゲートの弱体化: テストの削除・書き換え（既存の行を消す・変える）、`verify-scope: allow` の追加、`--no-verify`
 fact_gate_weakened() {

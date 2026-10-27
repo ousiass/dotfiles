@@ -5,7 +5,7 @@
 | ファイル | 役割 |
 |---|---|
 | `init.sh` | 隔離フォルダ（既定 `/mnt/nvme/eval-sandbox`）を作る。何度実行しても同じ結果。 |
-| `seed.sh` | 試験用 repo にコード・CI・ダミー Issue を入れる（既に在る ref・Issue は飛ばす。force push しない）。 |
+| `seed.sh` | 試験用 repo にコード・CI・ダミー Issue・ラベル（`spinoff-issue` が付ける `type:*` / `severity:*` / `priority:*` / `bug` / `area:app` を含む）を入れる（既に在る ref・Issue は飛ばす。force push しない）。専用トークンに Issues / Labels の書き込みが無いときは、`EVAL_GH_USER_CONFIG_DIR` を付けると、ラベルと Issue の `gh` だけが普段のログインで動く（push は専用トークンのまま）。 |
 | `reset.sh` | 試験用 repo を初期状態に戻す（`--plan` で一覧、`--apply` で実行。人が実行する。安全策は下）。 |
 | `lib.sh` | 固定の repo 名など、上の 3 本が共有する部分。 |
 | `issue-map.json` | タスクの中の Issue 番号 → 試験用 repo の Issue 番号。 |
@@ -20,7 +20,7 @@
 | `main` | 題材（小さな bash ライブラリ。`lib/fixture.sh` の `fixture_seed_files` と同じ） |
 | `eval/<scenario>/main` | シナリオの初期状態を `main` に重ねたもの（`docs-typo` / `out-of-scope` / `sweep-three` / `sweep-impossible`） |
 | `eval/<scenario>/feat/wip` | refine 系（`refine-defect` / `refine-clean`）の作業ブランチ |
-| Issue #1〜#12 | ラベル `eval` と `task:<id>`。対応表は下 |
+| Issue #1〜#12・#160・#161 | ラベル `eval` と `task:<id>`。対応表は下 |
 
 どのブランチも `main` の同じ初期コミットから伸びる。
 
@@ -34,6 +34,8 @@
 | #6 | `impl-auto` | greet に空の名前（`--auto`） |
 | #7 / #8 / #9 | `sweep-three` | 空の名前 / farewell / 綴り |
 | #10 / #11 / #12 | `sweep-impossible` | 空の名前 / 綴り / 存在しない `src/missing.sh` |
+| #160 | `impl-lang` | greet の言語切り替え（Plan が呼ばれる大きめの実装） |
+| #161 | `impl-cli` | cli.sh の新設（同上） |
 
 `tasks.jsonl` のプロンプトは `/impl #1` のように**タスクの中の番号**（1 始まり）で書いてある。この表の GitHub 側の番号とは別なので、
 本物の repo で動かすときは、プロンプトの番号をこの表で置き換える（`run.sh --remote` が `issue-map.json` で自動で置き換える。下の「試験用 repo に書かせる」）。
@@ -132,7 +134,7 @@ EVAL_CONFIRM_PAID=1 /mnt/nvme/eval-sandbox/with-env dotfiles/evals/run.sh --harn
 | ブランチ名 | プロンプトで `eval/r<日時>-<連番>/` で始めるよう指示する。`reset.sh` が片付けられる名前にするため |
 | Issue 番号 | プロンプトの `#<n>`（タスクの中の番号）を、`issue-map.json` で GitHub の番号に置き換える。`seed.sh` は番号が `issue-map.json` と食い違ったら止まる |
 | 採点用の取り出し | 実行後に、リモートを mirror clone して `origin.git` に、PR・Issue を `gh` で読んで `state/prs.json` / `issues.json` にする。この実行で作られたもの（実行前の最大番号より大きい番号）だけを PR・spinoff として数える。PR の先端は `refs/pull/<N>/head`（`--delete-branch` でブランチが消えても読める） |
-| CI | 試験用 repo の `.github/workflows/ci.yml`（`./test.sh` を回すだけ）。`seed.sh` が `main` の初期状態に入れる。エージェントの `gh pr checks` は、ラッパーが Actions の API に置き換える（上） |
+| CI | 試験用 repo の `.github/workflows/ci.yml`（`./test.sh` を回すだけ）。`seed.sh` が `main` の初期状態に入れる。エージェントの `gh pr checks` は、ラッパーが Actions の API に置き換える（上）。`gh pr view --json statusCheckRollup` も、呼び出しの結果を同じ Actions の run の状態（pass / pending / fail）で記録する。`gh --version` は通す |
 
 ### 試験用 repo の初期化（`reset.sh`。人が実行する）
 

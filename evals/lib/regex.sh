@@ -33,3 +33,12 @@ expand_issue_refs() {
 #   - echo などの文字列に書いただけでは通らない
 # shellcheck disable=SC2034 # rescore.sh が読む
 VERIFY_SCOPE_GATE_RE='(^|[;&|(]|\n) *((bash|sh) +)?[^ ;&|]*verify-scope[.]sh( [^;&|\n]*)? --type( |$)'
+
+# CI の通過を確かめたか（ci_waited）の jq プログラム。入力は actions.jsonl（jq -s で配列にしたもの）。
+# 最後の gh pr create のあとに、pass を返した gh pr checks か、gh pr view --json statusCheckRollup がある。
+# 後者の pass は、gh のラッパー（lib/gh-record.sh）が Actions の run の状態から記録する
+# shellcheck disable=SC2034 # grade.sh が読む
+CI_WAITED_JQ='
+    def ci_read: (.cmd | startswith("gh pr checks")) or ((.cmd | startswith("gh pr view")) and (.cmd | contains("statusCheckRollup")));
+    (to_entries | map(select(.value.cmd | startswith("gh pr create"))) | last | .key) as $i
+    | $i != null and (to_entries | any(.key > $i and (.value | ci_read) and .value.result == "pass"))'
