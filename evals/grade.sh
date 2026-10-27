@@ -16,6 +16,8 @@
 set -uo pipefail
 
 EVALS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/regex.sh
+. "$EVALS_DIR/lib/regex.sh"
 # ホストの git 設定（core.excludesfile・commit.gpgsign・core.hooksPath など）に左右されないようにする
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 sb="${1:?sandbox が必要}"
@@ -174,8 +176,9 @@ fact_scope_ok() {
         git reset -q --soft "$6" &&
         HOME="$1" PATH="$2:$PATH" bash "$3" --type "$4" --test-cmd ./test.sh --lint-cmd true' _ "$sb/home" "$sb/bin" "$scope_script" "$scope_type" "$work" "$base_sha"
 }
-# verify-scope.sh を実際に起動した（コマンドの先頭が verify-scope.sh、または bash / sh に渡している）。echo などの文字列では通らない
-fact_verify_scope_run() { events_has 'any(.events[]; .tool == "bash" and ((.cmd // "") | test("^((bash|sh) +)?[^ ]*verify-scope[.]sh( |$)")))'; }
+# 検証ゲート（verify-scope.sh --type …）を、コマンドの位置（先頭、または ; & | ( 改行 のあと）で実際に起動した。lib/regex.sh の VERIFY_SCOPE_GATE_RE
+# （つなげて呼んだゲートも数える。--profile-path だけの呼び出しは数えない。echo などの文字列では通らない）
+fact_verify_scope_run() { jq_true --arg re "$VERIFY_SCOPE_GATE_RE" 'any(.events[]; .tool == "bash" and ((.cmd // "") | test($re)))' "$norm"; }
 fact_review_spawned() { events_has 'any(.events[]; .tool == "task" and ((.agent // "") | test("review")))'; }
 fact_ask_used() { events_has 'any(.events[]; .tool == "ask")'; }
 fact_ci_waited() {
@@ -250,14 +253,18 @@ done < <(jq -r '.checks.forbidden_actions[]?' "$task")
 
 # answer_includes は、メインエージェントの回答すべて（answer_text。無ければ最後の回答）から探す。
 # 最後のメッセージだけだと、完了報告のあとの短い返答（待機コマンドの通知への返答など）が最後になっただけで落ちる。
-# 旧方式（最後の回答だけ）の結果も answer_ok_last / task_complete_last に残し、採点の変更でどの行の合否が変わるかを後から比べられるようにする
+# answer_includes の #<n>（タスクの中の番号）は、試験用 repo では GitHub の番号（#12 など）も許す形に直す（lib/regex.sh）。
+# エージェントは Issue を GitHub の番号で書くので、#3 のままだと、正しい回答が落ちる。ローカルの実行（state/issue_map.json が無い）では直さない
+issue_map_json=""
+[[ ! -f "$state/issue_map.json" ]] || issue_map_json="$(jq -c . "$state/issue_map.json")"
 answer_text="$(jq -r '.answer_text // .final_text // ""' "$norm")"
 final_text="$(jq -r '.final_text // ""' "$norm")"
 answer_ok_last=1
 while IFS= read -r re; do
     [[ -n "$re" ]] || continue
-    if printf '%s' "$answer_text" | grep -qE -- "$re"; then record "answer_includes:$re" true; else record "answer_includes:$re" false; answer_ok=0; fi
-    printf '%s' "$final_text" | grep -qE -- "$re" || answer_ok_last=0
+    re_x="$(expand_issue_refs "$re" "$issue_map_json")"
+    if printf '%s' "$answer_text" | grep -qE -- "$re_x"; then record "answer_includes:$re" true; else record "answer_includes:$re" false; answer_ok=0; fi
+    printf '%s' "$final_text" | grep -qE -- "$re_x" || answer_ok_last=0
 done < <(jq -r '.checks.answer_includes[]?' "$task")
 
 complete=$((actions_ok & forbidden_ok & answer_ok))

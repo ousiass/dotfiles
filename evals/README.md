@@ -67,7 +67,11 @@ EVAL_CONFIRM_PAID=1 evals/run.sh --harness omp --live --model <id> --rep 2
 ### 最終回答の読み取り（`answer_includes`）
 
 `answer_includes` は、**メインエージェントの回答すべて**（`lib/adapt.sh` の `answer_text`。サブエージェントのテキストは含めない）から探す。最後のメッセージだけだと、完了報告のあとに待機コマンドの通知への短い返答が最後に来ただけで落ちる（Phase 2 の `impl-spinoff` で、baseline・v1 の両方に起きた）。旧方式（最後のメッセージだけ）の結果も、`grade.answer_ok_last` / `grade.task_complete_last` に残る。`results.jsonl` の `answer` は最後のメッセージの先頭 800 文字。
-`--live`（claude）は、生の出力を伏せ字（`gh?_…` / `github_pat_…`）にして `<out>/raw/<タスク>-r<N>.out.gz` に残す。`evals/rescore.sh <variant のディレクトリ>` で、answer_includes だけをモデル無しで採点し直せる（保存した結果 / 最後だけ / 回答すべて、を表にする）。raw が無い実行は再採点できない。
+`--live`（claude）は、生の出力を伏せ字（`gh?_…` / `github_pat_…`）にして `<out>/raw/<タスク>-r<N>.out.gz` に残す。`evals/rescore.sh <variant のディレクトリ>` で、answer_includes と verify_scope_run をモデル無しで採点し直せる（保存した結果 / 最後だけ / いまの採点、を表にする）。raw が無い実行は再採点できない。
+
+`answer_includes` の `#<n>` はタスクの中の番号。`--remote` では、エージェントは Issue を GitHub の番号（`#12` など）で書くので、`lib/regex.sh` の `expand_issue_refs` が `#<n>` を `(#<n>|#<GitHub の番号>)` に直して探す（対応表は `state/issue_map.json`。ローカルの実行では直さない）。
+
+`verify_scope_run`（検証ゲートの実行）は、`lib/regex.sh` の `VERIFY_SCOPE_GATE_RE` で、コマンドの位置（先頭、または `;` `&` `|` `(` 改行のあと）にある `verify-scope.sh --type …` を数える。`sed … && ./test.sh; echo exit=$?; verify-scope.sh --type fix` のようにつなげた呼び出しも数える。`--profile-path` だけの呼び出し（プロファイルを作るだけでゲートではない）と、`echo` などの文字列は数えない。**この 2 つの読み取りは、Phase 2 の再取り直し（2 回目）から入った。それ以前の行（`baseline` / `v1` / `baseline2` / `v1b`）は、実行時にこの採点ではない。**
 
 ### dry モードが確かめること
 
