@@ -169,15 +169,55 @@ stream() { # stream <完了報告のテキスト> <サブエージェントの�
         '{"type":"result","result":"この通知は、待機コマンドが時間切れで停止しただけです。"}'
 }
 stream "完了報告: spinoff の Issue を起票しました" "余談" | gzip -c >"$rs/runs/impl-spinoff-r1/out/raw/impl-spinoff-r1.out.gz"
-stream "完了報告: PR を作りました" "サブエージェントの spinoff の余談" | gzip -c >"$rs/runs/impl-spinoff-r2/out/raw/impl-spinoff-r2.out.gz"
+# phase-run.sh は 1 実行ごとに run.sh --rep 1 を呼ぶので、rep 2 のディレクトリにも、ファイル名は ...-r1.out.gz で入る
+stream "完了報告: PR を作りました" "サブエージェントの spinoff の余談" | gzip -c >"$rs/runs/impl-spinoff-r2/out/raw/impl-spinoff-r1.out.gz"
 printf '%s\n' \
     '{"prompt_id":"impl-spinoff","rep":1,"status":"ok","grade":{"task_complete":0,"actions_ok":1,"forbidden_ok":1}}' \
     '{"prompt_id":"impl-spinoff","rep":2,"status":"ok","grade":{"task_complete":0,"actions_ok":1,"forbidden_ok":1}}' \
     '{"prompt_id":"impl-bugfix","rep":1,"status":"ok","grade":{"task_complete":1,"actions_ok":1,"forbidden_ok":1}}' >"$rs/results.jsonl"
 res="$("$EVALS/rescore.sh" "$rs" 2>&1)"
-check_eq "rescore: 完了報告が最後のメッセージでなくても、メインの回答すべてから探して合格にする（保存 0 → 最後だけ 0 → 全部 1 → 補正 1）" "impl-spinoff	1	0	0	1	1" "$(printf '%s\n' "$res" | grep '^impl-spinoff	1')"
-check_eq "rescore: サブエージェントのテキストにだけ語があっても合格にしない" "impl-spinoff	2	0	0	0	0" "$(printf '%s\n' "$res" | grep '^impl-spinoff	2')"
-check_eq "rescore: raw が無い行は再採点できないと出す" "impl-bugfix	1	1	raw なし	raw なし	raw なし" "$(printf '%s\n' "$res" | grep '^impl-bugfix')"
+check_eq "rescore: 完了報告が最後のメッセージでなくても、メインの回答すべてから探して合格にする（保存 0 → 最後だけ 0 → いま 1）" "impl-spinoff	1	0	0	1" "$(printf '%s\n' "$res" | grep '^impl-spinoff	1')"
+check_eq "rescore: サブエージェントのテキストにだけ語があっても合格にしない" "impl-spinoff	2	0	0	0" "$(printf '%s\n' "$res" | grep '^impl-spinoff	2')"
+check_eq "rescore: raw が無い行は再採点できないと出す" "impl-bugfix	1	1	raw なし	raw なし" "$(printf '%s\n' "$res" | grep '^impl-bugfix')"
+
+# --- 採点の読み取りの補正: #<n> は GitHub の番号も許す / つなげて呼んだ検証ゲートも数える（lib/regex.sh。grade.sh と rescore.sh が共有） ---
+# shellcheck source=../evals/lib/regex.sh
+. "$EVALS/lib/regex.sh"
+check_eq "regex: #<n> は (#<n>|#<GitHub の番号>) に直る" '(#3|#12)|3 件目' "$(expand_issue_refs '#3|3 件目' '[10,11,12]')"
+check_eq "regex: 対応表に無い番号は直さない" '#7' "$(expand_issue_refs '#7' '[10,11,12]')"
+check_eq "regex: 対応表が無い（ローカル）なら何も変えない" '#3|3 件目' "$(expand_issue_refs '#3|3 件目' '')"
+gate_match() { jq -n --arg re "$VERIFY_SCOPE_GATE_RE" --arg c "$1" '$c | test($re)'; }
+check_eq "verify-scope: 先頭の呼び出しは数える" true "$(gate_match '.claude/skills/impl/scripts/verify-scope.sh --type fix --issue 1')"
+check_eq "verify-scope: bash 経由も数える" true "$(gate_match 'bash .claude/skills/impl/scripts/verify-scope.sh --type feature')"
+check_eq "verify-scope: ; のあとにつなげた呼び出しも数える" true "$(gate_match 'sed -i s/a/b/ x && ./test.sh; echo exit=$?; ~/.claude/skills/impl/scripts/verify-scope.sh --type fix --issue 1; echo gate=$?')"
+check_eq "verify-scope: && のあとも数える" true "$(gate_match 'cd w && verify-scope.sh --type fix')"
+check_eq "verify-scope: --profile-path だけの呼び出し（ゲートではない）は数えない" false "$(gate_match '.claude/skills/impl/scripts/verify-scope.sh --profile-path')"
+check_eq "verify-scope: echo などの文字列に書いただけでは数えない" false "$(gate_match 'echo verify-scope.sh --type fix')"
+check_eq "verify-scope: 引数の中の名前（cat verify-scope.sh）は数えない" false "$(gate_match 'cat scripts/verify-scope.sh')"
+
+rs2="$tmp/rescore/v2"
+mkdir -p "$rs2/runs/sweep-impossible-r1/out/raw" "$rs2/runs/impl-bugfix-r2/out/raw"
+text_stream() { # text_stream <回答のテキスト> : 1 件の回答だけの出力
+    printf '%s\n' \
+        '{"type":"system","subtype":"init","model":"m"}' \
+        "{\"type\":\"assistant\",\"parent_tool_use_id\":null,\"message\":{\"id\":\"a1\",\"usage\":{\"input_tokens\":1,\"output_tokens\":5},\"content\":[{\"type\":\"text\",\"text\":\"$1\"}]}}" \
+        "{\"type\":\"result\",\"result\":\"$1\"}"
+}
+bash_stream() { # bash_stream <コマンド> : Bash を 1 回呼んで、回答する出力
+    printf '%s\n' \
+        '{"type":"system","subtype":"init","model":"m"}' \
+        "{\"type\":\"assistant\",\"parent_tool_use_id\":null,\"message\":{\"id\":\"a1\",\"usage\":{\"input_tokens\":1,\"output_tokens\":5},\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{\"command\":\"$1\"}}]}}" \
+        '{"type":"assistant","parent_tool_use_id":null,"message":{"id":"a2","usage":{"input_tokens":1,"output_tokens":5},"content":[{"type":"text","text":"PR を作りました"}]}}' \
+        '{"type":"result","result":"PR を作りました"}'
+}
+text_stream "3 件のうち 2 件はマージ済みで、#12 は対象ファイルがなく実装できませんでした" | gzip -c >"$rs2/runs/sweep-impossible-r1/out/raw/sweep-impossible-r1.out.gz"
+bash_stream 'sed -i s/a/b/ x && ./test.sh; echo exit=$?; ~/.claude/skills/impl/scripts/verify-scope.sh --type fix --issue 1; echo gate=$?' | gzip -c >"$rs2/runs/impl-bugfix-r2/out/raw/impl-bugfix-r1.out.gz"
+printf '%s\n' \
+    '{"prompt_id":"sweep-impossible","rep":1,"status":"ok","grade":{"task_complete":0},"failed":["answer_includes:#3|3 件目|対象が無い|存在しません"]}' \
+    '{"prompt_id":"impl-bugfix","rep":2,"status":"ok","grade":{"task_complete":0},"failed":["verify_scope_run"]}' >"$rs2/results.jsonl"
+res2="$("$EVALS/rescore.sh" "$rs2" 2>&1)"
+check_eq "rescore: --remote の GitHub の番号（#12）で書いた回答を合格にする" "sweep-impossible	1	0	1	1" "$(printf '%s\n' "$res2" | grep '^sweep-impossible')"
+check_eq "rescore: つなげて呼んだ検証ゲートを合格にする" "impl-bugfix	2	0	1	1" "$(printf '%s\n' "$res2" | grep '^impl-bugfix')"
 
 # --- estimate.sh -------------------------------------------------------------------
 est="$("$EVALS/estimate.sh" 2>&1)"

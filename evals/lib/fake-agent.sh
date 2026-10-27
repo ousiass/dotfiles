@@ -169,7 +169,7 @@ default_events() {
         ev task plan
         ev task develop
         ev task review
-        ev bash "" ".claude/skills/impl/scripts/verify-scope.sh"
+        ev bash "" ".claude/skills/impl/scripts/verify-scope.sh --type fix --issue 1"
         ;;
     refine | refine-git | refine-sweep)
         ev task review
