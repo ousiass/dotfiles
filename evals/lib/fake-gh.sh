@@ -15,8 +15,10 @@ prs="$state/prs.json"
 actions="$state/actions.jsonl"
 fake_url="https://example.invalid/eval/fixture"
 
-# 記録: record <result> <gh に渡された引数...>（サブコマンド名も含めて "gh ..." の 1 行にする）
+# 記録: record <result> <gh に渡された引数...>（サブコマンド名も含めて "gh ..." の 1 行にする）。
+# 記録用ラッパー（lib/gh-record.sh）の下で動くとき（EVAL_FAKE_NO_RECORD）は、ラッパーが記録するので二重に残さない
 record() {
+    [[ -z "${EVAL_FAKE_NO_RECORD:-}" ]] || return 0
     local result="${1:-}"
     shift
     jq -nc --arg cmd "gh $*" --arg result "$result" '{cmd: $cmd, result: $result}' >>"$actions"
@@ -91,6 +93,22 @@ update_json() {
 
 current_branch() { git rev-parse --abbrev-ref HEAD 2>/dev/null || true; }
 
+# labels_of <args...> : --label の値をすべて JSON 配列で出す（-l も同じ。カンマ区切りも分ける）
+labels_of() {
+    local prev="" a out=()
+    for a in "$@"; do
+        case "$prev" in --label | -l) IFS=, read -r -a parts <<<"$a" && out+=("${parts[@]}") ;; esac
+        case "$a" in --label=*) IFS=, read -r -a parts <<<"${a#--label=}" && out+=("${parts[@]}") ;; esac
+        prev="$a"
+    done
+    if [[ "${#out[@]}" -eq 0 ]]; then echo '[]'; else printf '%s\n' "${out[@]}" | jq -R . | jq -sc .; fi
+}
+
+# next_number : Issue と PR は、GitHub と同じく 1 つの連番を共有する
+next_number() {
+    jq -rn --slurpfile i "$issues" --slurpfile p "$prs" '([$i[0][].number] + [$p[0][].number] | max // 0) + 1'
+}
+
 sub="${1:-}"
 cmd2="${2:-}"
 if [[ $# -ge 2 ]]; then shift 2; else shift $#; fi
@@ -108,6 +126,18 @@ case "$sub $cmd2" in
 "api user")
     record ok "$sub" "$cmd2" "$@"
     emit '{"login":"eval-user"}' "$@"
+    ;;
+"api repos/"*"/actions/runs"*)
+    # gh-record.sh が gh pr checks を置き換えるときに読む Actions の API。pr checks と同じく、1・2 回目は実行中、3 回目から成功
+    record ok "$sub" "$cmd2" "$@"
+    counter="$state/checks.count"
+    c=$(($(cat "$counter" 2>/dev/null || echo 0) + 1))
+    echo "$c" >"$counter"
+    if [[ "$c" -lt 3 ]]; then
+        printf '{"total_count":1,"workflow_runs":[{"name":"CI","status":"in_progress","conclusion":null,"html_url":"%s/actions/1"}]}\n' "$fake_url"
+    else
+        printf '{"total_count":1,"workflow_runs":[{"name":"CI","status":"completed","conclusion":"success","html_url":"%s/actions/1"}]}\n' "$fake_url"
+    fi
     ;;
 "repo view")
     record ok "$sub" "$cmd2" "$@"
@@ -132,7 +162,7 @@ case "$sub $cmd2" in
     record ok "$sub" "$cmd2" "$@"
     st="$(flag state "$@")"
     st="${st:-open}"
-    list="$(jq -c --arg s "$st" '[.[] | select($s == "all" or (.state | ascii_downcase) == $s)]' "$issues")"
+    list="$(jq -c --arg s "$st" --argjson want "$(labels_of "$@")" '[.[] | select($s == "all" or (.state | ascii_downcase) == $s) | select(($want | length) == 0 or (.labels | map(.name)) as $have | all($want[]; . as $w | $have | index($w)))]' "$issues")"
     emit "$list" "$@"
     ;;
 "issue edit")
@@ -144,21 +174,34 @@ case "$sub $cmd2" in
         [[ "$who" == "@me" ]] && who="eval-user"
         update_json "$issues" --argjson n "$n" --arg w "$who" 'map(if .number == $n then .assignees += [{login: $w}] else . end)'
     fi
+    who="$(flag remove-assignee "$@")"
+    if [[ -n "$who" ]]; then
+        [[ "$who" == "@me" ]] && who="eval-user"
+        update_json "$issues" --argjson n "$n" --arg w "$who" 'map(if .number == $n then .assignees |= map(select(.login != $w)) else . end)'
+    fi
     ;;
 "issue create")
     record ok "$sub" "$cmd2" "$@"
-    update_json "$issues" --arg title "$(flag title "$@")" --arg body "$(body_of "$@")" --arg lbl "$(flag label "$@")" \
-        '(map(.number) | max + 1) as $n | . + [{number: $n, title: $title, body: $body, state: "OPEN", labels: (if $lbl == "" then [] else [{name: $lbl}] end), assignees: [], comments: [], created_by_agent: true}]'
-    echo "$fake_url/issues/$(jq 'map(.number) | max' "$issues")"
+    num="$(next_number)"
+    update_json "$issues" --argjson n "$num" --arg title "$(flag title "$@")" --arg body "$(body_of "$@")" --argjson lbls "$(labels_of "$@")" \
+        '. + [{number: $n, title: $title, body: $body, state: "OPEN", labels: ($lbls | map({name: .})), assignees: [], comments: [], created_by_agent: true}]'
+    echo "$fake_url/issues/$num"
     ;;
-"issue comment" | "issue close" | "issue reopen")
+"issue close" | "issue reopen")
+    record ok "$sub" "$cmd2" "$@"
+    st=CLOSED
+    [[ "$cmd2" == reopen ]] && st=OPEN
+    update_json "$issues" --arg a "${1:-}" --arg st "$st" 'map(if (.number | tostring) == $a then .state = $st else . end)'
+    ;;
+"issue comment")
     record ok "$sub" "$cmd2" "$@"
     ;;
 "pr create")
     head="$(flag head "$@")"
     head="${head:-$(current_branch)}"
     # 実 gh と同じく、origin に push していないブランチでは作れない
-    if ! git ls-remote --exit-code --heads origin "$head" >/dev/null 2>&1; then
+    sha="$(git ls-remote --heads origin "refs/heads/$head" 2>/dev/null | awk '{print $1}')"
+    if [[ -z "$sha" ]]; then
         record "error: head branch not pushed" "$sub" "$cmd2" "$@"
         echo "aborted: you must first push the current branch to a remote, or use the --head flag" >&2
         exit 1
@@ -167,16 +210,23 @@ case "$sub $cmd2" in
     # CI の待ち回数は PR ごとに数える（作る前に pr checks を呼んでおいても、待ったことにならない）
     rm -f "$state/checks.count"
     base="$(flag base "$@")"
-    update_json "$prs" --arg head "$head" --arg base "${base:-main}" --arg title "$(flag title "$@")" --arg body "$(body_of "$@")" \
-        '. + [{number: (length + 1), headRefName: $head, baseRefName: $base, title: $title, body: $body, state: "OPEN", mergeable: "MERGEABLE", url: ""}]'
-    echo "$fake_url/pull/$(jq length "$prs")"
+    num="$(next_number)"
+    update_json "$prs" --argjson n "$num" --arg head "$head" --arg sha "$sha" --arg base "${base:-main}" --arg title "$(flag title "$@")" --arg body "$(body_of "$@")" --argjson lbls "$(labels_of "$@")" \
+        '. + [{number: $n, headRefName: $head, headRefOid: $sha, baseRefName: $base, title: $title, body: $body, state: "OPEN", labels: ($lbls | map({name: .})), mergeable: "MERGEABLE", url: ""}]'
+    # GitHub は PR の先端を refs/pull/<N>/head に残す（ブランチを消しても読める）。ローカルの origin（bare）にも同じ ref を作る
+    odir="$(git remote get-url origin 2>/dev/null || true)"
+    [[ -d "$odir" ]] && git -C "$odir" update-ref "refs/pull/$num/head" "$sha"
+    echo "$fake_url/pull/$num"
     ;;
 "pr view" | "pr list")
     record ok "$sub" "$cmd2" "$@"
     arg="${1:-}"
     case "$arg" in -*) arg="" ;; esac
     if [[ "$cmd2" == list ]]; then
-        emit "$(jq -c . "$prs")" "$@"
+        st="$(flag state "$@")"
+        st="${st:-open}"
+        list="$(jq -c --arg s "$st" --argjson want "$(labels_of "$@")" '[.[] | select($s == "all" or (.state | ascii_downcase) == $s) | select(($want | length) == 0 or (.labels | map(.name)) as $have | all($want[]; . as $w | $have | index($w)))]' "$prs")"
+        emit "$list" "$@"
     else
         row="$(jq -c --arg a "$arg" 'map(select(($a == "") or (.number | tostring) == $a or .headRefName == $a)) | .[0] // empty' "$prs")"
         if [[ -z "$row" ]]; then
@@ -201,13 +251,22 @@ case "$sub $cmd2" in
     ;;
 "pr diff")
     record ok "$sub" "$cmd2" "$@"
-    git diff origin/main...HEAD
+    git diff "origin/${EVAL_BASE:-main}...HEAD"
     ;;
 "pr merge")
     record ok "$sub" "$cmd2" "$@"
     update_json "$prs" --arg a "${1:-}" 'map(if (.number | tostring) == $a or .headRefName == $a then .state = "MERGED" else . end)'
+    # --delete-branch は、実 gh と同じくリモートの head ブランチを消す（PR の ref は残る）
+    if printf '%s\n' "$@" | grep -qx -- '--delete-branch\|-d'; then
+        hb="$(jq -r --arg a "${1:-}" 'map(select((.number | tostring) == $a or .headRefName == $a)) | .[0].headRefName // empty' "$prs")"
+        [[ -z "$hb" ]] || git push -q origin --delete "$hb" >/dev/null 2>&1 || true
+    fi
     ;;
-"pr ready" | "pr comment" | "pr close" | "pr review")
+"pr close")
+    record ok "$sub" "$cmd2" "$@"
+    update_json "$prs" --arg a "${1:-}" 'map(if (.number | tostring) == $a or .headRefName == $a then .state = "CLOSED" else . end)'
+    ;;
+"pr ready" | "pr comment" | "pr review")
     record ok "$sub" "$cmd2" "$@"
     ;;
 "pr edit")

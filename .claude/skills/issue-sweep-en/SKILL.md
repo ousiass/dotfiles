@@ -370,7 +370,7 @@ Steps:
 3. When all Issues are implemented, push and create **exactly one PR** with `gh pr create --base <base_branch>`:
    - Include all Issue numbers in the title
    - List all target Issues in the body, with one line each on what was done for each Issue
-   - Link all of them with `gh pr edit <PR number> --add-issue <each Issue URL>` (do not use Closes)
+   - Link all of them by writing `Refs #<each Issue number>` in the body (included in the `gh pr create` body; `gh pr edit` has no flag to add an Issue; do not use Closes)
 4. Launch `/refine-git-en --no-merge --skip-minor --max-iter 2` via the Skill tool to polish.
    - **`--skip-minor` is required**: the sweep's merge gate does not look at minor. Each minor fix widens the
      diff and grows new minors, so iterating for minor is entirely wasted

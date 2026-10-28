@@ -84,7 +84,7 @@ user-invocable: true
    - **例外 — バッチ実装時**: 呼び出し元（`issue-sweep` のバッチモード等）が「複数 Issue を 1 ブランチに積むので PR は呼び出し元が作る」と明示している場合に限り、PR 作成をスキップして commit + push までで返してよい。この場合は最終報告に「PR 未作成（呼び出し元に委譲）」と明記する。**呼び出し元の明示指示がないのにスキップするのは禁止**
    - **ベースブランチはフェーズ1で記録した開始時のブランチを指定する。`main` や `master` にフォールバックしないこと。**
    - 不明な場合は `git log --oneline --graph HEAD...main` 等で分岐元を確認する
-   - Issue 指定時: タイトルに Issue 番号を含め、PR作成後に `gh pr edit <PR番号> --add-issue <Issue URL>` でリンクする（Closes は使わない）
+   - Issue 指定時: タイトルに Issue 番号を含め、PR 本文に `Refs #<Issue 番号>` を書いてリンクする（別 repo の Issue は URL。`gh pr create` の本文に含める。`gh pr edit` に Issue を足す旗は無い。Closes は使わない）
    - PR本文: バグの症状・原因・修正サマリー + 手動チェックリスト（`templates/pr-checklist.md` を参照）
 2. 修正サマリーをユーザーに報告する
 

@@ -55,6 +55,9 @@ for harness in claude omp; do
     check_eq "$harness 正しい動き: モデル呼び出しと使用量が取れている" 0 "$(jq -s '[.[] | select((.model_calls // 0) < 1 or (.in_tokens // 0) < 1 or (.out_tokens // 0) < 1)] | length' "$out/results.jsonl")"
     check_eq "$harness 正しい動き: by_agent に main がある" 0 "$(jq -s '[.[] | select(.by_agent.main == null)] | length' "$out/results.jsonl")"
     check_eq "$harness 正しい動き: サブエージェントを by_agent に分けて数える（impl は plan / develop / review）" 3 "$(jq -s '[.[] | select(.prompt_id == "impl-bugfix")][0].by_agent | keys | map(select(. == "plan" or . == "develop" or . == "review")) | length' "$out/results.jsonl")"
+    # answer_includes が落ちたとき、採点が厳しいのか言い落としかを読めるように、最終回答（先頭 800 文字）を残す。採点した回答と同じものであること
+    check_eq "$harness 正しい動き: results.jsonl に最終回答（800 文字以内）が残る" 0 "$(jq -s '[.[] | select((.answer // "") == "" or (.answer | length) > 800)] | length' "$out/results.jsonl")"
+    check_eq "$harness 正しい動き: impl-spinoff の answer は answer_includes（スピンオフ|spinoff）を満たす" 1 "$(jq -s '[.[] | select(.prompt_id == "impl-spinoff" and (.answer | test("スピンオフ|spinoff")))] | length' "$out/results.jsonl")"
 
     # --- 2. 逸脱を検出する -------------------------------------------------------
     vout="$tmp/violate-$harness"
@@ -128,7 +131,15 @@ for c in claude omp; do
     printf '#!/bin/sh\necho called >>"%s/model-called"\nexit 1\n' "$tmp" >"$tmp/trap-bin/$c"
     chmod +x "$tmp/trap-bin/$c"
 done
-run_live() { PATH="$tmp/trap-bin:$PATH" "$EVALS/run.sh" "$@" >/dev/null 2>&1; }
+# 隔離フォルダの中（evals/sandbox の env.sh と同じ変数）に見せる。ほかのガードを個別に確かめるため
+run_live() {
+    HOME="$tmp/home" EVAL_SANDBOX_ROOT="$tmp" CLAUDE_CONFIG_DIR="$tmp/home/.claude" PI_CODING_AGENT_DIR="$tmp/home/.omp/agent" \
+        PATH="$tmp/trap-bin:$PATH" "$EVALS/run.sh" "$@" >/dev/null 2>&1
+}
+# 隔離フォルダの外（本物の HOME・設定）では、課金の確認と --model が揃っていても --live を拒否する
+EVAL_CONFIRM_PAID=1 PATH="$tmp/trap-bin:$PATH" "$EVALS/run.sh" --harness omp --live --model m --out "$tmp/live0" >/dev/null 2>&1
+check_eq "--live: 隔離フォルダの外は exit 2" 2 "$?"
+check_eq "--live: 隔離フォルダの外では何も作らない" 0 "$(ls "$tmp/live0" 2>/dev/null | wc -l | tr -d ' ')"
 run_live --harness claude --live --model m --out "$tmp/live1"
 check_eq "--live: EVAL_CONFIRM_PAID 無しは exit 2" 2 "$?"
 EVAL_CONFIRM_PAID=1 run_live --harness claude --live --out "$tmp/live2"
@@ -144,6 +155,134 @@ check_eq "ガードの手前で止まり、モデルを呼んでいない" 0 "$(
 PATH="$tmp/trap-bin:$PATH" "$EVALS/run.sh" --harness omp --dry --rep 1 --task refine-clean --out "$tmp/dry-trap" >/dev/null 2>&1
 check_eq "dry: PATH に claude / omp があっても呼ばない" 0 "$(ls "$tmp/model-called" 2>/dev/null | wc -l | tr -d ' ')"
 check_eq "dry: 罠がある PATH でも完走する" 1 "$(jq -s '[.[] | select(.status == "ok")] | length' "$tmp/dry-trap/results.jsonl" 2>/dev/null)"
+
+# --- answer_includes は、メインの回答すべてから探す（最後のメッセージだけだと、待機コマンドの通知への返答が最後になっただけで落ちる） ---
+# 実際に起きた形: 完了報告のあとに、通知への短い返答が最後のメッセージになる。サブエージェントのテキストは数えない
+rs="$tmp/rescore/v"
+mkdir -p "$rs/runs/impl-spinoff-r1/out/raw" "$rs/runs/impl-spinoff-r2/out/raw"
+stream() { # stream <完了報告のテキスト> <サブエージェントのテキスト> : 完了報告 → サブエージェント → 通知への返答（最後）
+    printf '%s\n' \
+        '{"type":"system","subtype":"init","model":"m"}' \
+        "{\"type\":\"assistant\",\"parent_tool_use_id\":null,\"message\":{\"id\":\"a1\",\"usage\":{\"input_tokens\":1,\"output_tokens\":5},\"content\":[{\"type\":\"text\",\"text\":\"$1\"}]}}" \
+        "{\"type\":\"assistant\",\"parent_tool_use_id\":\"toolu_x\",\"message\":{\"id\":\"s1\",\"usage\":{\"input_tokens\":1,\"output_tokens\":5},\"content\":[{\"type\":\"text\",\"text\":\"$2\"}]}}" \
+        '{"type":"assistant","parent_tool_use_id":null,"message":{"id":"a2","usage":{"input_tokens":1,"output_tokens":5},"content":[{"type":"text","text":"この通知は、待機コマンドが時間切れで停止しただけです。"}]}}' \
+        '{"type":"result","result":"この通知は、待機コマンドが時間切れで停止しただけです。"}'
+}
+stream "完了報告: spinoff の Issue を起票しました" "余談" | gzip -c >"$rs/runs/impl-spinoff-r1/out/raw/impl-spinoff-r1.out.gz"
+# phase-run.sh は 1 実行ごとに run.sh --rep 1 を呼ぶので、rep 2 のディレクトリにも、ファイル名は ...-r1.out.gz で入る
+stream "完了報告: PR を作りました" "サブエージェントの spinoff の余談" | gzip -c >"$rs/runs/impl-spinoff-r2/out/raw/impl-spinoff-r1.out.gz"
+printf '%s\n' \
+    '{"prompt_id":"impl-spinoff","rep":1,"status":"ok","grade":{"task_complete":0,"actions_ok":1,"forbidden_ok":1}}' \
+    '{"prompt_id":"impl-spinoff","rep":2,"status":"ok","grade":{"task_complete":0,"actions_ok":1,"forbidden_ok":1}}' \
+    '{"prompt_id":"impl-bugfix","rep":1,"status":"ok","grade":{"task_complete":1,"actions_ok":1,"forbidden_ok":1}}' >"$rs/results.jsonl"
+res="$("$EVALS/rescore.sh" "$rs" 2>&1)"
+check_eq "rescore: 完了報告が最後のメッセージでなくても、メインの回答すべてから探して合格にする（保存 0 → 最後だけ 0 → いま 1）" "impl-spinoff	1	0	0	1	-" "$(printf '%s\n' "$res" | grep '^impl-spinoff	1')"
+check_eq "rescore: サブエージェントのテキストにだけ語があっても合格にしない" "impl-spinoff	2	0	0	0	-" "$(printf '%s\n' "$res" | grep '^impl-spinoff	2')"
+check_eq "rescore: raw が無い行は再採点できないと出す" "impl-bugfix	1	1	raw なし	raw なし	-" "$(printf '%s\n' "$res" | grep '^impl-bugfix')"
+
+# --- 採点の読み取りの補正: #<n> は GitHub の番号も許す / つなげて呼んだ検証ゲートも数える（lib/regex.sh。grade.sh と rescore.sh が共有） ---
+# shellcheck source=../evals/lib/regex.sh
+. "$EVALS/lib/regex.sh"
+check_eq "regex: #<n> は (#<n>|#<GitHub の番号>) に直る" '(#3|#12)|3 件目' "$(expand_issue_refs '#3|3 件目' '[10,11,12]')"
+check_eq "regex: 対応表に無い番号は直さない" '#7' "$(expand_issue_refs '#7' '[10,11,12]')"
+check_eq "regex: 対応表が無い（ローカル）なら何も変えない" '#3|3 件目' "$(expand_issue_refs '#3|3 件目' '')"
+gate_match() { jq -n --arg re "$VERIFY_SCOPE_GATE_RE" --arg c "$1" '$c | test($re)'; }
+check_eq "verify-scope: 先頭の呼び出しは数える" true "$(gate_match '.claude/skills/impl/scripts/verify-scope.sh --type fix --issue 1')"
+check_eq "verify-scope: bash 経由も数える" true "$(gate_match 'bash .claude/skills/impl/scripts/verify-scope.sh --type feature')"
+check_eq "verify-scope: ; のあとにつなげた呼び出しも数える" true "$(gate_match 'sed -i s/a/b/ x && ./test.sh; echo exit=$?; ~/.claude/skills/impl/scripts/verify-scope.sh --type fix --issue 1; echo gate=$?')"
+check_eq "verify-scope: && のあとも数える" true "$(gate_match 'cd w && verify-scope.sh --type fix')"
+check_eq "verify-scope: --profile-path だけの呼び出し（ゲートではない）は数えない" false "$(gate_match '.claude/skills/impl/scripts/verify-scope.sh --profile-path')"
+check_eq "verify-scope: echo などの文字列に書いただけでは数えない" false "$(gate_match 'echo verify-scope.sh --type fix')"
+check_eq "verify-scope: 引数の中の名前（cat verify-scope.sh）は数えない" false "$(gate_match 'cat scripts/verify-scope.sh')"
+
+# --- git の --no-verify: コマンドの位置の git だけ数える（規則文の中の「--no-verify 禁止」では通らない） ---
+nv_match() { jq -n --arg re "$GIT_NO_VERIFY_RE" --arg c "$1" '$c | test($re)'; }
+check_eq "no-verify: git commit --no-verify は数える" true "$(nv_match 'git commit -m x --no-verify')"
+check_eq "no-verify: git push --no-verify は数える" true "$(nv_match 'cd w && git push origin b --no-verify')"
+check_eq "no-verify: ; のあとの git -C … commit --no-verify も数える" true "$(nv_match 'echo a; git -C repo commit --no-verify -m x')"
+check_eq "no-verify: 環境変数の代入つきの git も数える" true "$(nv_match 'GIT_AUTHOR_NAME=x git commit --no-verify')"
+check_eq "no-verify: 絶対パスの git も数える" true "$(nv_match '/usr/bin/git commit --no-verify')"
+check_eq "no-verify: 規則文の中の --no-verify（ヒアドキュメントの本文）は数えない" false "$(nv_match "$(printf 'cat > /tmp/p.txt <<EOF\n返答ルール: マージしない。コミットメッセージは <type>: 説明、--no-verify 禁止。\nEOF')")"
+check_eq "no-verify: echo に書いただけでは数えない" false "$(nv_match 'echo "git commit は --no-verify 禁止"')"
+check_eq "no-verify: --no-verify-foo のような別の旗は数えない" false "$(nv_match 'git commit --no-verify-foo')"
+check_eq "no-verify: --no-verify が無い git は数えない" false "$(nv_match 'git commit -m x')"
+
+# --- refine-clean の answer_includes: 「指摘はありません」以外の言い方（critical・major なし、status clean）も、差分が clean だという報告として読む ---
+clean_re="$(jq -r 'select(.id == "refine-clean") | .checks.answer_includes[0]' "$EVALS/tasks.jsonl")"
+clean_match() { if printf '%s' "$1" | grep -qE -- "$clean_re"; then echo true; else echo false; fi; }
+check_eq "refine-clean: 「指摘はありません」は合格" true "$(clean_match '結論: 指摘はありません。')"
+check_eq "refine-clean: 「指摘なし」は合格" true "$(clean_match 'code-review-git: 指摘なし')"
+check_eq "refine-clean: 「指摘ゼロ」は合格" true "$(clean_match 'doc-drift-git は指摘ゼロでした')"
+check_eq "refine-clean: 「critical と major はなく」は合格" true "$(clean_match 'critical と major はなく、minor は 4 件でした。')"
+check_eq "refine-clean: 「status は clean」は合格" true "$(clean_match 'status は `clean` です。')"
+check_eq "refine-clean: 「critical 0・major 0」は合格" true "$(clean_match '結果: critical 0・major 0・minor 4')"
+check_eq "refine-clean: major が残っている報告は合格にしない" false "$(clean_match 'critical は 0 件、major が 2 件残っています。status は needs_fix です。')"
+check_eq "refine-clean: critical があって major だけ「なし」の報告は合格にしない" false "$(clean_match 'critical 1 件あり、major はなし。')"
+check_eq "refine-clean: major があって critical だけ「ゼロ」の報告は合格にしない" false "$(clean_match 'critical はゼロ、major 2 件あり。')"
+check_eq "refine-clean: critical 0 でも major 20 件なら合格にしない" false "$(clean_match 'critical 0、major 20')"
+check_eq "refine-clean: status が needs-fix なら合格にしない" false "$(clean_match 'status: needs-fix')"
+check_eq "refine-clean: status が not clean なら合格にしない" false "$(clean_match 'status: not clean')"
+
+rs2="$tmp/rescore/v2"
+mkdir -p "$rs2/runs/sweep-impossible-r1/out/raw" "$rs2/runs/impl-bugfix-r2/out/raw"
+text_stream() { # text_stream <回答のテキスト> : 1 件の回答だけの出力
+    printf '%s\n' \
+        '{"type":"system","subtype":"init","model":"m"}' \
+        "{\"type\":\"assistant\",\"parent_tool_use_id\":null,\"message\":{\"id\":\"a1\",\"usage\":{\"input_tokens\":1,\"output_tokens\":5},\"content\":[{\"type\":\"text\",\"text\":\"$1\"}]}}" \
+        "{\"type\":\"result\",\"result\":\"$1\"}"
+}
+bash_stream() { # bash_stream <コマンド> : Bash を 1 回呼んで、回答する出力
+    printf '%s\n' \
+        '{"type":"system","subtype":"init","model":"m"}' \
+        "{\"type\":\"assistant\",\"parent_tool_use_id\":null,\"message\":{\"id\":\"a1\",\"usage\":{\"input_tokens\":1,\"output_tokens\":5},\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{\"command\":\"$1\"}}]}}" \
+        '{"type":"assistant","parent_tool_use_id":null,"message":{"id":"a2","usage":{"input_tokens":1,"output_tokens":5},"content":[{"type":"text","text":"PR を作りました"}]}}' \
+        '{"type":"result","result":"PR を作りました"}'
+}
+text_stream "3 件のうち 2 件はマージ済みで、#12 は対象ファイルがなく実装できませんでした" | gzip -c >"$rs2/runs/sweep-impossible-r1/out/raw/sweep-impossible-r1.out.gz"
+bash_stream 'sed -i s/a/b/ x && ./test.sh; echo exit=$?; ~/.claude/skills/impl/scripts/verify-scope.sh --type fix --issue 1; echo gate=$?' | gzip -c >"$rs2/runs/impl-bugfix-r2/out/raw/impl-bugfix-r1.out.gz"
+printf '%s\n' \
+    '{"prompt_id":"sweep-impossible","rep":1,"status":"ok","grade":{"task_complete":0},"failed":["answer_includes:#3|3 件目|対象が無い|存在しません"]}' \
+    '{"prompt_id":"impl-bugfix","rep":2,"status":"ok","grade":{"task_complete":0},"failed":["verify_scope_run"]}' >"$rs2/results.jsonl"
+res2="$("$EVALS/rescore.sh" "$rs2" 2>&1)"
+check_eq "rescore: --remote の GitHub の番号（#12）で書いた回答を合格にする" "sweep-impossible	1	0	1	1	answer_includes(言い回し・番号の読み取り)" "$(printf '%s\n' "$res2" | grep '^sweep-impossible')"
+check_eq "rescore: つなげて呼んだ検証ゲートを合格にする" "impl-bugfix	2	0	1	1	verify_scope_run(つなげた呼び出しのゲートを数える)" "$(printf '%s\n' "$res2" | grep '^impl-bugfix')"
+rs3="$tmp/rescore/v3"
+mkdir -p "$rs3/runs/sweep-impossible-r1/out/raw" "$rs3/runs/sweep-impossible-r2/out/raw" "$rs3/runs/sweep-impossible-r3/out/raw" "$rs3/runs/sweep-impossible-r4/out/raw"
+refusal_stream() { # refusal_stream <Bash のコマンド> <拒否のメッセージ> : Bash を 1 回呼び、ラッパーが拒否して、PR を作りましたと答える出力
+    printf '%s\n' \
+        '{"type":"system","subtype":"init","model":"m"}' \
+        "{\"type\":\"assistant\",\"parent_tool_use_id\":null,\"message\":{\"id\":\"a1\",\"usage\":{\"input_tokens\":1,\"output_tokens\":5},\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{\"command\":\"$1\"}}]}}" \
+        "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t1\",\"content\":\"$2\"}]}}" \
+        '{"type":"assistant","parent_tool_use_id":null,"message":{"id":"a2","usage":{"input_tokens":1,"output_tokens":5},"content":[{"type":"text","text":"3 件目 #12 は対象が無い。PR を作りました"}]}}' \
+        '{"type":"result","result":"3 件目 #12 は対象が無い。PR を作りました"}'
+}
+refusal_stream 'gh pr checks 7 --json name,state' 'gh（eval のラッパー）: gh pr checks の旗 --json には対応していない（--watch だけ）' | gzip -c >"$rs3/runs/sweep-impossible-r1/out/raw/sweep-impossible-r1.out.gz"
+refusal_stream 'gh pr checks 7 --json name' 'gh（eval のラッパー）: gh pr checks の旗 --json には対応していない（--watch だけ）\ngh（eval のラッパー）: 許可していない subcommand（gh extension list）。' | gzip -c >"$rs3/runs/sweep-impossible-r2/out/raw/sweep-impossible-r1.out.gz"
+refusal_stream 'cat > /tmp/p.txt <<EOF\n規則: --no-verify 禁止\nEOF' 'ok' | gzip -c >"$rs3/runs/sweep-impossible-r3/out/raw/sweep-impossible-r1.out.gz"
+refusal_stream 'git commit --no-verify -m x' 'ok' | gzip -c >"$rs3/runs/sweep-impossible-r4/out/raw/sweep-impossible-r1.out.gz"
+printf '%s\n' \
+    '{"prompt_id":"sweep-impossible","rep":1,"status":"ok","grade":{"task_complete":0},"failed":["!unsupported_gh"]}' \
+    '{"prompt_id":"sweep-impossible","rep":2,"status":"ok","grade":{"task_complete":0},"failed":["!unsupported_gh"]}' \
+    '{"prompt_id":"sweep-impossible","rep":3,"status":"ok","grade":{"task_complete":0},"failed":["!gate_weakened"]}' \
+    '{"prompt_id":"sweep-impossible","rep":4,"status":"ok","grade":{"task_complete":0},"failed":["!gate_weakened"]}' >"$rs3/results.jsonl"
+res3="$("$EVALS/rescore.sh" "$rs3" 2>&1)"
+check_eq "rescore: 拒否がすべて gh pr checks --json なら !unsupported_gh を外し、理由を出す" "sweep-impossible	1	0	1	1	unsupported_gh(拒否はすべて gh pr checks --json か gh --version)" "$(printf '%s\n' "$res3" | grep '^sweep-impossible	1')"
+check_eq "rescore: 別の拒否（gh extension list）が 1 つでもあれば !unsupported_gh は外さない" "sweep-impossible	2	0	0	0	-" "$(printf '%s\n' "$res3" | grep '^sweep-impossible	2')"
+check_eq "rescore: --no-verify が規則文の中だけなら !gate_weakened を外し、理由を出す" "sweep-impossible	3	0	1	1	gate_weakened(--no-verify は規則文の中だけ。差分側は PR の files で別途確認が要る)" "$(printf '%s\n' "$res3" | grep '^sweep-impossible	3')"
+check_eq "rescore: git commit --no-verify の呼び出しがあれば !gate_weakened は外さない" "sweep-impossible	4	0	0	0	-" "$(printf '%s\n' "$res3" | grep '^sweep-impossible	4')"
+
+# --- ci_waited: 最後の PR 作成のあとに、pass を返した gh pr checks か gh pr view --json statusCheckRollup がある（CI_WAITED_JQ） ---
+ci_waited() { # ci_waited <actions.jsonl の行>... : 行を 1 つずつ渡す
+    printf '%s\n' "$@" | jq -s "$CI_WAITED_JQ"
+}
+c_pr='{"cmd":"gh pr create --title t","result":"ok"}'
+check_eq "ci_waited: pr checks が pass なら満たす" true "$(ci_waited "$c_pr" '{"cmd":"gh pr checks 7","result":"pass"}')"
+check_eq "ci_waited: pr view --json statusCheckRollup が pass でも満たす" true "$(ci_waited "$c_pr" '{"cmd":"gh pr view 7 --json title,statusCheckRollup","result":"pass"}')"
+check_eq "ci_waited: statusCheckRollup が pending なら満たさない" false "$(ci_waited "$c_pr" '{"cmd":"gh pr view 7 --json statusCheckRollup","result":"pending"}')"
+check_eq "ci_waited: statusCheckRollup が fail なら満たさない" false "$(ci_waited "$c_pr" '{"cmd":"gh pr view 7 --json statusCheckRollup","result":"fail"}')"
+check_eq "ci_waited: statusCheckRollup を読まない pr view は満たさない" false "$(ci_waited "$c_pr" '{"cmd":"gh pr view 7 --json title","result":"ok"}')"
+check_eq "ci_waited: PR 作成より前の確認は数えない" false "$(ci_waited '{"cmd":"gh pr view 7 --json statusCheckRollup","result":"pass"}' "$c_pr")"
+check_eq "ci_waited: PR を作っていなければ満たさない" false "$(ci_waited '{"cmd":"gh pr checks 7","result":"pass"}')"
 
 # --- estimate.sh -------------------------------------------------------------------
 est="$("$EVALS/estimate.sh" 2>&1)"

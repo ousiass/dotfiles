@@ -1,0 +1,356 @@
+#!/usr/bin/env bash
+# 試験用 repo に書き込む実行（run.sh --remote）で、エージェントの PATH 先頭に `gh` として置く記録用のラッパー。
+#
+# 1. 固定の試験用 repo（evals/sandbox/lib.sh の SANDBOX_REPO）以外には動かさない
+#      --repo / -R・GH_REPO・gh api のパスが別の repo を指していたら、実行せずに止める
+#      許す subcommand を絞る（auth status|git-credential、api、issue、pr、label、repo view、run）。ほかは止める
+# 2. 呼び出しを $EVAL_STATE/actions.jsonl に 1 行 1 JSON で記録する（採点が「書き込みの動き」として読む）
+#      result: gh pr checks は Actions の API で置き換える（下の pr_checks）。exit 0 = pass / 8 = pending / それ以外 = fail。ほかは exit 0 = ok / それ以外 = error。止めたものは unsupported
+# 3. gh pr create と gh issue create には、ラベル eval を足す（reset.sh が eval ラベルの PR・Issue だけを片付ける）
+# 4. 本物の gh（$EVAL_GH_REAL）に渡す。EVAL_GH_REAL は必須（PATH からは探さない。自分自身を呼ぶ無限ループを避ける）。
+#    dry では、EVAL_GH_REAL に偽の gh（evals/lib/fake-gh.sh を呼ぶもの）が入る。本物の gh は呼ばない
+#
+# gh auth git-credential は、git の credential helper としてのやりとり（トークンが標準出力に出る）なので、記録しない。
+set -uo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../sandbox/lib.sh
+. "$here/../sandbox/lib.sh"
+
+real="${EVAL_GH_REAL:?EVAL_GH_REAL が未設定です（本物の gh か、dry の偽 gh）}"
+state="${EVAL_STATE:?EVAL_STATE が未設定です}"
+actions="$state/actions.jsonl"
+
+# log_call <result> <gh に渡された引数...> : 呼び出しを 1 行 1 JSON で残す
+log_call() {
+    local result="$1"
+    shift
+    jq -nc --arg cmd "gh $*" --arg result "$result" --arg why "${LOG_WHY:-}" '{cmd: $cmd, result: $result} + (if $why == "" then {} else {why: $why} end)' >>"$actions"
+}
+refuse() { # refuse <理由> <引数...>
+    local why="$1"
+    shift
+    jq -nc --arg cmd "gh $*" --arg result "unsupported" --arg why "$why" '{cmd: $cmd, result: $result, why: $why}' >>"$actions"
+    echo "gh（eval のラッパー）: ${why}。この環境では ${SANDBOX_REPO} だけを操作できます" >&2
+    exit 1
+}
+
+# 普段の gh のログイン（ユーザーの gh の設定ディレクトリ）を使う実行: トークンは環境変数にもファイルにも置かない。
+# 本物の gh を呼ぶときだけ、この wrapper が GH_CONFIG_DIR をそちらに向けて、GH_TOKEN を外す（エージェントの環境には出ない）
+if [[ -n "${EVAL_GH_USER_CONFIG_DIR:-}" ]]; then
+    export GH_CONFIG_DIR="$EVAL_GH_USER_CONFIG_DIR"
+    unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
+fi
+
+# git の credential helper。トークンを渡すのは、固定の repo に対する get だけ。
+# 別の repo・別のホスト・path が来ない（credential.useHttpPath が無い）ときは何も返さない（git は認証に失敗する）。store / erase は何もしない
+if [[ "${1:-}" == auth && "${2:-}" == git-credential ]]; then
+    [[ "${3:-}" == get ]] || exit 0
+    req="$(cat)"
+    cred_host="$(printf '%s\n' "$req" | sed -n 's/^host=//p' | head -1)"
+    cred_path="$(printf '%s\n' "$req" | sed -n 's/^path=//p' | head -1)"
+    if [[ "$cred_host" == github.com && ( "$cred_path" == "$SANDBOX_REPO" || "$cred_path" == "${SANDBOX_REPO}.git" ) ]]; then
+        printf '%s\n' "$req" | "$real" "$@"
+        exit $?
+    fi
+    jq -nc --arg cmd "git credential get host=${cred_host} path=${cred_path}" --arg result "unsupported" --arg why "固定の repo 以外には認証情報を渡さない" '{cmd: $cmd, result: $result, why: $why}' >>"$actions"
+    exit 0
+fi
+
+args=("$@")
+
+# --- repo の指定 -----------------------------------------------------------------------
+if [[ -n "${GH_REPO:-}" && "$GH_REPO" != "$SANDBOX_REPO" && "$GH_REPO" != "github.com/$SANDBOX_REPO" ]]; then
+    refuse "GH_REPO が別の repo（${GH_REPO}）を指している" "${args[@]}"
+fi
+prev=""
+for a in "${args[@]}"; do
+    val=""
+    case "$prev" in --repo | -R) val="$a" ;; esac
+    case "$a" in --repo=*) val="${a#--repo=}" ;; esac
+    if [[ -n "$val" && "$val" != "$SANDBOX_REPO" && "$val" != "github.com/$SANDBOX_REPO" ]]; then
+        refuse "--repo が別の repo（${val}）を指している" "${args[@]}"
+    fi
+    # URL の引数（gh pr view https://github.com/o/r/pull/1 など）は GH_REPO より優先されるので、別の repo のものは止める
+    case "$a" in
+    http://* | https://* | github.com/*)
+        [[ "$a" =~ ^(https?://)?(api\.)?github\.com/(repos/)?"$SANDBOX_REPO"(\.git)?([/?#]|$) ]] || [[ "$a" =~ ^https://api\.github\.com/(graphql|user)?$ ]] ||
+            refuse "別の repo の URL を指している（${a}）" "${args[@]}"
+        ;;
+    esac
+    prev="$a"
+done
+
+# --- subcommand -------------------------------------------------------------------------
+sub="${1:-}"
+cmd2="${2:-}"
+case "$sub $cmd2" in
+"auth status") ;;
+# gh --version（バージョンの確認。リモートにも何にも触れない）
+"--version "*) ;;
+"repo view")
+    # repo view は位置引数の repo を見る（GH_REPO は効かない）。位置引数があれば固定の repo だけ許し、無ければ固定の repo を足す
+    # 値を取る旗（--json など。--flag=value 形式は 1 引数）の次の引数だけを飛ばし、ほかの「-」で始まらない引数は全部、位置引数として検査する
+    # （--web ousiass/dotfiles や、owner を省いた dotfiles も止まる）
+    positional=0
+    prev=""
+    for a in "${args[@]:2}"; do
+        case "$prev" in
+        --json | --jq | -q | --template | -t | --branch | -b) prev=""; continue ;;
+        esac
+        case "$a" in
+        -*) ;;
+        *) positional=1; [[ "$a" == "$SANDBOX_REPO" ]] || refuse "gh repo view が別の repo（${a}）を指している" "${args[@]}" ;;
+        esac
+        prev="$a"
+    done
+    ;;
+"api "*) ;;
+"issue transfer") refuse "gh issue transfer は別の repo に Issue を移せるので使えない" "${args[@]}" ;;
+"issue "* | "pr " | "pr "* | "label "*) ;;
+"run list" | "run view" | "run watch") ;;
+*) refuse "許可していない subcommand（gh ${sub} ${cmd2}）" "${args[@]}" ;;
+esac
+# gh api: 叩ける先は固定の repo（repos/<固定の repo>/...）と user・rate_limit だけ。GraphQL・別の repo・orgs・gists・user/repos などは止める
+# （普段の gh のログインのように、試験用 repo 以外にも書けるトークンのとき、gh api が repo の固定をすり抜ける穴になるため）
+# エンドポイント = 値を取る旗の値を除いた最初の「-」で始まらない引数
+if [[ "$sub" == api ]]; then
+    endpoint=""
+    prev=""
+    for a in "${args[@]:1}"; do
+        case "$prev" in
+        -X | --method | -H | --header | -f | --raw-field | -F | --field | -q | --jq | -t | --template | --input | -p | --preview | --hostname | --cache) prev=""; continue ;;
+        esac
+        prev="$a"
+        case "$a" in
+        -*) ;;
+        *)
+            endpoint="$a"
+            break
+            ;;
+        esac
+    done
+    ep="${endpoint#https://api.github.com/}"
+    ep="${ep#/}"
+    case "$ep" in
+    # %2F（ブランチ名の / のエンコード。repos/<固定の repo>/branches/eval%2Fx%2Fmain など）は許す。.. と %2e（.. のエンコード）、\ は止める
+    *..* | *%2[eE]* | *\\*) refuse "gh api のパスに .. や %2e を含んでいる（${endpoint}）" "${args[@]}" ;;
+    "repos/${SANDBOX_REPO}" | "repos/${SANDBOX_REPO}/"* | "repos/${SANDBOX_REPO}?"*) ;;
+    user | user\?* | rate_limit | rate_limit\?*) ;;
+    *) refuse "gh api のパスが固定の repo 以外を指している（${endpoint:-なし}）。許すのは repos/${SANDBOX_REPO}/... と user・rate_limit だけ" "${args[@]}" ;;
+    esac
+fi
+
+# --- gh pr checks を Actions の API に置き換える -----------------------------------------------
+# gh pr checks は GraphQL の statusCheckRollup を読むが、fine-grained トークンには Checks・Commit statuses の権限が無く FORBIDDEN になる。
+# 代わりに、PR の先端（gh pr view の headRefOid）の Actions の run（actions/runs?head_sha=）を読んで、gh pr checks と同じ終了コードにする:
+# 0 = 全部成功（skipped・neutral を含む）、1 = 失敗がある（run が 1 つも無いときも 1。gh と同じ）、8 = 実行中が残っている（失敗が無いとき）
+# checks_once <選択子> : PR の先端の Actions の run を 1 回読む。ck_rows（run の表）・ck_rc（0 / 1 / 8）・ck_head（ブランチ名）を設定する。
+# PR か run を読めなかったら、ck_err に理由を入れて 2 を返す。gh pr view --json statusCheckRollup の結果の記録にも使う（下）
+checks_once() {
+    local sel="$1" view sha runs n_total n_fail n_pending
+    ck_err="" ck_rows="" ck_head="" ck_rc=1 ck_runs='{"workflow_runs":[]}'
+    if ! view="$("$real" pr view ${sel:+"$sel"} --json headRefOid,headRefName 2>&1)"; then
+        ck_err="$view"
+        return 2
+    fi
+    sha="$(jq -r '.headRefOid // empty' <<<"$view")"
+    if [[ -z "$sha" ]] || ! runs="$("$real" api "repos/${SANDBOX_REPO}/actions/runs?head_sha=${sha}&per_page=100" 2>&1)"; then
+        ck_err="${runs:-$view}"
+        return 2
+    fi
+    ck_head="$(jq -r '.headRefName // empty' <<<"$view")"
+    ck_rows="$(jq -r '.workflow_runs[]? | (.conclusion // "") as $c | [.name, (if .status != "completed" then "pending" elif (["success", "skipped", "neutral"] | index($c)) != null then "pass" else "fail" end), "", .html_url] | @tsv' <<<"$runs")"
+    n_total="$(printf '%s' "$ck_rows" | grep -c . || true)"
+    n_fail="$(printf '%s' "$ck_rows" | awk -F'\t' '$2 == "fail"' | grep -c . || true)"
+    n_pending="$(printf '%s' "$ck_rows" | awk -F'\t' '$2 == "pending"' | grep -c . || true)"
+    if [[ "$n_total" -eq 0 || "$n_fail" -gt 0 ]]; then ck_rc=1; elif [[ "$n_pending" -gt 0 ]]; then ck_rc=8; else ck_rc=0; fi
+    ck_runs="$runs"
+    return 0
+}
+# checks_json : ck_runs の run ごとにジョブを読んで、gh pr checks --json と同じ意味のチェックの配列を ck_checks に入れる（gh の aggregate.go と同じ対応）:
+#   name = ジョブ名、workflow = run の名前、event = run の event、link = ジョブの URL、
+#   state = 実行中は status、終わっていれば conclusion（どちらも大文字）、bucket = state から（SUCCESS pass、SKIPPED・NEUTRAL skipping、
+#   ERROR・FAILURE・TIMED_OUT・ACTION_REQUIRED fail、CANCELLED cancel、それ以外 pending）、時刻が無ければ Go の zero time。
+#   同じ name / workflow / event の再実行は、新しい方だけ残す（startedAt の新しい順）。読めなければ ck_err に理由を入れて 2 を返す
+checks_json() {
+    local id run jobs all="[]"
+    ck_checks="[]"
+    for id in $(jq -r '.workflow_runs[]?.id' <<<"$ck_runs"); do
+        run="$(jq -c --argjson id "$id" '.workflow_runs[] | select(.id == $id)' <<<"$ck_runs")"
+        if ! jobs="$("$real" api "repos/${SANDBOX_REPO}/actions/runs/${id}/jobs?per_page=100" 2>&1)"; then
+            ck_err="$jobs"
+            return 2
+        fi
+        all="$(jq -c --argjson all "$all" --argjson run "$run" '
+            $all + [.jobs[]?
+                | (if .status != "completed" then ((.status // "") | ascii_upcase) else ((.conclusion // "") | ascii_upcase) end) as $s
+                | {name: .name, workflow: $run.name, event: $run.event, link: .html_url, description: "", state: $s,
+                   bucket: (if $s == "SUCCESS" then "pass"
+                            elif ($s == "SKIPPED" or $s == "NEUTRAL") then "skipping"
+                            elif ($s == "ERROR" or $s == "FAILURE" or $s == "TIMED_OUT" or $s == "ACTION_REQUIRED") then "fail"
+                            elif $s == "CANCELLED" then "cancel"
+                            else "pending" end),
+                   startedAt: (.started_at // "0001-01-01T00:00:00Z"), completedAt: (.completed_at // "0001-01-01T00:00:00Z")}]' <<<"$jobs")"
+    done
+    ck_checks="$(jq -c 'sort_by(.startedAt) | reverse
+        | reduce .[] as $c ({seen: {}, out: []}; ($c | [.name, .workflow, .event] | @json) as $k | if .seen[$k] then . else (.seen[$k] = true | .out += [$c]) end)
+        | .out' <<<"$all")"
+    return 0
+}
+# pr_checks の対応する旗: --watch、-i / --interval N、--fail-fast・--required（無視）、--json F と --jq（-q）、--repo。位置引数は PR の番号・ブランチ・URL
+pr_checks() {
+    local sel="" watch=0 interval=10 i a f prev="" rc json_fields="" json_jq="" out
+    for ((i = 2; i < ${#args[@]}; i++)); do
+        a="${args[$i]}"
+        case "$prev" in
+        -i | --interval)
+            interval="$a"
+            prev=""
+            continue
+            ;;
+        -R | --repo)
+            # 値は、上の repo の指定の検査で、固定の repo だと確かめ済み
+            prev=""
+            continue
+            ;;
+        --json)
+            json_fields="$a"
+            prev=""
+            continue
+            ;;
+        -q | --jq)
+            json_jq="$a"
+            prev=""
+            continue
+            ;;
+        esac
+        case "$a" in
+        --watch) watch=1 ;;
+        -i | --interval | -R | --repo | --json | -q | --jq) prev="$a" ;;
+        --interval=*) interval="${a#--interval=}" ;;
+        --json=*) json_fields="${a#--json=}" ;;
+        --jq=*) json_jq="${a#--jq=}" ;;
+        --repo=*) ;;
+        --fail-fast | --required) ;;
+        -*) refuse "gh pr checks の旗 ${a} には対応していない（--watch・--interval・--fail-fast・--required・--repo・--json・--jq だけ）" "${args[@]}" ;;
+        *) sel="$a" ;;
+        esac
+    done
+    [[ "$interval" =~ ^[0-9]+$ ]] || refuse "gh pr checks の --interval が数字ではない（${interval}）" "${args[@]}"
+    # --json の使い方の誤りは、本物の gh と同じメッセージと exit 1（gh 自身のエラーなので、記録は error。ラッパーが止めた unsupported ではない）
+    json_err() {
+        printf '%s\n' "$1" >&2
+        log_call error "${args[@]}"
+        exit 1
+    }
+    if [[ -n "$json_fields" ]]; then
+        [[ "$watch" -eq 0 ]] || json_err 'cannot use `--watch` with `--json` flag'
+        for f in ${json_fields//,/ }; do
+            case "$f" in
+            name | state | bucket | link | workflow | event | description | startedAt | completedAt) ;;
+            *) json_err "$(printf 'Unknown JSON field: "%s"\nAvailable fields:\n  bucket\n  completedAt\n  description\n  event\n  link\n  name\n  startedAt\n  state\n  workflow' "$f")" ;;
+            esac
+        done
+    elif [[ -n "$json_jq" ]]; then
+        json_err 'cannot use `--jq` without specifying `--json`'
+    fi
+    export GH_REPO="$SANDBOX_REPO"
+    while :; do
+        if ! checks_once "$sel"; then
+            printf '%s\n' "$ck_err" >&2
+            log_call fail "${args[@]}"
+            exit 1
+        fi
+        rc="$ck_rc"
+        if [[ "$watch" -eq 1 && "$rc" -eq 8 ]]; then
+            sleep "$interval"
+            continue
+        fi
+        break
+    done
+    if [[ -z "$ck_rows" ]]; then
+        # run が 1 つも無い。gh は --json でも、標準出力には何も出さずにエラー（exit 1）にする
+        echo "no checks reported on the '${ck_head}' branch" >&2
+        log_call fail "${args[@]}"
+        exit 1
+    fi
+    if [[ -n "$json_fields" ]]; then
+        # gh pr checks --json: 1 つのチェック（ジョブ）ごとの JSON を、キーの名前順に出す。--jq があれば jq に渡すだけ。
+        # gh は --json のときは、チェックが失敗・実行中でも exit 0（結果の表のときだけ 1 / 8）。記録する結果（pass / pending / fail）は、--json の有無で変えない
+        if ! checks_json; then
+            printf '%s\n' "$ck_err" >&2
+            log_call fail "${args[@]}"
+            exit 1
+        fi
+        out="$(jq -cS --arg f "$json_fields" '($f | split(",")) as $keep | map(with_entries(select(.key as $k | $keep | index($k))))' <<<"$ck_checks")"
+        if [[ -n "$json_jq" ]]; then
+            jq -r "$json_jq" <<<"$out" || {
+                log_call fail "${args[@]}"
+                exit 1
+            }
+        else
+            printf '%s\n' "$out"
+        fi
+        case "$rc" in 0) log_call pass "${args[@]}" ;; 8) log_call pending "${args[@]}" ;; *) log_call fail "${args[@]}" ;; esac
+        exit 0
+    fi
+    printf '%s\n' "$ck_rows"
+    case "$rc" in 0) log_call pass "${args[@]}" ;; 8) log_call pending "${args[@]}" ;; *) log_call fail "${args[@]}" ;; esac
+    exit "$rc"
+}
+[[ "$sub $cmd2" == "pr checks" ]] && pr_checks
+
+# --- ラベル eval を足す ---------------------------------------------------------------------
+extra=()
+case "$sub $cmd2" in
+"pr create" | "issue create")
+    has_eval=0
+    prev=""
+    for a in "${args[@]}"; do
+        case "$prev" in --label | -l) [[ ",$a," == *",eval,"* ]] && has_eval=1 ;; esac
+        case "$a" in --label=*) [[ ",${a#--label=}," == *",eval,"* ]] && has_eval=1 ;; esac
+        prev="$a"
+    done
+    [[ "$has_eval" -eq 1 ]] || extra=(--label eval)
+    ;;
+"repo view")
+    [[ "$positional" -eq 1 ]] || extra=("$SANDBOX_REPO")
+    ;;
+esac
+
+# 実行。対象の repo は GH_REPO でも固定する（git の remote に左右されない）
+export GH_REPO="$SANDBOX_REPO"
+# 空の配列の展開は、bash 3.2（macOS）で set -u に引っかかるので、+ で囲む
+errf="$(mktemp "${TMPDIR:-/tmp}/eval-gh-err.XXXXXX")"
+"$real" "${args[@]}" ${extra[@]+"${extra[@]}"} 2>"$errf"
+rc=$?
+cat "$errf" >&2
+result=error
+[[ "$rc" -eq 0 ]] && result=ok
+# gh pr view --json statusCheckRollup は、CI の状態を読む別の方法（gh pr checks と同じ目的）。採点が「CI の通過を確かめた」と読めるように、
+# 呼び出しの結果は pr checks と同じ pass / pending / fail で記録する（Actions の run の状態。pr checks と同じ読み方）。読めなければ ok のまま
+if [[ "$rc" -eq 0 && "$sub $cmd2" == "pr view" && " ${args[*]} " == *statusCheckRollup* ]]; then
+    sel=""
+    prev=""
+    for ((i = 2; i < ${#args[@]}; i++)); do
+        a="${args[$i]}"
+        case "$prev" in
+        --json | --jq | -q | --template | -t | -R | --repo) prev=""; continue ;;
+        esac
+        case "$a" in
+        --json | --jq | -q | --template | -t | -R | --repo) prev="$a" ;;
+        -*) ;;
+        *) [[ -n "$sel" ]] || sel="$a" ;;
+        esac
+    done
+    if checks_once "$sel"; then
+        case "$ck_rc" in 0) result=pass ;; 8) result=pending ;; *) result=fail ;; esac
+    fi
+fi
+# 失敗の理由（gh の標準エラーの先頭 1 行）を残す。トークンは gh のエラーに含まれない
+LOG_WHY=""
+[[ "$rc" -eq 0 ]] || LOG_WHY="$(head -1 "$errf" | cut -c1-200)"
+rm -f "$errf"
+log_call "$result" "${args[@]}"
+exit "$rc"

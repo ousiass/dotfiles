@@ -13,18 +13,30 @@
 #   --out      出力先（既定 evals/results/<日時>-<harness>-<dry|live>）。results.jsonl と run.json ができる
 #   --rep      1 タスクあたりの回数（既定 2。issue の運用ルール: 2 rep 以上）
 #   --task     タスク id を絞る（複数可）
+#   --remote   ローカルの使い捨て repo と偽 gh ではなく、試験用 repo（ousiass/dotfiles-eval-sandbox。名前は固定）に実際に書かせる。
+#              エージェントの git push と gh（記録用ラッパー lib/gh-record.sh 経由）だけが書き込む。run.sh 自身は書き込まない。
+#              初期状態から動いていたら、その実行は始めない（reset.sh --apply と seed.sh は人が実行する。自動では走らせない）。
+#              dry では、試験用 repo の代わりにローカルの bare repo（seed.sh で同じ内容を入れる）と偽 gh を使う（ネットワークに出ない）。
+#              live では GH_TOKEN（試験用 repo だけに書ける fine-grained トークン。evals/sandbox/README.md）が要る
 #
-# サンドボックスは $TMPDIR（無ければ /tmp）の下にだけ作る。本番の GitHub には、偽の gh（PATH の先頭）を通すので出ない。
+# 既定のサンドボックスは $TMPDIR（無ければ /tmp）の下にだけ作る。本番の GitHub には、偽の gh（PATH の先頭）を通すので出ない。
 # 本物の gh を絶対パスで呼ばれるとこの保証は崩れる。live は、使い捨ての VM かコンテナの中で動かすこと。
 set -uo pipefail
 
 EVALS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export EVALS_DIR
+# 隔離フォルダの git 設定（<root>/with-env が設定する）。fixture.sh がホストの設定を切り離す前に控えておく（--remote --live で使う）
+ORIG_GIT_CONFIG_GLOBAL="${GIT_CONFIG_GLOBAL:-}"
 # shellcheck source=lib/fixture.sh
 . "$EVALS_DIR/lib/fixture.sh"
 # shellcheck source=lib/adapt.sh
 . "$EVALS_DIR/lib/adapt.sh"
+# shellcheck source=lib/remote.sh
+. "$EVALS_DIR/lib/remote.sh"
 
+remote=0
+# remote.sh の remote_prepare が決める値（--remote のとき）
+r_base="" r_start="" r_prefix="" r_map="" r_gh_real=""
 harness=""
 mode=""
 model="${EVAL_MODEL:-}"
@@ -75,8 +87,12 @@ while [[ $# -gt 0 ]]; do
         only+=("${2:-}")
         shift 2
         ;;
+    --remote)
+        remote=1
+        shift
+        ;;
     -h | --help)
-        sed -n '2,22p' "${BASH_SOURCE[0]}"
+        sed -n '2,23p' "${BASH_SOURCE[0]}"
         exit 0
         ;;
     *)
@@ -107,6 +123,11 @@ if [[ "$mode" == live ]]; then
         echo "run.sh: --live は課金されます。規模は evals/estimate.sh で確認し、実行するなら EVAL_CONFIRM_PAID=1 を付けてください" >&2
         exit 2
     }
+    # 隔離フォルダ（evals/sandbox/init.sh が作る <root>/with-env）の外では、本物の HOME・設定・gh のログインで動いてしまう
+    [[ -n "${EVAL_SANDBOX_ROOT:-}" && "${HOME:-}" == "$EVAL_SANDBOX_ROOT"/* && "${CLAUDE_CONFIG_DIR:-}" == "$EVAL_SANDBOX_ROOT"/* && "${PI_CODING_AGENT_DIR:-}" == "$EVAL_SANDBOX_ROOT"/* ]] || {
+        echo "run.sh: --live は隔離フォルダの中でだけ動かします。<root>/with-env を通してください（evals/sandbox/README.md）" >&2
+        exit 2
+    }
     [[ "$violate" -eq 0 ]] || {
         echo "run.sh: --violate は --dry でだけ使えます" >&2
         exit 2
@@ -117,7 +138,7 @@ command -v jq >/dev/null || {
     exit 2
 }
 
-[[ -n "$out" ]] || out="$EVALS_DIR/results/$(date +%Y%m%d-%H%M%S)-$harness-$mode"
+[[ -n "$out" ]] || out="${EVAL_RESULTS_DIR:-$EVALS_DIR/results}/$(date +%Y%m%d-%H%M%S)-$harness-$mode"
 mkdir -p "$out"
 results="$out/results.jsonl"
 : >"$results"
@@ -130,6 +151,11 @@ trap '[[ -n "${EVAL_KEEP:-}" ]] && echo "run.sh: サンドボックスを残し�
 started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 harness_errors=0
 n_runs=0
+repo_mode=local
+[[ "$remote" -eq 0 ]] || repo_mode=remote
+if [[ "$remote" -eq 1 ]]; then
+    remote_init || exit 1
+fi
 
 # 本番の呼び出し。claude / omp のどちらも -p は真偽値で、プロンプトは最後の位置引数（--help で確認）。
 # 値を固定するため、--model は必ず渡す（dry では無視される）。
@@ -164,12 +190,23 @@ run_one() { # <task-json-line> <rep>
     sb="$root/run-$n_runs"
     taskfile="$sb.task.json"
     printf '%s\n' "$line" >"$taskfile"
-    if ! fixture_make "$sb" "$taskfile"; then
-        echo "run.sh: $id rep$rep: サンドボックスを作れない" >&2
-        harness_errors=$((harness_errors + 1))
-        return
+    if [[ "$remote" -eq 1 ]]; then
+        if ! remote_prepare "$sb" "$taskfile" "$n_runs"; then
+            echo "run.sh: ${id} rep${rep}: 試験用 repo の準備ができない（上の理由。何も書き込んでいない）" >&2
+            harness_errors=$((harness_errors + 1))
+            jq -nc --arg id "$id" --argjson rep "$rep" --arg harness "$harness" --arg mode "$mode" --arg model "$model" \
+                '{prompt_id: $id, rep: $rep, harness: $harness, mode: $mode, model: (if $model == "" then null else $model end), status: "error"}' >>"$results"
+            return
+        fi
+        prompt="$(remote_prompt "$(jq -r .prompt <<<"$line")" "$r_base" "$r_prefix" "$r_map" "$r_start")"
+    else
+        if ! fixture_make "$sb" "$taskfile"; then
+            echo "run.sh: $id rep$rep: サンドボックスを作れない" >&2
+            harness_errors=$((harness_errors + 1))
+            return
+        fi
+        prompt="$(jq -r .prompt <<<"$line")"
     fi
-    prompt="$(jq -r .prompt <<<"$line")"
     mkdir -p "$sb/sessions"
     while IFS= read -r -d '' a; do cmd+=("$a"); done < <(agent_cmd "$harness" "$sb/repo" "$sb/sessions" "$prompt")
 
@@ -184,6 +221,17 @@ run_one() { # <task-json-line> <rep>
     (
         cd "$sb/repo" || exit 1
         export PATH="$path" EVAL_STATE="$sb/state" EVAL_TASK="$taskfile" CLAUDE_PROJECT_DIR="$sb/repo"
+        if [[ "$remote" -eq 1 ]]; then
+            # 記録用の gh ラッパー（$sb/bin/gh）が呼ぶ先と、シナリオの base・ブランチ名の約束。dry の偽エージェントも同じ値を読む
+            export EVAL_GH_REAL="$r_gh_real" EVAL_BASE="$r_base" EVAL_BRANCH_PREFIX="$r_prefix" EVAL_ISSUE_MAP="$r_map"
+            # live は、エージェントの git が隔離した HOME の .gitconfig（identity と gh の credential helper）を読む
+            [[ "$mode" == dry ]] || export GIT_CONFIG_GLOBAL="$ORIG_GIT_CONFIG_GLOBAL"
+            # エージェントの git の credential helper には、path（owner/repo）を渡させる。ラッパーが、固定の repo 以外には認証情報を返さないため。
+            # 認証できないときに対話で聞かない（待ち続けない）
+            export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=credential.useHttpPath GIT_CONFIG_VALUE_0=true GIT_TERMINAL_PROMPT=0
+            # 普段の gh のログインを使う実行でも、エージェントの GH_CONFIG_DIR は隔離したまま（絶対パスで本物の gh を呼んでも認証が無い）
+            [[ -z "${r_isolated_gh_config:-}" ]] || export GH_CONFIG_DIR="$r_isolated_gh_config"
+        fi
         if [[ "$mode" == dry ]]; then
             export EVAL_DRY_SCENARIO=pass
             [[ "$violate" -eq 0 ]] || EVAL_DRY_SCENARIO=violate
@@ -193,6 +241,12 @@ run_one() { # <task-json-line> <rep>
     local rc=$?
     t1=$SECONDS
     [[ "$rc" -eq 0 ]] || status=error
+    # 生の出力を残す（採点の読み取りを後から変えたとき、再採点できるように。evals/rescore.sh）。claude のみ。
+    # gh のトークンらしい文字列（gh?_… / github_pat_…）は、保存の前に伏せる
+    if [[ "$harness" == claude && "$mode" == live && -s "$raw" ]]; then
+        mkdir -p "$out/raw"
+        sed -E 's/(gh[pousr]_|github_pat_)[A-Za-z0-9_*]+/\1[redacted]/g' "$raw" | gzip -c >"$out/raw/${id}-r${rep}.out.gz"
+    fi
 
     norm="$sb/norm.json"
     if [[ "$status" == ok ]]; then
@@ -214,6 +268,13 @@ run_one() { # <task-json-line> <rep>
             '{prompt_id: $id, rep: $rep, harness: $harness, mode: $mode, model: (if $model == "" then null else $model end), status: "error"}' >>"$results"
         return
     fi
+    if [[ "$remote" -eq 1 ]] && ! remote_extract "$sb"; then
+        harness_errors=$((harness_errors + 1))
+        echo "run.sh: ${id} rep${rep}: 試験用 repo の状態を取り出せない" >&2
+        jq -nc --arg id "$id" --argjson rep "$rep" --arg harness "$harness" --arg mode "$mode" --arg model "$model" \
+            '{prompt_id: $id, rep: $rep, harness: $harness, mode: $mode, model: (if $model == "" then null else $model end), status: "error"}' >>"$results"
+        return
+    fi
     graded="$("$EVALS_DIR/grade.sh" "$sb" "$taskfile" "$norm")" || {
         harness_errors=$((harness_errors + 1))
         echo "run.sh: $id rep$rep: 採点に失敗" >&2
@@ -224,15 +285,18 @@ run_one() { # <task-json-line> <rep>
     summary="$(norm_summary <"$norm")"
     # 書き込みの動き（compare.py の actions）: 状態を変える gh の呼び出し
     acts="$(jq -sc '
-        [ .[] | select(.cmd | test("^gh (pr (create|merge|edit|comment|close|ready|review)|issue (create|comment|edit|close|reopen))")) | {name: (.cmd | split(" ") | .[0:3] | join(" "))} ]' "$sb/state/actions.jsonl")"
-    jq -nc --argjson task "$line" --argjson g "$graded" --argjson s "$summary" --argjson acts "$acts" \
-        --arg harness "$harness" --arg mode "$mode" --argjson rep "$rep" --argjson lat "$((t1 - t0))" \
-        --arg model "$(jq -r '.model // empty' "$norm")" --arg fixed "$model" '
-        {prompt_id: $task.id, rep: $rep, harness: $harness, mode: $mode,
+        [ .[] | select(.cmd | test("^gh (pr (create|merge|edit|comment|close|ready|review)|issue (create|comment|edit|close|reopen))")) | {name: (.cmd | split(" ") | .[0:3] | join(" ")), result: .result} ]' "$sb/state/actions.jsonl")"
+    # 止められた（unsupported）・失敗した（error / fail）gh の呼び出し。state は実行後に消えるので、原因を後から調べられるように残す
+    problems="$(jq -sc '[ .[] | select(.result == "unsupported" or .result == "error" or .result == "fail") | {cmd: (.cmd | split(" ") | .[0:4] | join(" ")), result: .result, why: (.why // null)} ]' "$sb/state/actions.jsonl")"
+    # 最終回答の先頭 800 文字。answer_includes が落ちたとき、採点が厳しすぎるのかアプリ側の言い落としかを、あとから読めるようにする
+    jq -nc --argjson task "$line" --argjson g "$graded" --argjson s "$summary" --argjson acts "$acts" --argjson problems "$problems" \
+        --arg harness "$harness" --arg mode "$mode" --arg repo "$repo_mode" --argjson rep "$rep" --argjson lat "$((t1 - t0))" \
+        --arg model "$(jq -r '.model // empty' "$norm")" --arg fixed "$model" --arg answer "$(jq -r '(.final_text // "")[0:800]' "$norm")" '
+        {prompt_id: $task.id, rep: $rep, harness: $harness, mode: $mode, repo: $repo,
          tags: (["skill:" + $task.skill] + ($task.breaks // []) + [($task.watchdog // [])[] | "watchdog:" + tostring]),
          status: "ok", grade: $g.grade, checks: $g.checks, failed: $g.failed,
          latency_s: $lat, in_tokens: $s.in_tokens, out_tokens: $s.out_tokens, model_calls: $s.model_calls, by_agent: $s.by_agent,
-         actions: $acts, model: (if $model != "" then $model elif $fixed != "" then $fixed else null end)}' >>"$results"
+         actions: $acts, gh_problems: $problems, answer: $answer, model: (if $model != "" then $model elif $fixed != "" then $fixed else null end)}' >>"$results"
 }
 
 selected=0

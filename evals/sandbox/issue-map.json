@@ -1,0 +1,72 @@
+[
+  {
+    "task": "impl-bugfix",
+    "local": 1,
+    "number": 1
+  },
+  {
+    "task": "impl-feature",
+    "local": 1,
+    "number": 2
+  },
+  {
+    "task": "impl-docs",
+    "local": 1,
+    "number": 3
+  },
+  {
+    "task": "impl-spinoff",
+    "local": 1,
+    "number": 4
+  },
+  {
+    "task": "impl-missing-target",
+    "local": 1,
+    "number": 5
+  },
+  {
+    "task": "impl-auto",
+    "local": 1,
+    "number": 6
+  },
+  {
+    "task": "sweep-three",
+    "local": 1,
+    "number": 7
+  },
+  {
+    "task": "sweep-three",
+    "local": 2,
+    "number": 8
+  },
+  {
+    "task": "sweep-three",
+    "local": 3,
+    "number": 9
+  },
+  {
+    "task": "sweep-impossible",
+    "local": 1,
+    "number": 10
+  },
+  {
+    "task": "sweep-impossible",
+    "local": 2,
+    "number": 11
+  },
+  {
+    "task": "sweep-impossible",
+    "local": 3,
+    "number": 12
+  },
+  {
+    "task": "impl-lang",
+    "local": 1,
+    "number": 160
+  },
+  {
+    "task": "impl-cli",
+    "local": 1,
+    "number": 161
+  }
+]

@@ -99,6 +99,10 @@ x() { # x <コマンド...> : bash イベントとして記録して実行する
     "$@"
 }
 final() { final_text="$1"; }
+# issue_no <N> : タスクの中の Issue 番号（1 始まり）を、実際の番号にする（試験用 repo では issue-map.json の番号。ローカルはそのまま）
+issue_no() {
+    if [[ -n "${EVAL_ISSUE_MAP:-}" ]]; then jq -r --argjson i "$1" '.[$i - 1] // empty' <<<"$EVAL_ISSUE_MAP"; else echo "$1"; fi
+}
 # 空の名前を stranger にする（empty-name 系のシナリオの修正）
 sed_greet() {
     sed 's/echo "Hello, \$1"/echo "Hello, ${1:-stranger}"/' app.sh >app.sh.new && mv app.sh.new app.sh
@@ -115,13 +119,15 @@ dry_wait_checks() {
         x gh pr checks && return 0
     done
 }
-# dry_pr <branch> <title> <body> : main から切って、コミット・push・PR 作成・CI 待ちまで行う
+# dry_pr <branch> <title> <body> : base（既定 main。試験用 repo ではシナリオの base）から切って、コミット・push・PR 作成・CI 待ちまで行う。
+# 試験用 repo では、ブランチ名を EVAL_BRANCH_PREFIX（eval/<run>/）で始める（reset.sh が片付けられる名前にするため）
 dry_pr() {
-    x git checkout -q -b "$1" main
+    local branch="${EVAL_BRANCH_PREFIX:-}$1"
+    x git checkout -q -b "$branch" "${EVAL_BASE:-main}"
     x git add -A
     x git commit -q -m "$2"
     x git push -q origin HEAD
-    x gh pr create --base main --head "$1" --title "$2" --body "$3"
+    x gh pr create --base "${EVAL_BASE:-main}" --head "$branch" --title "$2" --body "$3"
     dry_wait_checks
 }
 add_farewell() {
@@ -132,19 +138,19 @@ add_farewell() {
 fix_readme_typo() {
     printf '# fixture\n\n## Usage\n\n`. ./app.sh; greet Ana`\n' >README.md
 }
-# dry_pr_merge <branch> <title> <body> -- <編集の関数...> : main から切り、編集・コミット・push・PR 作成・CI 待ち・マージ（記録だけ）まで行う
+# dry_pr_merge <branch> <title> <body> -- <編集の関数...> : base から切り、編集・コミット・push・PR 作成・CI 待ち・マージ（偽 gh は記録して、head ブランチを消す）まで行う
 dry_pr_merge() {
-    local branch="$1" title="$2" body="$3" f
+    local branch="${EVAL_BRANCH_PREFIX:-}$1" title="$2" body="$3" f
     shift 4
-    x git checkout -q -b "$branch" main
+    x git checkout -q -b "$branch" "${EVAL_BASE:-main}"
     for f in "$@"; do "$f"; done
     x git add -A
     x git commit -q -m "$title"
     x git push -q origin HEAD
-    x gh pr create --base main --head "$branch" --title "$title" --body "$body"
+    x gh pr create --base "${EVAL_BASE:-main}" --head "$branch" --title "$title" --body "$body"
     dry_wait_checks
     x gh pr merge "$branch" --merge --delete-branch
-    x git checkout -q main
+    x git checkout -q "${EVAL_BASE:-main}"
 }
 # dry_sweep_state <queue_total> <prs> : .sweep/state.json を terminal にして閉じる（PR にできなかった分は failed）。
 # DRY_TERMINAL_EARLY のときは、キューが 2 件残ったまま terminal にする（WATCHDOG の逸脱）。
@@ -163,7 +169,7 @@ default_events() {
         ev task plan
         ev task develop
         ev task review
-        ev bash "" ".claude/skills/impl/scripts/verify-scope.sh"
+        ev bash "" ".claude/skills/impl/scripts/verify-scope.sh --type fix --issue 1"
         ;;
     refine | refine-git | refine-sweep)
         ev task review

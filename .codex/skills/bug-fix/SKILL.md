@@ -73,7 +73,7 @@ description: バグ報告から調査・原因特定・修正・回帰テスト�
 1. `gh pr create --base <ベースブランチ>` でPRを作成
    - **ベースブランチはフェーズ1で記録した開始時のブランチを指定する。`main` や `master` にフォールバックしないこと。**
    - 不明な場合は `git log --oneline --graph HEAD...main` 等で分岐元を確認する
-   - Issue 指定時: タイトルに Issue 番号を含め、PR作成後に `gh pr edit <PR番号> --add-issue <Issue URL>` でリンクする（Closes は使わない）
+   - Issue 指定時: タイトルに Issue 番号を含め、PR 本文に `Refs #<Issue 番号>` を書いてリンクする（別 repo の Issue は URL。`gh pr create` の本文に含める。`gh pr edit` に Issue を足す旗は無い。Closes は使わない）
    - PR本文: バグの症状・原因・修正サマリー + 手動チェックリスト（`templates/pr-checklist.md` を参照）
 2. 修正サマリーをユーザーに報告する
 

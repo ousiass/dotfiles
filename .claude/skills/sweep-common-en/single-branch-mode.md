@@ -165,7 +165,7 @@ gh pr create --base "$base_branch" --head "$int_branch" --title "<title>" --body
 
 - Title: `<type>: <purpose of the sweep>（#<a>, #<b>, …）`. If there are 6 or more targets, `#<a>, #<b> ほか N 件`
 - Body: list the integrated work units one per line (Issue number + what was done), list those that could not be integrated as "未統合" with reasons, and the `refine-git` result summary (remaining critical/major/minor counts)
-- Link all of them with `gh pr edit <PR> --add-issue <each Issue URL>`. **Do not use `Closes #N`** (closing is done explicitly in S-3)
+- Link all of them by writing `Refs #<each Issue number>` in the body (included in the `--body-file` of `gh pr create`; `gh pr edit` has no flag to add an Issue). **Do not use `Closes #N`** (closing is done explicitly in S-3)
 - Record the PR number in `pr_number` of state.json
 - **Do not merge this PR; return it to the user still open.** A human reviews and merges
 
