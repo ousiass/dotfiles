@@ -40,8 +40,8 @@ description: Iterative implementation cycle: scope splitting, develop, review, c
 **フェーズの差分**
 
 - **2-3 Review / 2-4 改善サイクルをスキップする。** `--auto` の呼び出し元（`issue-sweep`）は後段で `/refine-git` を起動し、`code-review-git` / `doc-drift-git` / `spec-audit-git` の 4 観点で同じ差分をレビューする。ここで `review` エージェントを回すのは同じ差分に対する二重コストになる。**ただしテスト（2-2）・Format & Lint（2-5）・検証ゲート（2-6）・Commit（2-7）は省略禁止** — Review を省くぶん、2-6 の機械チェックと CI が品質の担保になる
-- **2-1 Plan は軽量化する。** Issue 本文に「## スコープ」「## 影響範囲」「## ファイル」等があれば、`Plan` エージェントを起動せず**その記載をそのまま実装計画として使う**（`issue-split-auto` が切った子 Issue はこれに該当する）。記載が無い場合のみ通常どおり `Plan` を起動する
-- **コンテキストパック（フェーズ1 手順4）は Plan を省いた場合ほど重要になる。** `--auto` では Plan も Review も消えるため、既存規約に沿わせる担保がパックだけになる。省略禁止
+- **2-1 の計画は軽量にする。** Issue 本文に「## スコープ」「## 影響範囲」「## ファイル」等があれば、**その記載をそのまま実装計画として使う**（`issue-split-auto` が切った子 Issue はこれに該当する）。記載が無い場合のみ、通常どおり impl 自身が計画を立てる
+- **コンテキストパック（フェーズ1 手順4）は計画を軽くした場合ほど重要になる。** `--auto` では Review も消えるため、既存規約に沿わせる担保がパックだけになる。省略禁止
 - **`spinoff-draft.jsonl` はメインリポジトリ側に書く。** worktree 内に書くと worktree 削除で消える:
   ```bash
   SWEEP_DIR="${CLAUDE_PROJECT_DIR:-$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")}/.sweep"
@@ -104,7 +104,7 @@ for c in ~/.omp/agent/skills/impl/scripts/verify-scope.sh ~/.claude/skills/impl/
    - 仕様書が見つからない場合はそのまま進める
 4. **コンテキストパックを作成する**（仕様は `references/context-pack.md`）
    - **サブエージェントは立てない。** impl 自身が Grep / Glob / Read で「類似実装 / この層の規約 / 触るファイル / テストの作法」を集め、見出し固定・60 行以内にまとめる
-   - このパックはフェーズ2 の 2-1 / 2-2 / 2-3 すべてのプロンプトに埋め込む
+   - このパックはフェーズ2 の 2-1（impl 自身の計画の材料）と、2-2 / 2-3 のプロンプトに埋め込む
 5. 現在のブランチをベースブランチとして記録する（PR のマージ先）
    - `git branch --show-current` を実行し、結果をユーザーに「ベースブランチ: <ブランチ名>」と明示的に表示する
    - このブランチ名をフェーズ3のPR作成時まで保持する
@@ -122,10 +122,10 @@ for c in ~/.omp/agent/skills/impl/scripts/verify-scope.sh ~/.claude/skills/impl/
 
 **各スコープ開始時に `todo` で該当タスクを `in_progress` にする。**
 
-#### 2-1: Plan
-- `Plan` エージェントで実装計画を立てる
-- 変更箇所、影響範囲、テスト要件を明確にする
-- プロンプトにコンテキストパックを含める
+#### 2-1: 計画（メインが自分で立てる）
+- **`Plan` エージェントは起動しない。** impl 自身が、コンテキストパックと search / read で触るファイルを確認し、実装計画を立てる
+- 変更箇所、影響範囲、テスト要件を明確にする（スコープごとに数行。長い計画書にしない）
+- 計画は impl 自身の文脈に残す。`develop` へは、コンテキストパックに加えて**この計画（変更するファイルと内容、追加するテスト）をそのままプロンプトに含める**
 
 #### 2-2: Develop
 - `develop` エージェントで実装（テスト含む）
@@ -187,7 +187,7 @@ for c in ~/.omp/agent/skills/impl/scripts/verify-scope.sh ~/.claude/skills/impl/
    - **`--no-pr` 指定時はこの手順をスキップ**して commit + push までで返す（複数 Issue を 1 ブランチに積む呼び出し元用）。最終報告に「PR 未作成（呼び出し元に委譲）」と明記する。**`--no-pr` が無いのにスキップするのは禁止**
    - **ベースブランチはフェーズ1で記録した開始時のブランチを指定する。`main` や `master` にフォールバックしないこと。**
    - 不明な場合は `git log --oneline --graph HEAD...main` 等で分岐元を確認する
-   - Issue 指定時: タイトルに Issue 番号を含め、PR作成後に `gh pr edit <PR番号> --add-issue <Issue URL>` でリンクする（Closes は使わない）
+   - Issue 指定時: タイトルに Issue 番号を含め、PR 本文に `Refs #<Issue 番号>` を書いてリンクする（別 repo の Issue は URL。`gh pr create` の本文に含める。`gh pr edit` に Issue を足す旗は無い。Closes は使わない）
    - PR本文: 変更サマリー + 手動チェックリスト（`templates/pr-checklist.md` を参照）
 5. 実装サマリーをユーザーに報告
 

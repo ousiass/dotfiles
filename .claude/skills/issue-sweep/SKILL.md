@@ -365,7 +365,7 @@ Issue #<a>[, #<b>, #<c>] を **1 つの worktree にまとめて** 処理して�
 3. 全 Issue の実装が終わったら push し、`gh pr create --base <base_branch>` で **PR を 1 本だけ** 作る:
    - タイトルに全 Issue 番号を含める
    - 本文に対象 Issue を全件列挙し、各 Issue でやったことを 1 行ずつ書く
-   - `gh pr edit <PR番号> --add-issue <各 Issue URL>` で全件リンクする（Closes は使わない）
+   - 本文に `Refs #<各 Issue 番号>` を全件書いてリンクする（`gh pr create` の本文に含める。`gh pr edit` に Issue を足す旗は無い。Closes は使わない）
 4. `/refine-git --no-merge --skip-minor --max-iter 2` を Skill ツールで起動して研磨する。
    - **`--skip-minor` 必須**: sweep のマージゲートは minor を見ない。minor は直すたびに差分が広がって
      新しい minor が生えるので、minor のための反復は丸ごと無駄になる

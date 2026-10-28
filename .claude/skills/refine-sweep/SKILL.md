@@ -377,7 +377,7 @@ worktree は作成済みです。**以降のすべての作業を <wt の絶対�
    **wt 版（`/impl-wt`）は使わない**（worktree は作成済み。呼ぶと二重に作られる）。
    `--auto` = 確認を取って止まらない / `--no-pr` = PR は手順2 で自分が 1 本だけ作る。
 2. push して `gh pr create --base <base_branch>` で PR を 1 本作る。
-   `gh pr edit <PR> --add-issue <Issue URL>` でリンクする（`Closes` は使わない）。
+   本文に `Refs #<Issue 番号>` を書いてリンクする（`gh pr create` の本文に含める。`gh pr edit` に Issue を足す旗は無い。`Closes` は使わない）。
 3. **PR 作成までで返す。** CI 待ち・マージ・Issue close はメインスレッドの責務なので一切やらない。
 
 成功: {"issue": <issue_num>, "domain": "<DOMAIN>", "pr_number": <N>, "pr_url": "<URL>", "branch": "refine/issue-<N>", "worktree": "<wt の絶対パス>", "failure": null}
