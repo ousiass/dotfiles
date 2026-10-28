@@ -134,7 +134,7 @@ EVAL_CONFIRM_PAID=1 /mnt/nvme/eval-sandbox/with-env dotfiles/evals/run.sh --harn
 | ブランチ名 | プロンプトで `eval/r<日時>-<連番>/` で始めるよう指示する。`reset.sh` が片付けられる名前にするため |
 | Issue 番号 | プロンプトの `#<n>`（タスクの中の番号）を、`issue-map.json` で GitHub の番号に置き換える。`seed.sh` は番号が `issue-map.json` と食い違ったら止まる |
 | 採点用の取り出し | 実行後に、リモートを mirror clone して `origin.git` に、PR・Issue を `gh` で読んで `state/prs.json` / `issues.json` にする。この実行で作られたもの（実行前の最大番号より大きい番号）だけを PR・spinoff として数える。PR の先端は `refs/pull/<N>/head`（`--delete-branch` でブランチが消えても読める） |
-| CI | 試験用 repo の `.github/workflows/ci.yml`（`./test.sh` を回すだけ）。`seed.sh` が `main` の初期状態に入れる。エージェントの `gh pr checks` は、ラッパーが Actions の API に置き換える（上）。`gh pr view --json statusCheckRollup` も、呼び出しの結果を同じ Actions の run の状態（pass / pending / fail）で記録する。`gh --version` は通す |
+| CI | 試験用 repo の `.github/workflows/ci.yml`（`./test.sh` を回すだけ）。`seed.sh` が `main` の初期状態に入れる。エージェントの `gh pr checks` は、ラッパーが Actions の API に置き換える（上）。`gh pr view --json statusCheckRollup` も、呼び出しの結果を同じ Actions の run の状態（pass / pending / fail）で記録する。`gh pr checks --json <フィールド> [--jq 式]`（name・state・bucket・link・workflow・event・description・startedAt・completedAt）も、同じ Actions の run から gh と同じ形の JSON を作って返す。`gh --version` は通す |
 
 ### 試験用 repo の初期化（`reset.sh`。人が実行する）
 

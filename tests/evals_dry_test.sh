@@ -195,6 +195,28 @@ check_eq "verify-scope: --profile-path だけの呼び出し（ゲートでは�
 check_eq "verify-scope: echo などの文字列に書いただけでは数えない" false "$(gate_match 'echo verify-scope.sh --type fix')"
 check_eq "verify-scope: 引数の中の名前（cat verify-scope.sh）は数えない" false "$(gate_match 'cat scripts/verify-scope.sh')"
 
+# --- git の --no-verify: コマンドの位置の git だけ数える（規則文の中の「--no-verify 禁止」では通らない） ---
+nv_match() { jq -n --arg re "$GIT_NO_VERIFY_RE" --arg c "$1" '$c | test($re)'; }
+check_eq "no-verify: git commit --no-verify は数える" true "$(nv_match 'git commit -m x --no-verify')"
+check_eq "no-verify: git push --no-verify は数える" true "$(nv_match 'cd w && git push origin b --no-verify')"
+check_eq "no-verify: ; のあとの git -C … commit --no-verify も数える" true "$(nv_match 'echo a; git -C repo commit --no-verify -m x')"
+check_eq "no-verify: 環境変数の代入つきの git も数える" true "$(nv_match 'GIT_AUTHOR_NAME=x git commit --no-verify')"
+check_eq "no-verify: 絶対パスの git も数える" true "$(nv_match '/usr/bin/git commit --no-verify')"
+check_eq "no-verify: 規則文の中の --no-verify（ヒアドキュメントの本文）は数えない" false "$(nv_match "$(printf 'cat > /tmp/p.txt <<EOF\n返答ルール: マージしない。コミットメッセージは <type>: 説明、--no-verify 禁止。\nEOF')")"
+check_eq "no-verify: echo に書いただけでは数えない" false "$(nv_match 'echo "git commit は --no-verify 禁止"')"
+check_eq "no-verify: --no-verify-foo のような別の旗は数えない" false "$(nv_match 'git commit --no-verify-foo')"
+check_eq "no-verify: --no-verify が無い git は数えない" false "$(nv_match 'git commit -m x')"
+
+# --- refine-clean の answer_includes: 「指摘はありません」以外の言い方（critical・major なし、status clean）も、差分が clean だという報告として読む ---
+clean_re="$(jq -r 'select(.id == "refine-clean") | .checks.answer_includes[0]' "$EVALS/tasks.jsonl")"
+clean_match() { if printf '%s' "$1" | grep -qE -- "$clean_re"; then echo true; else echo false; fi; }
+check_eq "refine-clean: 「指摘はありません」は合格" true "$(clean_match '結論: 指摘はありません。')"
+check_eq "refine-clean: 「指摘なし」は合格" true "$(clean_match 'code-review-git: 指摘なし')"
+check_eq "refine-clean: 「指摘ゼロ」は合格" true "$(clean_match 'doc-drift-git は指摘ゼロでした')"
+check_eq "refine-clean: 「critical と major はなく」は合格" true "$(clean_match 'critical と major はなく、minor は 4 件でした。')"
+check_eq "refine-clean: 「status は clean」は合格" true "$(clean_match 'status は `clean` です。')"
+check_eq "refine-clean: major が残っている報告は合格にしない" false "$(clean_match 'critical は 0 件、major が 2 件残っています。status は needs_fix です。')"
+
 rs2="$tmp/rescore/v2"
 mkdir -p "$rs2/runs/sweep-impossible-r1/out/raw" "$rs2/runs/impl-bugfix-r2/out/raw"
 text_stream() { # text_stream <回答のテキスト> : 1 件の回答だけの出力
