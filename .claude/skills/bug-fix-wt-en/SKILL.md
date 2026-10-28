@@ -82,7 +82,7 @@ user-invocable: true
 2. Create PR with `gh pr create --base <base-branch>`
    - **Use the base branch recorded in Phase 1. Never fall back to `main` or `master`.**
    - If unclear, check fork point with `git log --oneline --graph HEAD...main`
-   - With Issue: Include Issue number in title, then link via `gh pr edit <PR#> --add-issue <Issue URL>` after creation (do not use Closes keyword)
+   - With Issue: Include Issue number in title and link it by writing `Refs #<Issue number>` in the PR body (a URL for an Issue in another repo), included in the `gh pr create` body. `gh pr edit` has no flag to add an Issue. Do not use the Closes keyword
    - PR body: Bug symptoms, cause, fix summary + manual checklist (see `templates/pr-checklist.md`)
 3. Report fix summary and **worktree path** to user
 

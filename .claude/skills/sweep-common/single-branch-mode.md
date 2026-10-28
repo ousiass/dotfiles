@@ -165,7 +165,7 @@ gh pr create --base "$base_branch" --head "$int_branch" --title "<title>" --body
 
 - タイトル: `<type>: <sweep の目的>（#<a>, #<b>, …）`。対象が 6 件以上なら `#<a>, #<b> ほか N 件`
 - 本文: 統合した作業単位を 1 行ずつ列挙（Issue 番号 + やったこと）、統合できなかったものは「未統合」として理由付きで列挙、`refine-git` の結果サマリ（critical/major/minor 残数）
-- `gh pr edit <PR> --add-issue <各 Issue URL>` で全件リンクする。**`Closes #N` は使わない**（close は S-3 で明示的に行う）
+- 本文に `Refs #<各 Issue 番号>` を全件書いてリンクする（`gh pr create` の `--body-file` に含める。`gh pr edit` に Issue を足す旗は無い）。**`Closes #N` は使わない**（close は S-3 で明示的に行う）
 - PR 番号を state.json の `pr_number` に記録する
 - **この PR はマージせず open のままユーザーに返す。** レビューとマージは人が行う
 

@@ -381,7 +381,7 @@ Steps:
    **Do not use the wt variant (`/impl-wt`)** (the worktree is already created; calling it would create it twice).
    `--auto` = do not stop to ask for confirmation / `--no-pr` = you create exactly one PR yourself in step 2.
 2. Push and create exactly one PR with `gh pr create --base <base_branch>`.
-   Link it with `gh pr edit <PR> --add-issue <Issue URL>` (do not use `Closes`).
+   Link it by writing `Refs #<Issue number>` in the body (included in the `gh pr create` body; `gh pr edit` has no flag to add an Issue; do not use `Closes`).
 3. **Return as soon as the PR is created.** Waiting for CI, merging, and closing the Issue are the main thread's responsibility, so do none of them.
 
 Success: {"issue": <issue_num>, "domain": "<DOMAIN>", "pr_number": <N>, "pr_url": "<URL>", "branch": "refine/issue-<N>", "worktree": "<absolute path of wt>", "failure": null}
