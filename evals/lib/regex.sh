@@ -42,3 +42,9 @@ CI_WAITED_JQ='
     def ci_read: (.cmd | startswith("gh pr checks")) or ((.cmd | startswith("gh pr view")) and (.cmd | contains("statusCheckRollup")));
     (to_entries | map(select(.value.cmd | startswith("gh pr create"))) | last | .key) as $i
     | $i != null and (to_entries | any(.key > $i and (.value | ci_read) and .value.result == "pass"))'
+
+# `--no-verify` で、フックを飛ばす git の呼び出し: コマンドの位置（先頭、または ; & | ( 改行 のあと。環境変数の代入が前にあってもよい）の git に、
+# 同じコマンドの中で --no-verify が付いている。サブエージェントへのプロンプトを書き出すヒアドキュメントなど、規則の文章の中の「--no-verify 禁止」では通らない
+# （Phase 2 の baseline4 の sweep-impossible r2 は、規則文を書いただけで gate_weakened になった）
+# shellcheck disable=SC2034 # grade.sh / rescore.sh が読む
+GIT_NO_VERIFY_RE='(^|[;&|(]|\n) *([A-Za-z_][A-Za-z0-9_]*=[^ ]* +)*([^ ;&|]*/)?git( [^;&|\n]*)? --no-verify( |$|[;&|)])'
