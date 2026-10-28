@@ -105,6 +105,12 @@ case "\$1 \$2" in
 "pr view")
     [ "\${STUB_RC:-0}" = 0 ] && case "\$*" in *--json*) echo '{"headRefOid":"abc123","headRefName":"eval/x"}' ;; esac
     ;;
+"api repos/"*"/actions/runs/"*"/jobs"*)
+    # $tmp/jobs.<run の id> を返す（無ければ、ジョブが無い）
+    rid="\${2#repos/*/actions/runs/}"
+    rid="\${rid%%/*}"
+    if [ -f "$tmp/jobs.\$rid" ]; then cat "$tmp/jobs.\$rid"; else echo '{"jobs":[]}'; fi
+    ;;
 "api repos/"*"/actions/runs"*)
     # $tmp/runs.queue の先頭の 1 行を返す（最後の 1 行は残す）。空なら run が 1 つも無い
     q="$tmp/runs.queue"
@@ -239,23 +245,44 @@ check_eq "gh ラッパー: pr checks は本物の pr checks を呼ばない" 0 "
 check_match "gh ラッパー: pr checks は PR の先端の sha で Actions を読む" "actions/runs?head_sha=abc123" "$(grep 'actions/runs' "$tmp/real-gh.log" | tail -1)"
 check_match "gh ラッパー: pr checks の選択子（PR の番号）を pr view に渡す" "pr view 7 --json" "$(grep 'pr view' "$tmp/real-gh.log" | sed -n 3p)"
 STUB_RC=1 wrap pr view 1 >/dev/null
-check_eq "gh ラッパー: 結果を pending / pass / fail / error で記録する" "pending,pending,pass,fail,fail,fail,pass,unsupported,error" "$(jq -s -r 'map(.result) | join(",")' "$state/actions.jsonl")"
+check_eq "gh ラッパー: 結果を pending / pass / fail / error で記録する" "pending,pending,pass,fail,fail,fail,pass,error,error" "$(jq -s -r 'map(.result) | join(",")' "$state/actions.jsonl")"
 check_eq "gh ラッパー: 失敗した呼び出しは gh の標準エラーの先頭 1 行を why に残す" "boom: failed to delete local branch" "$(jq -s -r 'last | .why' "$state/actions.jsonl")"
 check_eq "gh ラッパー: 失敗の標準エラーは呼び出し元にもそのまま出る" "boom: failed to delete local branch" "$(STUB_RC=1 wrap pr view 1 2>&1 | head -1)"
 
-# gh pr checks --json（エージェントが CI の状態を機械で読む）: Actions の run から、gh と同じ形の JSON を作る。--jq は通す
-printf '%s\n' '{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"success","html_url":"u1","event":"push"},{"name":"lint","status":"completed","conclusion":"skipped","html_url":"u2","event":"push"},{"name":"e2e","status":"in_progress","conclusion":null,"html_url":"u3","event":"push"}]}' >"$tmp/runs.queue"
+# gh pr checks --json（エージェントが CI の状態を機械で読む）: 本物の gh 2.95.0（pkg/cmd/pr/checks）の動きに合わせる。
+#   1 つのチェック（ジョブ）ごと、キーは名前順、name はジョブ名・workflow は run の名前、state / bucket は aggregate.go の対応、
+#   --json のときは失敗・実行中でも exit 0、run が無ければ標準出力なしで exit 1、--watch との併用・未知のフィールド・--json 無しの --jq はエラー（exit 1）
+printf '%s\n' '{"workflow_runs":[{"id":11,"name":"CI","status":"completed","conclusion":"success","html_url":"r1","event":"pull_request"},{"id":12,"name":"Lint","status":"in_progress","conclusion":null,"html_url":"r2","event":"pull_request"}]}' >"$tmp/runs.queue"
+printf '%s\n' '{"jobs":[{"name":"test","status":"completed","conclusion":"success","html_url":"https://x/job/1","started_at":"2026-10-27T12:00:00Z","completed_at":"2026-10-27T12:00:05Z"},{"name":"extra","status":"completed","conclusion":"skipped","html_url":"https://x/job/2","started_at":"2026-10-27T12:00:01Z","completed_at":"2026-10-27T12:00:02Z"}]}' >"$tmp/jobs.11"
+printf '%s\n' '{"jobs":[{"name":"shellcheck","status":"in_progress","conclusion":null,"html_url":"https://x/job/3","started_at":"2026-10-27T12:00:10Z","completed_at":null}]}' >"$tmp/jobs.12"
 out="$(wrap pr checks 7 --json name,bucket)"
-check_eq "gh ラッパー: pr checks --json は、指定したフィールドだけの JSON を出す" '[{"name":"CI","bucket":"pass"},{"name":"lint","bucket":"skipping"},{"name":"e2e","bucket":"pending"}]' "$out"
-check_eq "gh ラッパー: pr checks --json は実行中が残っていれば exit 8（gh pr checks と同じ）" 8 "$(wrap pr checks 7 --json name >/dev/null; echo $?)"
-check_eq "gh ラッパー: pr checks --json --jq は式を通す" "CI,lint,e2e" "$(wrap pr checks 7 --json name --jq 'map(.name) | join(",")')"
-check_eq "gh ラッパー: pr checks --json は state を大文字で出す" "SUCCESS,SKIPPED,IN_PROGRESS" "$(wrap pr checks 7 --json state -q 'map(.state) | join(",")')"
+check_eq "gh ラッパー: pr checks --json は、指定したフィールドだけを、キーの名前順で出す（開始が新しいチェックから）" '[{"bucket":"pending","name":"shellcheck"},{"bucket":"skipping","name":"extra"},{"bucket":"pass","name":"test"}]' "$out"
+check_eq "gh ラッパー: pr checks --json は実行中が残っていても exit 0（gh は --json のとき 8 にしない）" 0 "$(wrap pr checks 7 --json name >/dev/null; echo $?)"
+check_eq "gh ラッパー: pr checks --json --jq は式を通す" "shellcheck,extra,test" "$(wrap pr checks 7 --json name --jq 'map(.name) | join(",")')"
+check_eq "gh ラッパー: pr checks --json は state を大文字で出す" "IN_PROGRESS,SKIPPED,SUCCESS" "$(wrap pr checks 7 --json state -q 'map(.state) | join(",")')"
+check_eq "gh ラッパー: pr checks --json は workflow（run の名前）・event・link（ジョブの URL）を出す" '[{"event":"pull_request","link":"https://x/job/3","workflow":"Lint"},{"event":"pull_request","link":"https://x/job/2","workflow":"CI"},{"event":"pull_request","link":"https://x/job/1","workflow":"CI"}]' "$(wrap pr checks 7 --json workflow,event,link)"
+check_eq "gh ラッパー: pr checks --json は、終わっていない時刻を Go の zero time で出す" "0001-01-01T00:00:00Z" "$(wrap pr checks 7 --json name,completedAt --jq '.[0].completedAt')"
+check_eq "gh ラッパー: pr checks --json は description を空文字で出す" '[{"description":"","name":"shellcheck"},{"description":"","name":"extra"},{"description":"","name":"test"}]' "$(wrap pr checks 7 --json name,description)"
+printf '%s\n' '{"workflow_runs":[{"id":13,"name":"CI","status":"completed","conclusion":"failure","html_url":"r3","event":"pull_request"}]}' >"$tmp/runs.queue"
+printf '%s\n' '{"jobs":[{"name":"test","status":"completed","conclusion":"failure","html_url":"https://x/job/4","started_at":"2026-10-27T12:00:00Z","completed_at":"2026-10-27T12:00:05Z"}]}' >"$tmp/jobs.13"
+check_eq "gh ラッパー: pr checks --json は失敗があっても exit 0、bucket は fail" 'fail,0' "$(wrap pr checks 7 --json bucket --jq '.[0].bucket' | tr -d '\n'),$(wrap pr checks 7 --json bucket >/dev/null; echo $?)"
+check_eq "gh ラッパー: pr checks（表）は、同じ失敗で exit 1" 1 "$(wrap pr checks 7 >/dev/null; echo $?)"
+: >"$tmp/runs.queue"
+wrap_split() { EVAL_STATE="$state" EVAL_GH_REAL="$tmp/real-gh" "$EVALS/lib/gh-record.sh" "$@"; } # 標準出力と標準エラーを分けて見る
+check_eq "gh ラッパー: pr checks --json は run が無ければ標準出力なしで exit 1（gh は no checks reported のエラー）" "stdout=,stderr=no checks reported on the 'eval/x' branch,rc=1" "stdout=$(wrap_split pr checks 7 --json name 2>/dev/null),stderr=$(wrap_split pr checks 7 --json name 2>&1 >/dev/null),rc=$(wrap_split pr checks 7 --json name >/dev/null 2>&1; echo $?)"
 printf '%s\n' "$run_ok" >"$tmp/runs.queue"
-check_eq "gh ラッパー: pr checks --json は全部成功なら exit 0" 0 "$(wrap pr checks 7 --json name,state,bucket >/dev/null; echo $?)"
-check_eq "gh ラッパー: pr checks --json は PR の先端の run を読む（pr view を --json statusCheckRollup では呼ばない）" 0 "$(grep -c 'statusCheckRollup' "$tmp/real-gh.log" || true)"
-check_eq "gh ラッパー: pr checks --json の未知のフィールドは止まる (exit 1)" 1 "$(wrap pr checks 7 --json bogus >/dev/null; echo $?)"
-check_eq "gh ラッパー: pr checks --json は、--json 無しの --jq を止める (exit 1)" 1 "$(wrap pr checks 7 --jq '.' >/dev/null; echo $?)"
-check_match "gh ラッパー: pr checks --json の呼び出しは pass / pending で記録する（ci_waited が読む）" '"cmd":"gh pr checks 7 --json name,state,bucket","result":"pass"' "$(grep 'name,state,bucket' "$state/actions.jsonl" | tail -1)"
+check_match "gh ラッパー: pr checks --json の未知のフィールドは gh と同じメッセージ" 'Unknown JSON field: "bogus"' "$(wrap pr checks 7 --json bogus)"
+check_eq "gh ラッパー: pr checks --json の未知のフィールドは exit 1" 1 "$(wrap pr checks 7 --json bogus >/dev/null; echo $?)"
+check_match "gh ラッパー: pr checks --watch --json は gh と同じエラー" 'cannot use `--watch` with `--json` flag' "$(wrap pr checks 7 --watch --json name)"
+check_match "gh ラッパー: pr checks --jq は --json が無ければエラー" 'cannot use `--jq` without specifying `--json`' "$(wrap pr checks 7 --jq '.')"
+check_eq "gh ラッパー: pr checks --json の使い方の誤りは error で記録する（ラッパーが止めた unsupported ではない）" "error,error,error" "$(tail -3 "$state/actions.jsonl" | jq -s -r 'map(.result) | join(",")')"
+check_eq "gh ラッパー: pr checks --json は pr view を --json statusCheckRollup では呼ばない" 0 "$(grep -c 'statusCheckRollup' "$tmp/real-gh.log" || true)"
+printf '%s\n' "$run_p" >"$tmp/runs.queue"
+wrap pr checks 7 --json name >/dev/null
+check_match "gh ラッパー: pr checks --json の記録は pending（--json の有無で変えない。ci_waited が読む）" '"cmd":"gh pr checks 7 --json name","result":"pending"' "$(tail -1 "$state/actions.jsonl")"
+printf '%s\n' "$run_ok" >"$tmp/runs.queue"
+wrap pr checks 7 --json name >/dev/null
+check_match "gh ラッパー: pr checks --json の記録は pass" '"cmd":"gh pr checks 7 --json name","result":"pass"' "$(tail -1 "$state/actions.jsonl")"
 
 # live で見つかった誤検知（エージェントの正しい呼び出しを止めていた）: pr checks の --repo、gh api のブランチ名の %2F
 printf '%s\n' "$run_ok" >"$tmp/runs.queue"

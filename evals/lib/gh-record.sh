@@ -168,6 +168,36 @@ checks_once() {
     ck_runs="$runs"
     return 0
 }
+# checks_json : ck_runs の run ごとにジョブを読んで、gh pr checks --json と同じ意味のチェックの配列を ck_checks に入れる（gh の aggregate.go と同じ対応）:
+#   name = ジョブ名、workflow = run の名前、event = run の event、link = ジョブの URL、
+#   state = 実行中は status、終わっていれば conclusion（どちらも大文字）、bucket = state から（SUCCESS pass、SKIPPED・NEUTRAL skipping、
+#   ERROR・FAILURE・TIMED_OUT・ACTION_REQUIRED fail、CANCELLED cancel、それ以外 pending）、時刻が無ければ Go の zero time。
+#   同じ name / workflow / event の再実行は、新しい方だけ残す（startedAt の新しい順）。読めなければ ck_err に理由を入れて 2 を返す
+checks_json() {
+    local id run jobs all="[]"
+    ck_checks="[]"
+    for id in $(jq -r '.workflow_runs[]?.id' <<<"$ck_runs"); do
+        run="$(jq -c --argjson id "$id" '.workflow_runs[] | select(.id == $id)' <<<"$ck_runs")"
+        if ! jobs="$("$real" api "repos/${SANDBOX_REPO}/actions/runs/${id}/jobs?per_page=100" 2>&1)"; then
+            ck_err="$jobs"
+            return 2
+        fi
+        all="$(jq -c --argjson all "$all" --argjson run "$run" '
+            $all + [.jobs[]?
+                | (if .status != "completed" then ((.status // "") | ascii_upcase) else ((.conclusion // "") | ascii_upcase) end) as $s
+                | {name: .name, workflow: $run.name, event: $run.event, link: .html_url, description: "", state: $s,
+                   bucket: (if $s == "SUCCESS" then "pass"
+                            elif ($s == "SKIPPED" or $s == "NEUTRAL") then "skipping"
+                            elif ($s == "ERROR" or $s == "FAILURE" or $s == "TIMED_OUT" or $s == "ACTION_REQUIRED") then "fail"
+                            elif $s == "CANCELLED" then "cancel"
+                            else "pending" end),
+                   startedAt: (.started_at // "0001-01-01T00:00:00Z"), completedAt: (.completed_at // "0001-01-01T00:00:00Z")}]' <<<"$jobs")"
+    done
+    ck_checks="$(jq -c 'sort_by(.startedAt) | reverse
+        | reduce .[] as $c ({seen: {}, out: []}; ($c | [.name, .workflow, .event] | @json) as $k | if .seen[$k] then . else (.seen[$k] = true | .out += [$c]) end)
+        | .out' <<<"$all")"
+    return 0
+}
 # pr_checks の対応する旗: --watch、-i / --interval N、--fail-fast・--required（無視）、--json F と --jq（-q）、--repo。位置引数は PR の番号・ブランチ・URL
 pr_checks() {
     local sel="" watch=0 interval=10 i a f prev="" rc json_fields="" json_jq="" out
@@ -208,19 +238,22 @@ pr_checks() {
         esac
     done
     [[ "$interval" =~ ^[0-9]+$ ]] || refuse "gh pr checks の --interval が数字ではない（${interval}）" "${args[@]}"
+    # --json の使い方の誤りは、本物の gh と同じメッセージと exit 1（gh 自身のエラーなので、記録は error。ラッパーが止めた unsupported ではない）
+    json_err() {
+        printf '%s\n' "$1" >&2
+        log_call error "${args[@]}"
+        exit 1
+    }
     if [[ -n "$json_fields" ]]; then
-        # 対応するフィールドだけ（Actions の run から作れるもの）。ほかは gh の「Unknown JSON field」と同じく止める
-        case ",${json_fields}," in
-        *[!a-zA-Z,]*) refuse "gh pr checks --json のフィールド名が不正（${json_fields}）" "${args[@]}" ;;
-        esac
+        [[ "$watch" -eq 0 ]] || json_err 'cannot use `--watch` with `--json` flag'
         for f in ${json_fields//,/ }; do
             case "$f" in
             name | state | bucket | link | workflow | event | description | startedAt | completedAt) ;;
-            *) refuse "gh pr checks --json のフィールド ${f} には対応していない（name・state・bucket・link・workflow・event・description・startedAt・completedAt）" "${args[@]}" ;;
+            *) json_err "$(printf 'Unknown JSON field: "%s"\nAvailable fields:\n  bucket\n  completedAt\n  description\n  event\n  link\n  name\n  startedAt\n  state\n  workflow' "$f")" ;;
             esac
         done
     elif [[ -n "$json_jq" ]]; then
-        refuse "gh pr checks の --jq は --json と一緒に使う" "${args[@]}"
+        json_err 'cannot use `--jq` without specifying `--json`'
     fi
     export GH_REPO="$SANDBOX_REPO"
     while :; do
@@ -236,16 +269,21 @@ pr_checks() {
         fi
         break
     done
+    if [[ -z "$ck_rows" ]]; then
+        # run が 1 つも無い。gh は --json でも、標準出力には何も出さずにエラー（exit 1）にする
+        echo "no checks reported on the '${ck_head}' branch" >&2
+        log_call fail "${args[@]}"
+        exit 1
+    fi
     if [[ -n "$json_fields" ]]; then
-        # gh pr checks --json の形（run ごとの name / state / bucket / link / workflow / event / description / startedAt / completedAt）。--jq があれば通す
-        out="$(jq -c --arg f "$json_fields" '
-            ($f | split(",")) as $keep
-            | [.workflow_runs[]? | (.conclusion // "") as $c
-               | {name: .name, workflow: .name, event: .event, link: .html_url, description: "",
-                  state: (if .status != "completed" then (.status | ascii_upcase) else ($c | ascii_upcase) end),
-                  bucket: (if .status != "completed" then "pending" elif $c == "success" then "pass" elif ($c == "skipped" or $c == "neutral") then "skipping" elif $c == "cancelled" then "cancel" else "fail" end),
-                  startedAt: .run_started_at, completedAt: .updated_at}
-               | with_entries(select(.key as $k | $keep | index($k)))]' <<<"$ck_runs")"
+        # gh pr checks --json: 1 つのチェック（ジョブ）ごとの JSON を、キーの名前順に出す。--jq があれば jq に渡すだけ。
+        # gh は --json のときは、チェックが失敗・実行中でも exit 0（結果の表のときだけ 1 / 8）。記録する結果（pass / pending / fail）は、--json の有無で変えない
+        if ! checks_json; then
+            printf '%s\n' "$ck_err" >&2
+            log_call fail "${args[@]}"
+            exit 1
+        fi
+        out="$(jq -cS --arg f "$json_fields" '($f | split(",")) as $keep | map(with_entries(select(.key as $k | $keep | index($k))))' <<<"$ck_checks")"
         if [[ -n "$json_jq" ]]; then
             jq -r "$json_jq" <<<"$out" || {
                 log_call fail "${args[@]}"
@@ -254,12 +292,10 @@ pr_checks() {
         else
             printf '%s\n' "$out"
         fi
-        [[ -n "$ck_rows" ]] || echo "no checks reported on the '${ck_head}' branch" >&2
-    elif [[ -z "$ck_rows" ]]; then
-        echo "no checks reported on the '${ck_head}' branch" >&2
-    else
-        printf '%s\n' "$ck_rows"
+        case "$rc" in 0) log_call pass "${args[@]}" ;; 8) log_call pending "${args[@]}" ;; *) log_call fail "${args[@]}" ;; esac
+        exit 0
     fi
+    printf '%s\n' "$ck_rows"
     case "$rc" in 0) log_call pass "${args[@]}" ;; 8) log_call pending "${args[@]}" ;; *) log_call fail "${args[@]}" ;; esac
     exit "$rc"
 }
