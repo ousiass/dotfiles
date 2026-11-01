@@ -14,6 +14,7 @@ for _p in \
     "$HOME/.local/share/pnpm" \
     "$HOME/.opencode/bin" \
     "$HOME/go/bin" \
+    "$HOME/bin/swarm-console" \
     "/usr/local/go/bin" \
     "/opt/nvim/bin" \
     "/opt/homebrew/bin" \

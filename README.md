@@ -29,8 +29,8 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── tmux/               # → ~/.config/tmux
 ├── gh-dash/            # → ~/.config/gh-dash (GitHub Dashboard CLI)
 ├── herdr/              # → ~/.config/herdr (エージェント向けターミナルマルチプレクサ、tmux 準拠 keybinding)
-├── systemd/            # → ~/.config/systemd/user（週次の自動掃除 timer / service）
-├── tests/              # cleanup.sh / runner-path-guard.sh / runner-host-setup.sh / runner-tools-install.sh の回帰テストと bash 3.2 可搬性テストと、evals/ の dry 配線テスト（make test。macOS 標準の bash 3.2 と BSD コマンドでも動く書き方。CI の `test` ジョブが ubuntu-latest と macos-latest の両方で実行する）
+├── systemd/            # → ~/.config/systemd/user（週次の自動掃除 timer / service、swarm-console の service）
+├── tests/              # cleanup.sh / runner-path-guard.sh / runner-host-setup.sh / runner-tools-install.sh / swarm-console の install の回帰テストと bash 3.2 可搬性テストと、evals/ の dry 配線テスト（make test。macOS 標準の bash 3.2 と BSD コマンドでも動く書き方。CI の `test` ジョブが ubuntu-latest と macos-latest の両方で実行する）
 ├── evals/              # エージェント構成変更のための e2e eval 基盤（#56 Phase 0。`evals/README.md`）。モデルを呼ばない dry モードで配線を確かめられる
 └── fish/               # → ~/.config/fish
     ├── config.fish
@@ -170,6 +170,7 @@ $EDITOR .env
 ./install.sh cursor          # cursor_cli と同じ alias
 ./install.sh fugu gemini_cli # 複数指定可
 ./install.sh omp_jev         # omp-jev-compaction プラグインだけ再同期（TYPESAFE_API_KEY 必須）
+./install.sh swarm_console   # = make swarm-console。バイナリの配置と systemd 登録だけ（Linux x86_64 のみ）
 ```
 
 未定義の名前を渡すとエラー終了する（誤入力を握りつぶさない）。
@@ -241,6 +242,33 @@ bash ~/dotfiles/reset-tools.sh
 - `CLAUDECODE=1` / `CODEX_THREAD_ID` / `CURSOR_AGENT` を検出して各エージェントのセッション中は自動的に拒否
 - 削除対象: uv / bun (codex/gemini 含む) / Codex CLI standalone package / rustup / fnm + Node / Go / Claude Code / Cursor CLI
 - 削除しないもの: fish/tmux/neovim/git, ~/.env, ~/.claude のデータ, ~/.cursor のデータ, シンボリックリンク
+
+## swarm-console
+
+[ousiassllc/swarm-console](https://github.com/ousiassllc/swarm-console)（tmux 上の AI エージェントを MCP で見る・操作する常駐サーバー）を、バイナリの配置から systemd のユーザーサービス登録まで入れる。対象は Linux（linux/amd64）だけで、macOS と arm64 ではスキップする。`./install.sh` の一部として走り、これだけを入れたいときは `make swarm-console`。何度実行しても安全。
+
+- **バイナリ**: 最新リリースの `swarm-console_<版>_linux_amd64` と `SHA256SUMS` を取得し、sha256 が合ったときだけ `~/bin/swarm-console/swarm-console` に通常ファイル（実行権限つき）として置く。合わなければ何も置かず失敗する。シンボリックリンクにはしない（自己更新が、この場所の通常ファイルを入れ替えるため）
+- **更新**: すでに置いてあればスキップして再ダウンロードしない。更新は本体の自己更新に任せる（`update.sh` の対象外）
+- **サービス**: `systemd/swarm-console.service`（`ousiassllc/swarm-console` の `deploy/swarm-console.service` と同じ）を `~/.config/systemd/user/` にシンボリックリンクし、`daemon-reload` → `enable` → `loginctl enable-linger` まで行う。linger は有効済みなら何もせず、権限が無ければ警告だけ出して続ける（パスワードは聞かない）。`~/.config/swarm-console/config.toml` があれば `enable --now`、無ければ起動せず設定の手順を表示する
+- **PATH**: `~/bin/swarm-console` そのものを `fish/conf.d/paths.fish` と `shell/paths.sh` で PATH に足す（`~/bin` にリンクは張らない）
+
+### 設定とトークン（マシンごと・秘密。dotfiles には入れない）
+
+`config.toml` とトークン（`tokens.toml`）は `~/.config/swarm-console/` に作る。マシンごとに違い、トークンは秘密なので dotfiles では管理しない。次のどちらかで `config.toml` を作ってから、トークンを発行して起動する。
+
+```bash
+# 1a. 対話型（端末が要る）
+~/bin/swarm-console/swarm-console setup
+# 1b. または ~/.config/swarm-console/config.toml を手で書く（listen_addr = "<tailscale ip -4 の値>:48120" が必須）
+
+# 2. クライアントごとにトークンを発行（平文は 1 度しか表示されない。ops か report）
+~/bin/swarm-console/swarm-console token add <名前> --scope ops
+
+# 3. 起動（動いているサービスに設定を反映するときは restart）
+systemctl --user start swarm-console
+```
+
+キーの一覧と手書きの詳細は上流の [README](https://github.com/ousiassllc/swarm-console#設定) を参照。
 
 ## ディスク掃除
 

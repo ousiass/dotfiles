@@ -21,3 +21,5 @@
 . "$DOTFILES_DIR/lib/tools/moleport.sh"
 # shellcheck source=lib/tools/linterly.sh
 . "$DOTFILES_DIR/lib/tools/linterly.sh"
+# shellcheck source=lib/tools/swarm_console.sh
+. "$DOTFILES_DIR/lib/tools/swarm_console.sh"
