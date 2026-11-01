@@ -101,6 +101,7 @@ main() {
     link_cursor_agents
     link_cursor_rules
     sync_codex_mcp
+    link_local_agent_skills
     install_agent_skills
     link_home_file .env
     link_home_file .mcp.json claude-mcp/mcp.json
