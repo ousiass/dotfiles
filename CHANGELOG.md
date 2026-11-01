@@ -7,10 +7,12 @@
 - Add swarm-console to install pipeline / 最新リリースの `swarm-console_<版>_linux_amd64` を `SHA256SUMS` で sha256 照合してから `~/bin/swarm-console/swarm-console` に通常ファイルで配置する（照合が合わなければ何も置かず失敗。シンボリックリンクにしない＝自己更新の条件。配置済みならスキップし、更新は本体の自己更新に任せる）。`make swarm-console` / `./install.sh swarm_console` で単独実行できる。linux/amd64 以外はスキップ
 - Register swarm-console as a systemd user service / `systemd/swarm-console.service`（上流の `deploy/swarm-console.service` と同じ）を `~/.config/systemd/user` にリンクし、`daemon-reload` → `enable` → `loginctl enable-linger` まで行う。`config.toml` が無ければ起動せず設定の手順（`setup` / `token add`）を表示する。`config.toml` とトークンはマシンごと・秘密なので dotfiles では管理しない（作り方は README）
 - Add `~/bin/swarm-console` to PATH / `fish/conf.d/paths.fish` と `shell/paths.sh` の両方に追加（`~/bin` にリンクは張らず、フォルダそのものを通す）
+- Add unslop skill (CC BY 4.0) / [heydamir/unslop](https://github.com/heydamir/unslop) の `skills/unslop` を上流のまま `.agents/skills/unslop/` に取り込み（取り込み元は `a6f121e`。作者・ライセンス・出典・変更点は `NOTICE.md`）。実体は 1 か所で、`link_local_agent_skills` が `~/.agents/skills`（Codex）→ `~/.claude/skills`（Claude Code / omp）・`~/.codex/skills`・`~/.cursor/skills` へ symlink する。`install.sh` に組み込み済み。Playwright（chromium）と ffmpeg は任意の依存で dotfiles は入れない（README）
 
 ### 🧪 Tests / テスト
 
 - Add `tests/swarm_console_install_test.sh` / curl・systemctl・loginctl・uname をスタブにして、sha256 照合（不一致は失敗・何も置かない）、配置済みスキップ、config.toml の有無での起動可否、linger、対象外環境を検証する。`make test` に組み込み済み
+- Add `tests/agent_skills_link_test.sh` / HOME を一時ディレクトリにして、取り込み済み skill が Codex・Claude Code・omp・Cursor の読み場所すべてから実体 1 か所に解決されること、再実行で変化しないこと、自作 skill を上書きしないこと、bunx が無くても動くことを検証する。`make test` に組み込み済み
 
 ## [v0.13.0] - 2026-09-29
 

@@ -22,6 +22,8 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── .cursor/
 │   ├── agents/         # → ~/.cursor/agents（model: inherit。Claude 側は .claude/agents の opus）
 │   └── rules/          # → ~/.cursor/rules（サブエージェントは親モデル継承）
+├── .agents/
+│   └── skills/         # 上流から取り込んだ skill の実体（unslop 等）。各サブディレクトリが ~/.agents/skills/<name> に symlink され、そこから ~/.claude/skills・~/.codex/skills・~/.cursor/skills へ配られる。作者表示は各フォルダの NOTICE.md
 ├── .codex/
 │   ├── AGENTS.md       # → ~/.codex/AGENTS.md（Codex グローバル指示、言語設定等）
 │   └── skills/         # 各サブディレクトリが ~/.codex/skills/<name> に symlink される Codex 用 skill 群
@@ -30,7 +32,7 @@ Ubuntu / macOS 両対応の個人用設定ファイル群。複数マシン間�
 ├── gh-dash/            # → ~/.config/gh-dash (GitHub Dashboard CLI)
 ├── herdr/              # → ~/.config/herdr (エージェント向けターミナルマルチプレクサ、tmux 準拠 keybinding)
 ├── systemd/            # → ~/.config/systemd/user（週次の自動掃除 timer / service、swarm-console の service）
-├── tests/              # cleanup.sh / runner-path-guard.sh / runner-host-setup.sh / runner-tools-install.sh / swarm-console の install の回帰テストと bash 3.2 可搬性テストと、evals/ の dry 配線テスト（make test。macOS 標準の bash 3.2 と BSD コマンドでも動く書き方。CI の `test` ジョブが ubuntu-latest と macos-latest の両方で実行する）
+├── tests/              # cleanup.sh / runner-path-guard.sh / runner-host-setup.sh / runner-tools-install.sh / swarm-console の install / agent-skills のリンクの回帰テストと bash 3.2 可搬性テストと、evals/ の dry 配線テスト（make test。macOS 標準の bash 3.2 と BSD コマンドでも動く書き方。CI の `test` ジョブが ubuntu-latest と macos-latest の両方で実行する）
 ├── evals/              # エージェント構成変更のための e2e eval 基盤（#56 Phase 0。`evals/README.md`）。モデルを呼ばない dry モードで配線を確かめられる
 └── fish/               # → ~/.config/fish
     ├── config.fish
@@ -269,6 +271,34 @@ systemctl --user start swarm-console
 ```
 
 キーの一覧と手書きの詳細は上流の [README](https://github.com/ousiassllc/swarm-console#設定) を参照。
+
+## unslop（取り込み済みの外部 skill）
+
+[heydamir/unslop](https://github.com/heydamir/unslop)（vibecode 由来の「AIっぽい」UI を、監査 → 方向づけ → 9 パスで直すスキル。CC BY 4.0）を `.agents/skills/unslop/` に上流のまま取り込んでいる。取り込み元のコミット・作者・ライセンス・変更点（なし）は [`.agents/skills/unslop/NOTICE.md`](.agents/skills/unslop/NOTICE.md)。
+
+実体は `.agents/skills/unslop/` の 1 か所だけで、他はすべて symlink。`./install.sh`（`link_local_agent_skills`）が次のように配る。
+
+| 使う側 | 読む場所 | 実体への経路 |
+|---|---|---|
+| Codex | `~/.agents/skills/unslop` | → `~/dotfiles/.agents/skills/unslop` |
+| Claude Code | `~/.claude/skills/unslop` | → `~/.agents/skills/unslop` |
+| omp | `~/.claude/skills/unslop`（`skills.enableClaudeUser: true`）と `~/.agents/skills/unslop` | 同上 |
+| Cursor | `~/.cursor/skills/unslop` | → `~/.agents/skills/unslop` |
+
+`~/.claude` は `~/dotfiles/.claude` へのリンクなので、`~/dotfiles/.claude/skills/unslop` にもリンクができる。これはマシン依存なので `install_agent_skills` と同じ仕組みで `.claude/skills/.gitignore` に載り、git には入らない。
+
+使うとき: Claude Code は `/unslop`、Codex は `$unslop`、omp は `/skill:unslop` か、頼み方から自動で選ばれる。
+
+### 任意の依存（dotfiles は入れない）
+
+サイトのスナップショット（`snapshot.mjs`）とストーリー動画（`story.mjs`）だけが次を使う。監査と修正だけなら不要。
+
+- Playwright と chromium: スキルを使うプロジェクトで `npm install -D playwright` と `npx playwright install chromium`
+- ffmpeg（動画のみ）: PATH 上に必要。`apt install ffmpeg` / `brew install ffmpeg`
+
+### 上流の更新を取り込む
+
+`skills/unslop/` を丸ごと置き換え、`NOTICE.md` のコミットと取り込み日を更新する。`SKILL.md` 冒頭の作者表示は消さない。
 
 ## ディスク掃除
 

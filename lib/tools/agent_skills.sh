@@ -35,6 +35,29 @@ install_agent_skills() {
     sync_agent_skills_gitignore
 }
 
+# ~/dotfiles/.agents/skills/<name>（取り込み済みの外部 skill の実体）を
+# ~/.agents/skills/<name> に symlink し、続けて link_agent_skills で
+# ~/.claude/skills（omp も skills.enableClaudeUser で読む）・~/.codex/skills・~/.cursor/skills に配る。
+# 実体は dotfiles に 1 か所だけ。bunx が無くても動く（bunx skills add を経由しないため）。
+link_local_agent_skills() {
+    local src_root="$DOTFILES_DIR/.agents/skills"
+    local dst_root="$HOME/.agents/skills"
+    [[ -d "$src_root" ]] || return 0
+
+    mkdir -p "$dst_root"
+
+    local skill_dir name
+    for skill_dir in "$src_root"/*/; do
+        [[ -d "$skill_dir" ]] || continue
+        name="$(basename "$skill_dir")"
+        [[ "$name" == .* ]] && continue
+        make_symlink "$dst_root/$name" "$src_root/$name" >/dev/null || true
+    done
+
+    link_agent_skills
+    sync_agent_skills_gitignore
+}
+
 # ~/.agents/skills/<name> を ~/.claude/skills/<name>、~/.codex/skills/<name>、
 # ~/.cursor/skills/<name> に symlink。
 # Cursor CLI は互換で ~/.claude/skills/ も読むが、Cloud Agents の同期対象は
