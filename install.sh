@@ -14,7 +14,7 @@
 #   lib/common.sh           — ログ、OS 検出、apt/brew、symlink ヘルパー
 #   lib/install_lang.sh     — uv / bun / rustup / fnm / go / Node LTS
 #   lib/install_ai.sh       — claude / codex / gemini / cursor / fugu / herdr
-#   lib/install_devtools.sh — lazygit / gh / gcloud / cloudflared / wrangler / netlify / pm2 / moleport / linterly
+#   lib/install_devtools.sh — lazygit / gh / gcloud / cloudflared / wrangler / netlify / pm2 / moleport / linterly / swarm-console
 #   lib/install_skills.sh   — 外部 agent-skills (bunx skills)
 #   lib/setup_shell.sh      — ~/.profile, fisher, nvim 同期, default shell
 
@@ -86,6 +86,7 @@ main() {
 
     install_moleport
     install_linterly
+    install_swarm_console
 
     link_config nvim
     link_config tmux
