@@ -34,9 +34,24 @@ stub() {
     chmod +x "$1"
 }
 
-for c in cat mkdir tee; do
+for c in cat tee; do
     ln -sf "$(command -v "$c")" "$stubs/$c"
 done
+
+# mkdir: 本番は GNU の `mkdir -p --mode=0755` を使う。macOS の BSD mkdir は --mode を解釈できず落ちるので、
+# --mode=* を捨てて実物を呼ぶ（テストが見たいのは apt ソースの中身で、権限ビットではない）
+real_mkdir="$(command -v mkdir)"
+stub "$stubs/mkdir" <<EOF2
+#!/bin/bash
+args=()
+for a in "\$@"; do
+    case "\$a" in
+    --mode=*) ;;
+    *) args+=("\$a") ;;
+    esac
+done
+exec "$real_mkdir" "\${args[@]}"
+EOF2
 
 # sudo: /etc/ と /usr/ で始まる引数を $FAKE_ROOT 配下に付け替えて実行する
 stub "$stubs/sudo" <<'EOF2'
