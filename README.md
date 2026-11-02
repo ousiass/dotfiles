@@ -371,8 +371,6 @@ RUNNER_GROUP=Default
 
 ```bash
 make runner-setup                  # org が決まっていなければ、端末なら一覧から選ぶ・端末が無ければエラーで止まる
-
-```bash
 make runner-setup RUNNER_USER=ci-runner RUNNER_DIR=/opt/runners/foo
 make runner-setup RUNNER_ORG=my-org RUNNER_NAME=my-mac RUNNER_GROUP=Default
 make runner-setup RUNNER_REPLACE=1   # 同名の runner が org にあるとき、置き換えて登録する（既定は置き換えない）
