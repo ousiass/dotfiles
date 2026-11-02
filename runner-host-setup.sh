@@ -33,9 +33,11 @@
 # 既定値:
 #   RUNNER_USER  sudo を呼び出したユーザー（${SUDO_USER}）
 #   RUNNER_DIR   $RUNNER_USER のホームディレクトリ配下の actions-runner
-#   RUNNER_ORG   登録先の org（ousiassllc）
-#   RUNNER_NAME  runner 名（ホスト名 hostname -s）
-#   RUNNER_GROUP runner group（Default）
+#   RUNNER_ORG   登録先の org。既定は無い（黙って特定の org に登録しない）。引数・環境変数、無ければ設定ファイル
+#                （runner ユーザーの ~/.env の RUNNER_ORG=）、どちらも無ければ端末から実行しているときだけ
+#                gh で取った一覧から番号で選ぶ。端末が無く決まっていなければ、登録せずにエラーで止まる
+#   RUNNER_NAME  runner 名（ホスト名 hostname -s）。org と同じく設定ファイルでも決められる
+#   RUNNER_GROUP runner group（Default）。org と同じく設定ファイルでも決められる
 #   RUNNER_GH_BIN gh の場所（PATH の gh）。sudo の PATH に無い場所に gh があるときに指す
 #   RUNNER_REPLACE 1 にすると、同名の runner が org にあれば置き換えて登録する（既定は置き換えない）
 # ラベルは OS と CPU から自動で付ける（macOS: self-hosted,macOS,ARM64 / Linux: self-hosted,linux,x64）。
@@ -140,9 +142,19 @@ if [ "$OS" = Darwin ]; then runner_machine=arm64; else runner_machine="$(uname -
 runner_gh_bin=""
 runner_labels=""
 if [ ! -f "$RUNNER_DIR/.runner" ]; then
-	# 既定は ousiassllc の Linux ホストのやり方: org 登録・Default グループ・ホスト名。
+	# 登録先の org は既定値を持たない（黙って特定の org に登録しない）。決め方は次の順:
+	#   1. 引数・環境変数（RUNNER_ORG / RUNNER_NAME / RUNNER_GROUP）
+	#   2. 設定ファイル（runner ユーザーの ~/.env。リポジトリには入れない）。指定の無いものだけ埋める
+	#   3. どちらも無い org は、端末から実行していれば gh の一覧から番号で選ばせる（gh が使えるように
+	#      なってから: Linux は下、macOS は 2/5）。端末が無ければ（CI・パイプ）登録せずに止まる。
+	# 名前の既定はホスト名、group の既定は Default。
 	# org・名前・group は API のパスや引数に入るので、英数字と - _ . だけを許す（group は空白も可）。
-	RUNNER_ORG="${RUNNER_ORG:-ousiassllc}"
+	RUNNER_ORG="${RUNNER_ORG:-}"
+	RUNNER_NAME="${RUNNER_NAME:-}"
+	RUNNER_GROUP="${RUNNER_GROUP:-}"
+	runner_org_source="指定"
+	runner_read_config "$RUNNER_USER" "$home/.env"
+	case "$RUNNER_CONFIG_USED" in *RUNNER_ORG*) runner_org_source="設定ファイル $home/.env" ;; esac
 	RUNNER_NAME="${RUNNER_NAME:-$(hostname -s || true)}"
 	RUNNER_GROUP="${RUNNER_GROUP:-Default}"
 	# 取得・登録は runner ユーザーが / を cwd にして実行するので、相対パスだと root と見る場所がずれる。
@@ -163,7 +175,7 @@ if [ ! -f "$RUNNER_DIR/.runner" ]; then
 	re_org='^[A-Za-z0-9][A-Za-z0-9-]*$'
 	re_name='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 	re_group='^[A-Za-z0-9][A-Za-z0-9._ -]*$'
-	if ! [[ "$RUNNER_ORG" =~ $re_org ]] || ! [[ "$RUNNER_NAME" =~ $re_name ]] || ! [[ "$RUNNER_GROUP" =~ $re_group ]]; then
+	if { [ -n "$RUNNER_ORG" ] && ! [[ "$RUNNER_ORG" =~ $re_org ]]; } || ! [[ "$RUNNER_NAME" =~ $re_name ]] || ! [[ "$RUNNER_GROUP" =~ $re_group ]]; then
 		echo "RUNNER_ORG / RUNNER_NAME / RUNNER_GROUP に使えない文字があります（英数字と - _ . のみ。group は空白も可）: org=${RUNNER_ORG} name=${RUNNER_NAME} group=${RUNNER_GROUP}" >&2
 		exit 1
 	fi
@@ -174,9 +186,23 @@ if [ ! -f "$RUNNER_DIR/.runner" ]; then
 		echo "対象外です: この OS / CPU の runner は登録できません: ${OS} ${runner_machine}" >&2
 		exit 1
 	fi
-	# macOS の gh は 2/5（runner-tools-install.sh）で入るので、そこで確かめる。Linux はここで確かめる。
+	# org が決まっていないとき、端末が無ければ、sudoers・apt・brew より前に、何も登録せずに止まる。
+	if [ -z "$RUNNER_ORG" ] && ! runner_is_interactive; then
+		echo "登録先の org が決まっていません。既定の org は無く、黙って登録しません（端末が無いので選ばせることもできません）。" >&2
+		echo "次のどれかで org を指定して、もう一度実行してください。" >&2
+		echo "  make runner-setup RUNNER_ORG=<org>" >&2
+		echo "  sudo RUNNER_ORG=<org> bash $0" >&2
+		echo "  設定ファイル ${home}/.env に RUNNER_ORG=<org> を書く（RUNNER_NAME / RUNNER_GROUP も書ける。リポジトリには入れない）" >&2
+		echo "端末から実行すれば、gh で取った org の一覧から番号で選べます。" >&2
+		exit 1
+	fi
+	# macOS の gh は 2/5（runner-tools-install.sh）で入るので、そこで確かめて org も選ぶ。Linux はここで行う。
 	if [ "$OS" = Linux ]; then
 		runner_gh_ready "$RUNNER_USER" "$runner_gh_bin" || exit 1
+		if [ -z "$RUNNER_ORG" ]; then
+			runner_select_org "$RUNNER_USER" "$runner_gh_bin" "$RUNNER_NAME" "$RUNNER_GROUP" || exit 1
+			runner_org_source="対話で選択"
+		fi
 	fi
 fi
 
@@ -278,6 +304,10 @@ if [ "$OS" = Darwin ]; then
 	if [ ! -f "$RUNNER_DIR/.runner" ]; then
 		runner_gh_bin="${RUNNER_GH_BIN:-$(command -v gh || true)}"
 		runner_gh_ready "$RUNNER_USER" "$runner_gh_bin" || exit 1
+		if [ -z "$RUNNER_ORG" ]; then
+			runner_select_org "$RUNNER_USER" "$runner_gh_bin" "$RUNNER_NAME" "$RUNNER_GROUP" || exit 1
+			runner_org_source="対話で選択"
+		fi
 	fi
 
 	echo "== 3/5 colima =="
@@ -358,6 +388,7 @@ else
 	fi
 	# 依存パッケージは冪等。前回 apt が失敗して止まっても、再実行で入る（Linux のみ。root）。
 	runner_install_deps "$OS" "$RUNNER_DIR"
+	echo "  登録先の org: ${RUNNER_ORG}（${runner_org_source}）"
 	runner_register "$RUNNER_USER" "$RUNNER_DIR" "$RUNNER_ORG" "$RUNNER_NAME" "$RUNNER_GROUP" \
 		"$runner_labels" "$runner_gh_bin" "${RUNNER_REPLACE:-}"
 fi

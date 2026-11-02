@@ -352,7 +352,25 @@ make runner-setup
 - **権限**: ディレクトリの作成・`chown`・Linux の依存パッケージ・サービス化（Linux の `svc.sh`）は root（sudo）。取得・展開・`gh`・`config.sh` は runner ユーザーで実行する（`config.sh` は root を拒否し、`gh` の認証も runner ユーザーのもの）。macOS の `svc.sh` は従来どおり runner ユーザー。
 - **前提**: runner ユーザーの `gh` が org の runner を登録できる権限（`admin:org`）で認証済みであること。足りなければ、Linux は sudoers・apt を触る前に、macOS は 2/5（brew でツールを入れた直後。colima を起動して待つ前）に、入れ方・ログイン方法を案内して止まる。`gh` が PATH に無い場所にあるときは `RUNNER_GH_BIN=/path/to/gh` で指す（`sudo bash runner-host-setup.sh` で直接実行するとき）。なお `gh auth status` は scope まで見ないので、scope 不足は登録時（403）まで分からない。
 
-runner のユーザー・ディレクトリ・登録先は変数で上書きできる。既定は sudo を呼び出したユーザーと、そのホーム配下の `actions-runner`、org `ousiassllc`、runner 名はホスト名（`hostname -s`）、runner group は `Default`。
+runner のユーザー・ディレクトリ・登録先は変数で上書きできる。既定は sudo を呼び出したユーザーと、そのホーム配下の `actions-runner`、runner 名はホスト名（`hostname -s`）、runner group は `Default`。**登録先の org には既定が無い**（黙って特定の org に登録しない）。次の順で決まる。
+
+1. **引数・環境変数**: `RUNNER_ORG=<org>`（`RUNNER_NAME` / `RUNNER_GROUP` も同じ）
+2. **設定ファイル**: runner ユーザーの `~/.env`（dotfiles の `.env` と同じファイル。gitignore 済みでリポジトリには入らない）に `RUNNER_ORG=` / `RUNNER_NAME=` / `RUNNER_GROUP=` の行があれば、引数で指定していないものだけそれで埋める（引数が優先）。`KEY=value` の行だけを文字として読み（`export` や引用符つきも可）、シェルとして実行・展開はしない。このファイルの他の行（API キーなど）は読んでも使わず、出力にも出さない
+3. **対話で選ぶ**: org がどちらでも決まっていないときは、端末から実行していれば、gh の認証ユーザーが登録できる org（`gh api user/memberships/orgs` のうち owner = `role: admin` のもの。決め打ちしない）を番号つきで出す。番号を選ぶと「この org に、この名前・group で登録します」と確認し、`y` のときだけ進む（空 Enter や `n` は何も登録せずに止まる）。Linux は sudoers や apt に触る前、macOS は 2/5（gh が入った直後）に聞く
+4. **端末が無い**（CI・パイプ入力など）のに org が決まっていない: 登録せずにエラーで止まり、指定方法（引数・設定ファイル）を表示する。`.runner` がある（登録済みの）ホストの再実行には org は要らない
+
+設定ファイルの例（`~/dotfiles/.env`）:
+
+```bash
+RUNNER_ORG=my-org
+RUNNER_NAME=my-mac
+RUNNER_GROUP=Default
+```
+
+限界: 一覧は owner の org だけで、owner 以外の権限で runner を登録できる org（カスタムロールなど）は出ない。その org は `RUNNER_ORG` で指定する。
+
+```bash
+make runner-setup                  # org が決まっていなければ、端末なら一覧から選ぶ・端末が無ければエラーで止まる
 
 ```bash
 make runner-setup RUNNER_USER=ci-runner RUNNER_DIR=/opt/runners/foo

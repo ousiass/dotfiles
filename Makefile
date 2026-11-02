@@ -23,7 +23,7 @@ fugu: ## Fugu だけ単独でインストール（~/.env の SAKANA_API_KEY を�
 swarm-console: ## swarm-console だけ単独でインストール（~/bin/swarm-console に sha256 照合して配置 → systemd ユーザーサービス登録。config.toml が無ければ起動せず手順を表示。配置済みならバイナリは触らない）
 	./install.sh swarm_console
 
-runner-setup: ## GitHub Actions self-hosted runner ホストをセットアップ（runner 本体の取得・登録とサービス化まで。.path が PATH の正。sudo 必須。RUNNER_USER / RUNNER_DIR / RUNNER_ORG / RUNNER_NAME / RUNNER_GROUP / RUNNER_REPLACE で上書き可。Linux と Apple Silicon の macOS）
+runner-setup: ## GitHub Actions self-hosted runner ホストをセットアップ（runner 本体の取得・登録とサービス化まで。.path が PATH の正。sudo 必須。登録先の org に既定は無い: RUNNER_ORG=<org> か ~/.env の RUNNER_ORG= で決め、無ければ端末なら gh の一覧から選び、端末が無ければ止まる。RUNNER_USER / RUNNER_DIR / RUNNER_NAME / RUNNER_GROUP / RUNNER_REPLACE でも上書き可。Linux と Apple Silicon の macOS）
 	sudo env RUNNER_USER="$(RUNNER_USER)" RUNNER_DIR="$(RUNNER_DIR)" RUNNER_ORG="$(RUNNER_ORG)" RUNNER_NAME="$(RUNNER_NAME)" RUNNER_GROUP="$(RUNNER_GROUP)" RUNNER_REPLACE="$(RUNNER_REPLACE)" bash ./runner-host-setup.sh
 
 runner-tools: ## runner のジョブが使うツール（macOS は brew で colima/docker/fnm/gh/jq など）の足りないものだけ入れる。sudo 不要・何度でも可
