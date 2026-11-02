@@ -8,8 +8,7 @@
 #   runner_fetch           : 最新リリースを落とし、チェックサムを確かめて展開する
 #   runner_install_deps    : Linux の runner の依存パッケージ（libicu など）を入れる
 #   runner_register        : 登録トークンをその場で発行して config.sh で登録する
-#   runner_read_config     : RUNNER_ORG / RUNNER_NAME / RUNNER_GROUP を設定ファイル（~/.env）から読む
-#   runner_select_org      : 登録先の org を gh の一覧から番号で選ばせ、確認を取る
+#   runner_select_org      : 登録先の org を gh の一覧から番号で選ばせ（RUNNER_ORG は初期選択）、確認を取る
 #
 # 権限の分け方: このファイルの関数は root（sudo）で呼ばれる。root で動かすのは、ディレクトリを新しく作って
 # 所有者を渡すところと、Linux の依存パッケージ（installdependencies.sh）だけ。ダウンロード・展開・gh・
@@ -231,49 +230,6 @@ env -u GH_DEBUG -u DEBUG "$gh_bin" api -X POST "orgs/$org/actions/runners/regist
 	echo "  登録した（ラベル: ${labels}）"
 }
 
-# runner_read_config <user> <file> : 設定ファイルの RUNNER_ORG / RUNNER_NAME / RUNNER_GROUP を、
-# まだ決まっていない（空の）ものだけ埋める。dotfiles の ~/.env と同じ KEY=value の形（export 付き・
-# 引用符つきも可）。値は source も展開もせず、この 3 つのキーの行だけを文字として読む（root で動くので、
-# ユーザーが書き換えられるファイルを実行しない）。読むのは runner ユーザーの権限で、読めなければ無いものとする。
-# 同じキーが複数あれば最後が勝つ（source したときと同じ）。値の検証は呼び出し側が行う。
-# 埋めたキーは RUNNER_CONFIG_USED に（空白区切りで）残す。
-RUNNER_CONFIG_USED=""
-runner_read_config() {
-	local user="$1" file="$2" content line key val cfg_org="" cfg_name="" cfg_group=""
-	local re='^[[:space:]]*(export[[:space:]]+)?(RUNNER_ORG|RUNNER_NAME|RUNNER_GROUP)=(.*)$'
-	[ -f "$file" ] || return 0
-	content=$(runner_as_user "$user" cat "$file" 2>/dev/null </dev/null) || return 0
-	while IFS= read -r line || [ -n "$line" ]; do
-		line="${line%$'\r'}"
-		[[ "$line" =~ $re ]] || continue
-		key="${BASH_REMATCH[2]}"
-		val="${BASH_REMATCH[3]}"
-		val="${val%"${val##*[![:space:]]}"}"
-		case "$val" in
-		\"*\") val="${val#\"}"; val="${val%\"}" ;;
-		\'*\') val="${val#\'}"; val="${val%\'}" ;;
-		esac
-		case "$key" in
-		RUNNER_ORG) cfg_org="$val" ;;
-		RUNNER_NAME) cfg_name="$val" ;;
-		RUNNER_GROUP) cfg_group="$val" ;;
-		esac
-	done <<<"$content"
-	if [ -z "${RUNNER_ORG:-}" ] && [ -n "$cfg_org" ]; then
-		RUNNER_ORG="$cfg_org"
-		RUNNER_CONFIG_USED="$RUNNER_CONFIG_USED RUNNER_ORG"
-	fi
-	if [ -z "${RUNNER_NAME:-}" ] && [ -n "$cfg_name" ]; then
-		RUNNER_NAME="$cfg_name"
-		RUNNER_CONFIG_USED="$RUNNER_CONFIG_USED RUNNER_NAME"
-	fi
-	if [ -z "${RUNNER_GROUP:-}" ] && [ -n "$cfg_group" ]; then
-		RUNNER_GROUP="$cfg_group"
-		RUNNER_CONFIG_USED="$RUNNER_CONFIG_USED RUNNER_GROUP"
-	fi
-	return 0
-}
-
 # runner_is_interactive : 端末から対話できるか（標準入力が端末か）。CI・cron・パイプ入力では偽。
 runner_is_interactive() {
 	[ -t 0 ]
@@ -289,18 +245,25 @@ runner_list_orgs() {
 		--jq '.[] | select(.role == "admin") | .organization.login' </dev/null
 }
 
-# runner_select_org <user> <gh> <name> <group> : 登録先の org を一覧から番号で選ばせ、確認を取って
-# RUNNER_ORG に入れる。選ばなかったとき（空 Enter・入力の終わり・確認で n）は何も登録せず 1 を返す。
+# runner_select_org <user> <gh> <name> <group> [<default_org>] : 登録先の org を一覧から番号で選ばせ、
+# 確認を取って RUNNER_ORG に入れる。選ばなかったとき（確認で n・入力の終わり・default 無しの空 Enter）は
+# 何も登録せず 1 を返す。default_org（環境変数 RUNNER_ORG）があれば、その org を初期選択にして、番号が
+# 空の Enter で採用する。一覧に無い org（owner 以外の権限で登録できるものなど）でも、指定されていれば
+# 末尾に足して選べる。一覧が gh から取れなくても、default_org があればそれだけを選択肢にする。
 # 一覧と確認は標準エラーへ出す（呼び出し元が端末であることは確かめ済みの前提）。
 runner_select_org() {
-	local user="$1" gh_bin="$2" name="$3" group="$4"
-	local raw org choice answer i count=0
+	local user="$1" gh_bin="$2" name="$3" group="$4" default_org="${5:-}"
+	local raw="" org choice answer i listed=0 count=0 default_idx=0 hint
 	local re_org='^[A-Za-z0-9][A-Za-z0-9-]*$'
 	local orgs=()
 	if ! raw=$(runner_list_orgs "$user" "$gh_bin"); then
-		echo "登録できる org の一覧を gh から取れませんでした。" >&2
-		echo "  ${user} で gh auth login -s admin:org（または gh auth refresh -s admin:org）を実行するか、RUNNER_ORG=<org> で指定してください。" >&2
-		return 1
+		raw=""
+		if [ -z "$default_org" ]; then
+			echo "登録できる org の一覧を gh から取れませんでした。" >&2
+			echo "  ${user} で gh auth login -s admin:org（または gh auth refresh -s admin:org）を実行するか、RUNNER_ORG=<org> で指定してください。" >&2
+			return 1
+		fi
+		echo "登録できる org の一覧を gh から取れませんでした。指定された RUNNER_ORG=${default_org} だけを選べます。" >&2
 	fi
 	while IFS= read -r org; do
 		if [[ "$org" =~ $re_org ]]; then
@@ -308,6 +271,17 @@ runner_select_org() {
 			count=$((count + 1))
 		fi
 	done <<<"$raw"
+	listed=$count
+	i=0
+	while [ "$i" -lt "$count" ]; do
+		[ "${orgs[i]}" = "$default_org" ] && default_idx=$((i + 1))
+		i=$((i + 1))
+	done
+	if [ -n "$default_org" ] && [ "$default_idx" -eq 0 ]; then
+		orgs[count]="$default_org"
+		count=$((count + 1))
+		default_idx=$count
+	fi
 	if [ "$count" -eq 0 ]; then
 		echo "${user} の gh で runner を登録できる org（owner で admin:org の権限があるもの）が見つかりません。" >&2
 		echo "  RUNNER_ORG=<org> で指定するか、gh auth refresh -s admin:org で権限を足してください。" >&2
@@ -317,16 +291,33 @@ runner_select_org() {
 		echo "runner を登録する org を選んでください（gh の認証ユーザー ${user} が登録できるもの）:"
 		i=0
 		while [ "$i" -lt "$count" ]; do
-			printf '  %d) %s\n' "$((i + 1))" "${orgs[i]}"
+			hint=""
+			if [ "$((i + 1))" -eq "$default_idx" ]; then
+				hint="  <- RUNNER_ORG"
+				[ "$i" -ge "$listed" ] && hint="  <- RUNNER_ORG（gh の一覧に無い）"
+			fi
+			printf '  %d) %s%s\n' "$((i + 1))" "${orgs[i]}" "$hint"
 			i=$((i + 1))
 		done
 	} >&2
 	while :; do
-		printf '番号 [1-%d]（空のまま Enter で中止）: ' "$count" >&2
-		if ! IFS= read -r choice || [ -z "$choice" ]; then
+		if [ "$default_idx" -gt 0 ]; then
+			printf '番号 [1-%d]（空のまま Enter で %d を採用）: ' "$count" "$default_idx" >&2
+		else
+			printf '番号 [1-%d]（空のまま Enter で中止）: ' "$count" >&2
+		fi
+		if ! IFS= read -r choice; then
 			echo >&2
 			echo "中止しました。何も登録していません。" >&2
 			return 1
+		fi
+		if [ -z "$choice" ]; then
+			if [ "$default_idx" -gt 0 ]; then
+				choice="$default_idx"
+			else
+				echo "中止しました。何も登録していません。" >&2
+				return 1
+			fi
 		fi
 		if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$count" ]; then
 			break
@@ -344,5 +335,7 @@ runner_select_org() {
 		return 1
 		;;
 	esac
+	# 呼び出し元（runner-host-setup.sh）が RUNNER_ORG として読む
+	# shellcheck disable=SC2034
 	RUNNER_ORG="$org"
 }

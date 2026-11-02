@@ -1055,8 +1055,8 @@ check_match "make: RUNNER_NAME を sudo に渡す"                   'RUNNER_NAM
 check_match "make: RUNNER_GROUP を sudo に渡す"                  'RUNNER_GROUP="g"' "$mk_out"
 check_no_match "make: 登録トークンを変数にしない"                 "TOKEN" "$mk_out"
 
-# (9j) 登録先の org（#71）。既定を持たない: 引数 > 設定ファイル（runner ユーザーの ~/.env）> 端末なら一覧から選ぶ > 止まる。
-#      黙って特定の org に登録しない。選ばせる画面は擬似端末（python3 の pty）で動かして確かめる。
+# (9j) 登録先の org（#71）。既定を持たない。端末あり: gh の一覧から番号で選ぶ（RUNNER_ORG は初期選択）。
+#      端末なし: RUNNER_ORG の指定でだけ登録し、無ければ止まる。選ばせる画面は擬似端末（python3 の pty）で確かめる。
 if ! command -v python3 >/dev/null 2>&1; then
     ng "python3 が必要です（擬似端末で対話の画面を確かめる）"
     exit 1
@@ -1097,53 +1097,39 @@ _, status = os.waitpid(pid, 0)
 sys.stdout.buffer.write(out)
 sys.exit(os.WEXITSTATUS(status) if os.WIFEXITED(status) else 1)
 EOF
-# run_setup_tty [VAR=value ...] : tty_script（待つ文字列と送る文字列の組）に従って、端末から実行する。RUNNER_ORG は決めない。
+# run_setup_tty [VAR=value ...] : tty_script（待つ文字列と送る文字列の組）に従って、端末から実行する。RUNNER_ORG は既定では決めない。
 tty_script=()
 run_setup_tty() {
     out=$(python3 "$ttyrun" ${tty_script[@]+"${tty_script[@]}"} -- env PATH="$stubs:$PATH" RUNNER_USER=ci SUDOERS_FILE="$tmp/sudoers-github-runner" RUNNER_BREW_PATHS="" RUNNER_ORG= "$@" bash "$SETUP" 2>&1 | tr -d '\r')
     rc=${PIPESTATUS[0]}
 }
 
-# (a) 引数あり: その org で登録する。一覧は取らず、何も聞かない（端末があっても）
-tty_script=()
-fresh="$tmp/fresh-org-arg"; rm -rf "$fresh" "$home/Library"; : >"$STUB_LOG"; : >"$STUB_LAUNCHD_LIST"; rm -f "$STUB_PS"
-run_setup_tty RUNNER_DIR="$fresh" RUNNER_ORG=arg-org
-check_eq    "org 引数(端末あり): 成功する"                       0 "$rc"
-check_eq    "org 引数(端末あり): 指定した org で登録する"         1 "$(calls 'config.sh --unattended --url https://github.com/arg-org --name')"
-check_eq    "org 引数(端末あり): org の一覧を取らない"            0 "$(calls 'gh api --paginate')"
-check_no_match "org 引数(端末あり): 何も聞かない"                 "よろしいですか" "$out"
-check_match "org 引数(端末あり): 決め方は指定と表示する"          "登録先の org: arg-org（指定）" "$out"
-check_token_hidden "org 引数(端末あり)" ran
-
-# (b) 設定ファイル（runner ユーザーの ~/.env）: org・名前・group をそのファイルで決められる。端末が無くても登録する
+# (a) 端末なし + RUNNER_ORG: 逃げ道。聞かず、一覧も取らず、その org で登録する
+fresh_run org-env RUNNER_ORG=arg-org
+check_eq    "RUNNER_ORG(端末なし): 成功する"                     0 "$rc"
+check_eq    "RUNNER_ORG(端末なし): 指定した org で登録する"       1 "$(calls 'config.sh --unattended --url https://github.com/arg-org --name')"
+check_eq    "RUNNER_ORG(端末なし): org の一覧を取らない"          0 "$(calls 'gh api --paginate')"
+check_no_match "RUNNER_ORG(端末なし): 何も聞かない"               "よろしいですか" "$out"
+check_match "RUNNER_ORG(端末なし): 決め方を表示する"              "登録先の org: arg-org（RUNNER_ORG の指定）" "$out"
+check_token_hidden "RUNNER_ORG(端末なし)" ran
+# 設定ファイル（~/.env）からは org・名前・group を読まない（自動決定しない）
 cat >"$home/.env" <<'EOF'
-SECRET_API_KEY=do-not-print-this-value
-# RUNNER_ORG=commented-org
 export RUNNER_ORG="cfg-org"
-RUNNER_NAME='cfg-mac'
-RUNNER_GROUP=Cfg Group
+RUNNER_NAME=cfg-mac
+RUNNER_GROUP=Cfg-Group
 EOF
-fresh_run cfg RUNNER_ORG=
-check_eq    "設定ファイル(端末なし): 成功する"                   0 "$rc"
-check_eq    "設定ファイル(端末なし): org・名前・group で登録する" 1 "$(calls 'config.sh --unattended --url https://github.com/cfg-org --name cfg-mac --runnergroup Cfg Group --no-default-labels')"
-check_eq    "設定ファイル(端末なし): 登録トークンも設定の org で発行する" 1 "$(calls 'gh api -X POST orgs/cfg-org/actions/runners/registration-token')"
-check_eq    "設定ファイル(端末なし): org の一覧を取らない"        0 "$(calls 'gh api --paginate')"
-check_match "設定ファイル(端末なし): 決め方は設定ファイルと表示する" "登録先の org: cfg-org（設定ファイル $home/.env）" "$out"
-check_no_match "設定ファイル(端末なし): 無関係な行の値を出さない" "do-not-print-this-value" "$out"
-check_no_match "設定ファイル(端末なし): コメントの org は使わない" "commented-org" "$out"
-check_token_hidden "設定ファイル(端末なし)" ran
-# 引数は設定ファイルより優先する（指定の無いキーだけ設定ファイルで埋める）
-fresh_run cfg-arg RUNNER_ORG=arg-org RUNNER_NAME=arg-mac
-check_eq    "引数と設定ファイル: 引数の org・名前が勝つ"         1 "$(calls 'config.sh --unattended --url https://github.com/arg-org --name arg-mac --runnergroup Cfg Group --no-default-labels')"
-# 設定ファイルの値もシェルとして解釈せず、検証で止まる
-echo "RUNNER_ORG=\$(touch $tmp/runner-cfg-injected)" >"$home/.env"
-rm -f "$tmp/runner-cfg-injected"
-fresh_run cfg-bad RUNNER_ORG=
-check_eq    "設定ファイルの不正な org: 止まる"                   1 "$rc"
-check_match "設定ファイルの不正な org: 使えない文字と案内する"    "使えない文字があります" "$out"
-check_eq    "設定ファイルの不正な org: コマンドとして実行しない"  0 "$([ -e "$tmp/runner-cfg-injected" ] && echo 1 || echo 0)"
-check_eq    "設定ファイルの不正な org: 何も登録しない"            0 "$(( $(calls 'config.sh') + $(calls 'gh api -X POST') ))"
+fresh_run noenv RUNNER_ORG=
+check_eq    "設定ファイル .env は読まない(端末なし・RUNNER_ORG なし): 止まる" 1 "$rc"
+check_eq    "設定ファイル .env は読まない: cfg-org で登録しない"             0 "$(( $(calls 'config.sh') + $(calls 'gh api -X POST') ))"
+fresh_run noenv2 RUNNER_ORG=arg-org
+check_eq    "設定ファイル .env は読まない: 名前・group は既定のまま"         1 "$(calls "config.sh --unattended --url https://github.com/arg-org --name $default_name --runnergroup Default --no-default-labels")"
 rm -f "$home/.env"
+# 不正な RUNNER_ORG は端末があっても検証で止まる
+tty_script=()
+fresh="$tmp/fresh-org-bad"; rm -rf "$fresh" "$home/Library"; : >"$STUB_LOG"
+run_setup_tty RUNNER_DIR="$fresh" RUNNER_ORG='a b'
+check_eq    "不正な RUNNER_ORG(端末あり): 止まる"                1 "$rc"
+check_match "不正な RUNNER_ORG(端末あり): 理由を出す"            "使えない文字があります" "$out"
 
 # (c) どちらも無くて端末も無い: 登録せずにエラーで止まり、指定方法を表示する（Linux・macOS とも。何も触る前に止まる）
 for target in mac linux; do
@@ -1152,7 +1138,7 @@ for target in mac linux; do
     check_eq    "org 無し・端末なし($target): 失敗で止まる"       1 "$rc"
     check_match "org 無し・端末なし($target): 既定は無いと言う"   "既定の org は無く、黙って登録しません" "$out"
     check_match "org 無し・端末なし($target): make での指定方法"  "make runner-setup RUNNER_ORG=<org>" "$out"
-    check_match "org 無し・端末なし($target): 設定ファイルでの指定方法" "$home/.env に RUNNER_ORG=<org>" "$out"
+    check_no_match "org 無し・端末なし($target): 設定ファイルを案内しない" ".env" "$out"
     check_no_match "org 無し・端末なし($target): ousiassllc に登録しない" "ousiassllc" "$(cat "$STUB_LOG")$out"
     check_eq    "org 無し・端末なし($target): gh も config.sh も呼ばない" 0 "$(( $(calls 'gh') + $(calls 'config.sh') + $(calls 'curl') ))"
     check_eq    "org 無し・端末なし($target): sudoers・apt・サービスに触る前に止まる" 0 "$(( $(calls 'install ') + $(calls 'apt-get') + $(calls 'brew') + $(calls 'svc.sh') ))"
@@ -1219,6 +1205,53 @@ run_setup_tty RUNNER_DIR="$fresh" STUB_MEMBERSHIPS="org-b:member"
 check_eq    "登録できる org が無い: 失敗で止まる"                1 "$rc"
 check_match "登録できる org が無い: 理由を出す"                  "登録できる org（owner で admin:org の権限があるもの）が見つかりません" "$out"
 check_eq    "登録できる org が無い: 登録しない"                  0 "$(( $(calls 'config.sh') + $(calls 'gh api -X POST') ))"
+
+# (e) 端末あり + RUNNER_ORG: 一覧を出して、その org が初期選択（空の Enter で採用）。別の番号を選べば上書きできる
+pick_lines='^(runner を登録する|  [0-9]\)|番号|org .* に、)'
+tty_script=("番号 [" "" "よろしいですか" y)
+fresh="$tmp/fresh-default-mac"; rm -rf "$fresh" "$home/Library"; : >"$STUB_LOG"; : >"$STUB_LAUNCHD_LIST"; rm -f "$STUB_PS"
+run_setup_tty RUNNER_DIR="$fresh" RUNNER_ORG=org-c
+printf '%s\n' "--- 対話の画面（macOS・端末あり・RUNNER_ORG=org-c を初期選択）---" "$(grep -E "$pick_lines" <<<"$out")" "---"
+check_eq    "初期選択(macOS): 成功する"                          0 "$rc"
+check_eq    "初期選択(macOS): 端末があれば RUNNER_ORG でも一覧を出す" 1 "$(calls 'gh api --paginate')"
+check_match "初期選択(macOS): 一覧に org-a がある"               "1) org-a" "$out"
+check_match "初期選択(macOS): RUNNER_ORG の org に印を付ける"     "2) org-c  <- RUNNER_ORG" "$out"
+check_match "初期選択(macOS): Enter で採用と案内する"             "空のまま Enter で 2 を採用" "$out"
+check_eq    "初期選択(macOS): 空 Enter で org-c を採用して登録する" 1 "$(calls "config.sh --unattended --url https://github.com/org-c --name $default_name --runnergroup Default --no-default-labels")"
+check_match "初期選択(macOS): 確認も出る"                        "org org-c に、runner 名 ${default_name}・group Default で登録します。よろしいですか [y/N]" "$out"
+check_match "初期選択(macOS): 決め方は対話と表示する"            "登録先の org: org-c（対話で選択）" "$out"
+check_token_hidden "初期選択(macOS)" ran
+tty_script=("番号 [" "" "よろしいですか" y)
+fresh="$tmp/fresh-default-linux"; rm -rf "$fresh"; : >"$STUB_LOG"; rm -f "$STUB_PS"
+run_setup_tty RUNNER_DIR="$fresh" RUNNER_ORG=org-a "${linux_boot_env[@]}" STUB_UNAME_M=x86_64
+printf '%s\n' "--- 対話の画面（Linux・端末あり・RUNNER_ORG=org-a を初期選択）---" "$(grep -E "$pick_lines" <<<"$out")" "---"
+check_eq    "初期選択(Linux): 空 Enter で org-a を採用して登録する" 1 "$(calls "config.sh --unattended --url https://github.com/org-a --name $default_name --runnergroup Default --no-default-labels")"
+# 初期選択とは別の番号を選べる
+tty_script=("番号 [" 2 "よろしいですか" y)
+fresh="$tmp/fresh-default-override"; rm -rf "$fresh" "$home/Library"; : >"$STUB_LOG"; : >"$STUB_LAUNCHD_LIST"
+run_setup_tty RUNNER_DIR="$fresh" RUNNER_ORG=org-a
+check_eq    "初期選択を上書き: 選んだ番号（org-c）で登録する"     1 "$(calls 'config.sh --unattended --url https://github.com/org-c ')"
+check_eq    "初期選択を上書き: RUNNER_ORG の org では登録しない"  0 "$(calls 'config.sh --unattended --url https://github.com/org-a ')"
+# 初期選択でも確認で n なら登録しない
+tty_script=("番号 [" "" "よろしいですか" n)
+fresh="$tmp/fresh-default-no"; rm -rf "$fresh" "$home/Library"; : >"$STUB_LOG"
+run_setup_tty RUNNER_DIR="$fresh" RUNNER_ORG=org-c
+check_eq    "初期選択で確認が n: 失敗で止まる"                   1 "$rc"
+check_eq    "初期選択で確認が n: 登録しない"                     0 "$(( $(calls 'config.sh') + $(calls 'gh api -X POST') ))"
+# gh の一覧に無い RUNNER_ORG（owner 以外の権限で登録できる org など）は末尾に足して、初期選択にする
+tty_script=("番号 [" "" "よろしいですか" y)
+fresh="$tmp/fresh-default-extra"; rm -rf "$fresh" "$home/Library"; : >"$STUB_LOG"; : >"$STUB_LAUNCHD_LIST"; rm -f "$STUB_PS"
+run_setup_tty RUNNER_DIR="$fresh" RUNNER_ORG=other-org
+printf '%s\n' "--- 対話の画面（macOS・端末あり・RUNNER_ORG=other-org が gh の一覧に無い）---" "$(grep -E "$pick_lines" <<<"$out")" "---"
+check_match "一覧に無い RUNNER_ORG: 末尾に足して印を付ける"        "3) other-org  <- RUNNER_ORG（gh の一覧に無い）" "$out"
+check_eq    "一覧に無い RUNNER_ORG: Enter で採用して登録する"     1 "$(calls "config.sh --unattended --url https://github.com/other-org --name $default_name --runnergroup Default --no-default-labels")"
+# 一覧が取れなくても、RUNNER_ORG があればそれだけを選べる
+tty_script=("番号 [" "" "よろしいですか" y)
+fresh="$tmp/fresh-default-listfail"; rm -rf "$fresh" "$home/Library"; : >"$STUB_LOG"; : >"$STUB_LAUNCHD_LIST"
+run_setup_tty RUNNER_DIR="$fresh" RUNNER_ORG=other-org STUB_GH_ORGS_FAIL=1
+check_eq    "一覧が取れない + RUNNER_ORG: 成功する"              0 "$rc"
+check_match "一覧が取れない + RUNNER_ORG: 取れなかったと言う"     "一覧を gh から取れませんでした。指定された RUNNER_ORG=other-org だけを選べます" "$out"
+check_eq    "一覧が取れない + RUNNER_ORG: その org で登録する"    1 "$(calls 'config.sh --unattended --url https://github.com/other-org ')"
 
 # (10) Linux の依存パッケージ: 失敗したら止まり、再実行でもう一度走る（取得済みの分岐でも飛ばさない）
 fresh_run deps-fail "${linux_boot_env[@]}" STUB_UNAME_M=x86_64 STUB_DEPS_FAIL=1
