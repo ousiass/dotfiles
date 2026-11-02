@@ -352,9 +352,18 @@ make runner-setup
 - **権限**: ディレクトリの作成・`chown`・Linux の依存パッケージ・サービス化（Linux の `svc.sh`）は root（sudo）。取得・展開・`gh`・`config.sh` は runner ユーザーで実行する（`config.sh` は root を拒否し、`gh` の認証も runner ユーザーのもの）。macOS の `svc.sh` は従来どおり runner ユーザー。
 - **前提**: runner ユーザーの `gh` が org の runner を登録できる権限（`admin:org`）で認証済みであること。足りなければ、Linux は sudoers・apt を触る前に、macOS は 2/5（brew でツールを入れた直後。colima を起動して待つ前）に、入れ方・ログイン方法を案内して止まる。`gh` が PATH に無い場所にあるときは `RUNNER_GH_BIN=/path/to/gh` で指す（`sudo bash runner-host-setup.sh` で直接実行するとき）。なお `gh auth status` は scope まで見ないので、scope 不足は登録時（403）まで分からない。
 
-runner のユーザー・ディレクトリ・登録先は変数で上書きできる。既定は sudo を呼び出したユーザーと、そのホーム配下の `actions-runner`、org `ousiassllc`、runner 名はホスト名（`hostname -s`）、runner group は `Default`。
+runner のユーザー・ディレクトリ・登録先は変数で上書きできる。既定は sudo を呼び出したユーザーと、そのホーム配下の `actions-runner`、runner 名はホスト名（`hostname -s`）、runner group は `Default`。**登録先の org には既定が無い**（黙って特定の org に登録しない）。基本は、実行時に gh で取った一覧から番号で選ぶ。
+
+- **端末から実行したとき（基本）**: gh の認証ユーザーが登録できる org（`gh api user/memberships/orgs` のうち owner = `role: admin` のもの。決め打ちしない）を番号つきで出し、番号で選ぶ。選ぶと「この org に、この名前・group で登録します」と確認し、`y` のときだけ進む（`n` や、初期選択が無いときの空 Enter は何も登録せずに止まる）。Linux は sudoers や apt に触る前、macOS は 2/5（gh が入った直後）に聞く。環境変数 `RUNNER_ORG` を付けていれば、その org に印が付いて初期選択になり、番号を空にして Enter で採用できる（別の番号を選べば上書きできる）。`RUNNER_ORG` が一覧に無い org（owner 以外の権限で登録できる org など）でも、末尾に足して選べる
+- **端末が無いとき**（CI・パイプ入力など）: `RUNNER_ORG=<org>` を付けたときだけ、一覧も確認も出さずにその org で登録する（この場合だけの逃げ道）。付けていなければ、登録せずにエラーで止まり、指定方法を表示する
+- 設定ファイル（`~/.env` など）から org・名前・group を読むことはしない（自動決定しない）
+- `.runner` がある（登録済みの）ホストの再実行には org は要らない
+
+限界: 一覧は owner の org だけなので、owner 以外の権限で登録できる org は一覧に出ない。その org は `RUNNER_ORG` で指定する。
 
 ```bash
+make runner-setup                  # 端末なら gh の一覧から番号で選ぶ（端末が無ければ、RUNNER_ORG が無いのでエラーで止まる）
+make runner-setup RUNNER_ORG=my-org   # 端末なら my-org が初期選択（Enter で採用）。端末が無ければこの org でそのまま登録
 make runner-setup RUNNER_USER=ci-runner RUNNER_DIR=/opt/runners/foo
 make runner-setup RUNNER_ORG=my-org RUNNER_NAME=my-mac RUNNER_GROUP=Default
 make runner-setup RUNNER_REPLACE=1   # 同名の runner が org にあるとき、置き換えて登録する（既定は置き換えない）

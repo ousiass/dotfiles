@@ -8,6 +8,7 @@
 #   runner_fetch           : 最新リリースを落とし、チェックサムを確かめて展開する
 #   runner_install_deps    : Linux の runner の依存パッケージ（libicu など）を入れる
 #   runner_register        : 登録トークンをその場で発行して config.sh で登録する
+#   runner_select_org      : 登録先の org を gh の一覧から番号で選ばせ（RUNNER_ORG は初期選択）、確認を取る
 #
 # 権限の分け方: このファイルの関数は root（sudo）で呼ばれる。root で動かすのは、ディレクトリを新しく作って
 # 所有者を渡すところと、Linux の依存パッケージ（installdependencies.sh）だけ。ダウンロード・展開・gh・
@@ -227,4 +228,112 @@ env -u GH_DEBUG -u DEBUG "$gh_bin" api -X POST "orgs/$org/actions/runners/regist
 		return 1
 	fi
 	echo "  登録した（ラベル: ${labels}）"
+}
+
+# runner_is_interactive : 端末から対話できるか（標準入力が端末か）。CI・cron・パイプ入力では偽。
+runner_is_interactive() {
+	[ -t 0 ]
+}
+
+# runner_list_orgs <user> <gh> : gh の認証ユーザーが runner を登録できる org を 1 行 1 件で出す。
+# org の runner の登録トークンを発行できるのは org の owner（membership の role が admin）だけなので、
+# role=admin の active な所属だけを gh の結果から取る（決め打ちしない。トークンの発行では試さない）。
+runner_list_orgs() {
+	local user="$1" gh_bin="$2"
+	runner_as_user "$user" env -u GH_DEBUG -u DEBUG "$gh_bin" api --paginate \
+		'user/memberships/orgs?state=active&per_page=100' \
+		--jq '.[] | select(.role == "admin") | .organization.login' </dev/null
+}
+
+# runner_select_org <user> <gh> <name> <group> [<default_org>] : 登録先の org を一覧から番号で選ばせ、
+# 確認を取って、選んだ org を標準出力へ 1 行で返す（$(...) で受ける）。選ばなかったとき（確認で n・入力の終わり・default 無しの空 Enter）は
+# 何も登録せず 1 を返す。default_org（環境変数 RUNNER_ORG）があれば、その org を初期選択にして、番号が
+# 空の Enter で採用する。一覧に無い org（owner 以外の権限で登録できるものなど）でも、指定されていれば
+# 末尾に足して選べる。一覧が gh から取れなくても、default_org があればそれだけを選択肢にする。
+# 一覧と確認は標準エラーへ出す（呼び出し元が端末であることは確かめ済みの前提）。
+runner_select_org() {
+	local user="$1" gh_bin="$2" name="$3" group="$4" default_org="${5:-}"
+	local raw="" org choice answer i listed=0 count=0 default_idx=0 hint
+	local re_org='^[A-Za-z0-9][A-Za-z0-9-]*$'
+	local orgs=()
+	if ! raw=$(runner_list_orgs "$user" "$gh_bin"); then
+		raw=""
+		if [ -z "$default_org" ]; then
+			echo "登録できる org の一覧を gh から取れませんでした。" >&2
+			echo "  ${user} で gh auth login -s admin:org（または gh auth refresh -s admin:org）を実行するか、RUNNER_ORG=<org> で指定してください。" >&2
+			return 1
+		fi
+		echo "登録できる org の一覧を gh から取れませんでした。指定された RUNNER_ORG=${default_org} だけを選べます。" >&2
+	fi
+	while IFS= read -r org; do
+		if [[ "$org" =~ $re_org ]]; then
+			orgs[count]="$org"
+			count=$((count + 1))
+		fi
+	done <<<"$raw"
+	listed=$count
+	i=0
+	while [ "$i" -lt "$count" ]; do
+		[ "${orgs[i]}" = "$default_org" ] && default_idx=$((i + 1))
+		i=$((i + 1))
+	done
+	if [ -n "$default_org" ] && [ "$default_idx" -eq 0 ]; then
+		orgs[count]="$default_org"
+		count=$((count + 1))
+		default_idx=$count
+	fi
+	if [ "$count" -eq 0 ]; then
+		echo "${user} の gh で runner を登録できる org（owner で admin:org の権限があるもの）が見つかりません。" >&2
+		echo "  RUNNER_ORG=<org> で指定するか、gh auth refresh -s admin:org で権限を足してください。" >&2
+		return 1
+	fi
+	{
+		echo "runner を登録する org を選んでください（gh の認証ユーザー ${user} が登録できるもの）:"
+		i=0
+		while [ "$i" -lt "$count" ]; do
+			hint=""
+			if [ "$((i + 1))" -eq "$default_idx" ]; then
+				hint="  <- RUNNER_ORG"
+				[ "$i" -ge "$listed" ] && hint="  <- RUNNER_ORG（gh の一覧に無い）"
+			fi
+			printf '  %d) %s%s\n' "$((i + 1))" "${orgs[i]}" "$hint"
+			i=$((i + 1))
+		done
+	} >&2
+	while :; do
+		if [ "$default_idx" -gt 0 ]; then
+			printf '番号 [1-%d]（空のまま Enter で %d を採用）: ' "$count" "$default_idx" >&2
+		else
+			printf '番号 [1-%d]（空のまま Enter で中止）: ' "$count" >&2
+		fi
+		if ! IFS= read -r choice; then
+			echo >&2
+			echo "中止しました。何も登録していません。" >&2
+			return 1
+		fi
+		if [ -z "$choice" ]; then
+			if [ "$default_idx" -gt 0 ]; then
+				choice="$default_idx"
+			else
+				echo "中止しました。何も登録していません。" >&2
+				return 1
+			fi
+		fi
+		if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$count" ]; then
+			break
+		fi
+		echo "  1 から ${count} の番号で答えてください。" >&2
+	done
+	org="${orgs[choice - 1]}"
+	printf 'org %s に、runner 名 %s・group %s で登録します。よろしいですか [y/N]: ' "$org" "$name" "$group" >&2
+	IFS= read -r answer || answer=""
+	case "$answer" in
+	y | Y | yes | YES) ;;
+	*)
+		echo >&2
+		echo "中止しました。何も登録していません。" >&2
+		return 1
+		;;
+	esac
+	printf '%s\n' "$org"
 }

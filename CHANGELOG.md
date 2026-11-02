@@ -7,6 +7,7 @@
 - Add swarm-console to install pipeline / 最新リリースの `swarm-console_<版>_linux_amd64` を `SHA256SUMS` で sha256 照合してから `~/bin/swarm-console/swarm-console` に通常ファイルで配置する（照合が合わなければ何も置かず失敗。シンボリックリンクにしない＝自己更新の条件。配置済みならスキップし、更新は本体の自己更新に任せる）。`make swarm-console` / `./install.sh swarm_console` で単独実行できる。linux/amd64 以外はスキップ
 - Register swarm-console as a systemd user service / `systemd/swarm-console.service`（上流の `deploy/swarm-console.service` と同じ）を `~/.config/systemd/user` にリンクし、`daemon-reload` → `enable` → `loginctl enable-linger` まで行う。`config.toml` が無ければ起動せず設定の手順（`setup` / `token add`）を表示する。`config.toml` とトークンはマシンごと・秘密なので dotfiles では管理しない（作り方は README）
 - Add `~/bin/swarm-console` to PATH / `fish/conf.d/paths.fish` と `shell/paths.sh` の両方に追加（`~/bin` にリンクは張らず、フォルダそのものを通す）
+- Select the runner-setup org from a list / `make runner-setup` は登録先の org の既定（`ousiassllc`）を持たなくなった。端末から実行すると、`gh` で取った owner の org の一覧から番号で選び、「この org に、この名前・group で登録します」の確認（`y` のときだけ登録）を取る。`RUNNER_ORG` があればその org が初期選択（空の Enter で採用）。端末が無いときは `RUNNER_ORG` の指定でだけ登録し、無ければ何も登録せずに指定方法を出してエラーで止まる。設定ファイル（`~/.env`）からの自動決定はしない。登録済みのホストの再実行には影響しない
 
 ### 🐛 Bug Fixes / バグ修正
 
