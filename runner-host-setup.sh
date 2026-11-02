@@ -196,7 +196,7 @@ if [ ! -f "$RUNNER_DIR/.runner" ]; then
 	if [ "$OS" = Linux ]; then
 		runner_gh_ready "$RUNNER_USER" "$runner_gh_bin" || exit 1
 		if [ "$runner_interactive" -eq 1 ]; then
-			runner_select_org "$RUNNER_USER" "$runner_gh_bin" "$RUNNER_NAME" "$RUNNER_GROUP" "$RUNNER_ORG" || exit 1
+			RUNNER_ORG=$(runner_select_org "$RUNNER_USER" "$runner_gh_bin" "$RUNNER_NAME" "$RUNNER_GROUP" "$RUNNER_ORG") || exit 1
 			runner_org_source="対話で選択"
 		fi
 	fi
@@ -301,7 +301,7 @@ if [ "$OS" = Darwin ]; then
 		runner_gh_bin="${RUNNER_GH_BIN:-$(command -v gh || true)}"
 		runner_gh_ready "$RUNNER_USER" "$runner_gh_bin" || exit 1
 		if [ "$runner_interactive" -eq 1 ]; then
-			runner_select_org "$RUNNER_USER" "$runner_gh_bin" "$RUNNER_NAME" "$RUNNER_GROUP" "$RUNNER_ORG" || exit 1
+			RUNNER_ORG=$(runner_select_org "$RUNNER_USER" "$runner_gh_bin" "$RUNNER_NAME" "$RUNNER_GROUP" "$RUNNER_ORG") || exit 1
 			runner_org_source="対話で選択"
 		fi
 	fi

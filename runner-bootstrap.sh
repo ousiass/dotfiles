@@ -246,7 +246,7 @@ runner_list_orgs() {
 }
 
 # runner_select_org <user> <gh> <name> <group> [<default_org>] : 登録先の org を一覧から番号で選ばせ、
-# 確認を取って RUNNER_ORG に入れる。選ばなかったとき（確認で n・入力の終わり・default 無しの空 Enter）は
+# 確認を取って、選んだ org を標準出力へ 1 行で返す（$(...) で受ける）。選ばなかったとき（確認で n・入力の終わり・default 無しの空 Enter）は
 # 何も登録せず 1 を返す。default_org（環境変数 RUNNER_ORG）があれば、その org を初期選択にして、番号が
 # 空の Enter で採用する。一覧に無い org（owner 以外の権限で登録できるものなど）でも、指定されていれば
 # 末尾に足して選べる。一覧が gh から取れなくても、default_org があればそれだけを選択肢にする。
@@ -335,7 +335,5 @@ runner_select_org() {
 		return 1
 		;;
 	esac
-	# 呼び出し元（runner-host-setup.sh）が RUNNER_ORG として読む
-	# shellcheck disable=SC2034
-	RUNNER_ORG="$org"
+	printf '%s\n' "$org"
 }
