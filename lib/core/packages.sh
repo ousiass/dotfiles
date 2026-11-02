@@ -10,6 +10,7 @@ install_packages() {
             warn "apt-get が見つからないためパッケージインストールをスキップ"
             return
         fi
+        cloudflared_refresh_apt_list
         log "apt パッケージをインストール"
         sudo apt-get update -qq
         # unzip: bun installer が内部で使用（Ubuntu minimal では未導入）
@@ -42,6 +43,7 @@ update_packages() {
             warn "apt-get が無いため packages の update をスキップ"
             return
         fi
+        cloudflared_refresh_apt_list
         log "apt パッケージを更新（対象のみ --only-upgrade）"
         sudo apt-get update -qq
         sudo apt-get install -y --only-upgrade \

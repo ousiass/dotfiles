@@ -10,19 +10,27 @@ _cloudflared_write_apt_list() {
         | sudo tee "$CLOUDFLARED_APT_LIST" >/dev/null
 }
 
-# インストール済みのホストに古い codename 入りの list が残っていると、他の apt 操作（gh / gcloud を含む
-# apt-get update）まで Release エラーで止まるので any に書き直す。list が無い（apt 以外で入れた）なら触らない。
-_cloudflared_refresh_apt_list() {
+# 古い codename 入りの list が残っていると、gh / gcloud を含むどの apt-get update も Release エラーで止まる。
+# cloudflared のステップは install.sh の後ろの方なので、最初の apt-get update（install_packages /
+# update_packages）より前にも呼ぶ。any 以外の codename が残っているときだけ any に書き直す。
+# list が無い（apt 以外で入れた）なら触らない。
+cloudflared_refresh_apt_list() {
     [[ "$OS" == "mac" ]] && return 0
     command -v apt-get >/dev/null 2>&1 || return 0
     [[ -f "$CLOUDFLARED_APT_LIST" ]] || return 0
+    # -q は使わない（pipefail 下で grep -q の早期終了が SIGPIPE になり、判定を誤るため）
+    local stale
+    stale="$(grep -E 'pkg\.cloudflare\.com/cloudflared +[^ ]+' "$CLOUDFLARED_APT_LIST" \
+        | grep -Ev 'cloudflared +any( |$)' || true)"
+    [[ -n "$stale" ]] || return 0
+    log "cloudflared の apt ソースの codename を any に直す"
     _cloudflared_write_apt_list
 }
 
 install_cloudflared() {
     if command -v cloudflared >/dev/null 2>&1; then
         log "cloudflared は既にインストール済み"
-        _cloudflared_refresh_apt_list
+        cloudflared_refresh_apt_list
         return
     fi
     log "cloudflared をインストール"
@@ -56,7 +64,7 @@ update_cloudflared() {
         warn "apt-get が無いため cloudflared の update をスキップ"
         return
     fi
-    _cloudflared_refresh_apt_list
+    cloudflared_refresh_apt_list
     log "cloudflared を更新 (apt --only-upgrade)"
     sudo apt-get update -qq
     sudo apt-get install -y --only-upgrade cloudflared \

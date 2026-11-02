@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lib/tools/cloudflared.sh（install_cloudflared の apt 経路）の回帰テスト。フレームワークは使わず bash だけで完結させる。
+# lib/tools/cloudflared.sh（install_cloudflared の apt 経路）と lib/core/packages.sh（最初の apt-get update）の回帰テスト。フレームワークは使わず bash だけで完結させる。
 #
 #   ./tests/cloudflared_install_test.sh
 #
@@ -40,7 +40,7 @@ stub() {
     chmod +x "$1"
 }
 
-for c in cat tee; do
+for c in cat tee grep; do
     ln -sf "$(command -v "$c")" "$stubs/$c"
 done
 
@@ -76,9 +76,15 @@ stub "$stubs/curl" <<'EOF2'
 echo "curl $*" >>"$STUB_LOG"
 echo "fake-gpg-key"
 EOF2
+# apt-get: 本物と同じく、any 以外の codename が残った cloudflared.list があると update が Release エラーで落ちる
 stub "$stubs/apt-get" <<'EOF2'
 #!/bin/bash
 echo "apt-get $*" >>"$STUB_LOG"
+list="$FAKE_ROOT/etc/apt/sources.list.d/cloudflared.list"
+if [[ "$1" == update && -f "$list" ]] && grep -E 'pkg\.cloudflare\.com/cloudflared +[^ ]+' "$list" | grep -Evq 'cloudflared +any( |$)'; then
+    echo "E: リポジトリ 'https://pkg.cloudflare.com/cloudflared resolute Release' に Release ファイルがありません。" >&2
+    exit 100
+fi
 EOF2
 stub "$stubs/lsb_release" <<'EOF2'
 #!/bin/bash
@@ -150,5 +156,32 @@ installed
 run install_cloudflared
 check_eq "list 無し: 成功する"                        0 "$rc"
 check_eq "list 無し: list を作らない"                 0 "$(test -e "$list" && echo 1 || echo 0)"
+
+# --- 最初の apt-get update（install_packages / update_packages）より前に古い list を any に直す ---------
+# cloudflared のステップは install.sh の後ろの方にあり、古い list が残っていると手前の apt-get update で落ちて届かない
+reset "$old"
+run install_packages
+check_eq "packages install: 成功する（古い list で update が落ちない）" 0 "$rc"
+check_eq "packages install: 古い list を any にする"   "$want" "$(cat "$list" 2>/dev/null)"
+check_eq "packages install: apt-get install まで進む"  1 "$(grep -c -- 'apt-get install -y fish' "$STUB_LOG")"
+
+reset "$old"
+run update_packages
+check_eq "packages update: 成功する（古い list で update が落ちない）" 0 "$rc"
+check_eq "packages update: 古い list を any にする"    "$want" "$(cat "$list" 2>/dev/null)"
+check_eq "packages update: apt-get install --only-upgrade まで進む" 1 "$(grep -c -- '--only-upgrade fish' "$STUB_LOG")"
+
+# 既に any の list は書き直さない（sudo tee を呼ばない）。list が無ければ作らない
+reset "$want"
+touch -t 200001010000 "$list"
+before="$(stat -c %Y "$list" 2>/dev/null || stat -f %m "$list")"
+run install_packages
+after="$(stat -c %Y "$list" 2>/dev/null || stat -f %m "$list")"
+check_eq "packages: any の list は書き直さない"        "$before" "$after"
+
+reset
+run install_packages
+check_eq "packages: list 無しでも成功する"            0 "$rc"
+check_eq "packages: list 無しなら作らない"            0 "$(test -e "$list" && echo 1 || echo 0)"
 
 exit "$fail"

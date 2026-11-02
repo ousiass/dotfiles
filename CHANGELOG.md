@@ -11,11 +11,12 @@
 ### 🐛 Bug Fixes / バグ修正
 
 - Fix cloudflared apt source on Ubuntu 26.04 (resolute) / `install_cloudflared` が `lsb_release -cs` の codename を apt ソースに埋め込んでいたため、`pkg.cloudflare.com/cloudflared` に Release が無い新しい Ubuntu で `make install` が「Release ファイルがありません」で止まっていた。Cloudflare の案内どおり codename を使わず `any main` にし、古い codename のままの既存 `cloudflared.list` も上書きする（cloudflared が導入済みでも、`install` / `update` が list を `any` に直す。list が無い＝apt 以外で入れたホストには足さない）。gh / gcloud の apt ソースは `stable` / `cloud-sdk` 固定で codename 非依存のため変更なし
+- Fix `make install` / `make update` aborting at the first `apt-get update` / 古い codename（resolute など）の `cloudflared.list` が残っているホストでは、最初の「apt パッケージをインストール / 更新」の `apt-get update` が Release エラーで落ち、後ろにある cloudflared のステップ（#69 の書き換え）まで届かなかった。`install_packages` / `update_packages` が `apt-get update` の前に `cloudflared_refresh_apt_list` を呼び、list があって any 以外の codename のときだけ any に直す（any ならそのまま・list が無ければ作らない）
 
 ### 🧪 Tests / テスト
 
 - Add `tests/swarm_console_install_test.sh` / curl・systemctl・loginctl・uname をスタブにして、sha256 照合（不一致は失敗・何も置かない）、配置済みスキップ、config.toml の有無での起動可否、linger、対象外環境を検証する。`make test` に組み込み済み
-- Add `tests/cloudflared_install_test.sh` / sudo・curl・apt-get をスタブ（`/etc` は一時ディレクトリへ付け替え）にして、lsb_release が `resolute` を返す環境でも apt ソースが `any main` になること、古い codename の既存 `cloudflared.list` が（導入済み・update 経路も含めて）上書きされることを検証する。`make test` に組み込み済み
+- Add `tests/cloudflared_install_test.sh` / sudo・curl・apt-get をスタブ（`/etc` は一時ディレクトリへ付け替え）にして、lsb_release が `resolute` を返す環境でも apt ソースが `any main` になること、古い codename の既存 `cloudflared.list` が（導入済み・update 経路も含めて）上書きされることを検証する。`make test` に組み込み済み。最初の `apt-get update`（`install_packages` / `update_packages`）より前に古い list が直ること、any の list は書き直さないこと、list が無ければ作らないことも検証する（`apt-get` スタブは古い codename の list があると `update` で Release エラーにする）
 
 ## [v0.13.0] - 2026-09-29
 
