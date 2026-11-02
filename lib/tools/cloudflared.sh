@@ -19,9 +19,9 @@ install_cloudflared() {
     sudo mkdir -p --mode=0755 /usr/share/keyrings
     curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
         | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
-    local codename
-    codename=$(lsb_release -cs 2>/dev/null || echo noble)
-    echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared ${codename} main" \
+    # codename は埋め込まない（新しい Ubuntu は pkg.cloudflare.com に Release が無く apt update が落ちる）。
+    # 既存の cloudflared.list が古い codename のままでも tee で毎回 any に上書きする。
+    echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" \
         | sudo tee /etc/apt/sources.list.d/cloudflared.list >/dev/null
     sudo apt-get update -qq
     sudo apt-get install -y cloudflared
