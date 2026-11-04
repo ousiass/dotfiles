@@ -52,6 +52,7 @@ graph TD
 | `/spec-to-hugo` | 既存の仕様書ディレクトリをHextraテーマのHugoサイトに変換。Mermaid図ズーム・PDF埋め込み・Netlifyデプロイ対応 |
 | `/design-spec` | 対話的にデザイン仕様書（UI/UX）を作成・既存ドキュメントに追記 |
 | `/design-review` | UIコンポーネントのデザイン品質をレビューし、Issueまたはレポートとして生成 |
+| `/ui-trim` | 冗長なUI要素・文言を検出し、削除・簡潔化・ヘルプ移動の提案をIssue化（実装は `/impl`）。`design-review` とは別観点 |
 | `/design-request` | デザインを見ながら対話で変更要望をまとめ、構造化されたIssueを作成 |
 | `/design-fix` | デザインレビューやデザイン変更Issueの指摘を修正し、デザイン検証付きでPRを作成 |
 | `/rfp` | 対話形式でヒアリングし、構造化されたRFP（提案依頼書）をMarkdownで作成 |
