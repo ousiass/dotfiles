@@ -4,6 +4,7 @@
 
 ### ✨ New Features / 新機能
 
+- Add `ousiass-design-guide` / `ousiass-design-check` skills / Ousiass 全プロダクト共通の UI デザインガイド（brand-guide、`ousiassllc/brand-guide`）を、npm / Go 配布ではなくスキルで共通参照する。`ousiass-design-guide` は仕様書・docs へ「ガイド準拠」節（トークン名での参照・採用部品・ガイド未収載・逸脱表）を書くためのテンプレと要約（`references/brand-guide.md`）を持つ。`ousiass-design-check` はプリズムはキービジュアルのみ・SemiBold は見出しとボタンのみ・Iconoir 16/20/24・モーション・中央モーダルと外側クリックで閉じる・コーチマークはグレー ink、などの準拠チェック（`references/check-criteria.md`）と、`design-fix` に渡せるレポートを出す。`.claude/skills` と `.codex/skills` に追加。`design-review` は変更せず（Ousiass 準拠に特化した別スキル）、`design-spec` は Ousiass 案件で共通トークンをヒアリングせず `ousiass-design-guide` に任せる旨を 1 行追加
 - Add `ui-trim` skill / 冗長なUI（重複する操作・使われない導線・常に非表示の要素）と冗長な文言（繰り返し・UI を見ればわかる説明・同義の重複・常時表示には長い補足）を検出し、削除・簡潔化・ヘルプ（モーダル等）への移動を提案して Issue にする `/ui-trim` を追加。コードは変更せず、修正は `/impl #<Issue番号>` に渡す。ラベル・エラー文言・破壊的操作の確認文は削除提案しない。法務/課金/同意の表記は「要判断」に分ける。`design-review` は変更なし（#73）
 - Add swarm-console to install pipeline / 最新リリースの `swarm-console_<版>_linux_amd64` を `SHA256SUMS` で sha256 照合してから `~/bin/swarm-console/swarm-console` に通常ファイルで配置する（照合が合わなければ何も置かず失敗。シンボリックリンクにしない＝自己更新の条件。配置済みならスキップし、更新は本体の自己更新に任せる）。`make swarm-console` / `./install.sh swarm_console` で単独実行できる。linux/amd64 以外はスキップ
 - Register swarm-console as a systemd user service / `systemd/swarm-console.service`（上流の `deploy/swarm-console.service` と同じ）を `~/.config/systemd/user` にリンクし、`daemon-reload` → `enable` → `loginctl enable-linger` まで行う。`config.toml` が無ければ起動せず設定の手順（`setup` / `token add`）を表示する。`config.toml` とトークンはマシンごと・秘密なので dotfiles では管理しない（作り方は README）
