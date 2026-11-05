@@ -1,6 +1,6 @@
 ---
 name: ousiass-design-check
-description: 実装・PR・画面が Ousiass 共通デザインガイド（brand-guide）に沿っているか確認する。
+description: Ousiass プロダクトの実装・PR・画面が共通デザインガイドに沿っているか確認するとき。
 ---
 
 # ousiass-design-check
@@ -31,7 +31,7 @@ description: 実装・PR・画面が Ousiass 共通デザインガイド（brand
 1. 対象（コード / PR 差分 / 画面）と使用フレームワークを把握する
 2. プロジェクトのトークン定義（`tokens.*`, `variables.css`, `tailwind.config.*`, `theme.ts` 等）を読み、ガイドのトークン名・値と対応しているかを確認する
 3. 仕様書・docs に「Ousiass デザインガイド準拠」節があれば読む（承認済みの逸脱は指摘から除く）
-4. `references/check-criteria.md` を読む。ガイドの値に迷ったら公開ページ（`tokens-preview.html`）で確認する
+4. `references/check-criteria.md` と、`ousiass-design-guide` スキルの `references/brand-guide.md` を読み、後者 7 行目の取り込み時点コミット SHA を控える（レポートの基準欄に使う）。ガイドの値に迷ったら公開ページ（`tokens-preview.html`）で確認する。公開ページが読めなければ要約のみで判定し、レポートの「未確認」に「公開ページ未確認」と書く
 5. 対象をリストアップし、計画立てしつつタスクを管理する（ファイル数が多ければディレクトリ単位）
 
 ## フェーズ2: 準拠チェック
@@ -63,14 +63,7 @@ description: 実装・PR・画面が Ousiass 共通デザインガイド（brand
 
 ## 重大度の基準
 
-| 重大度 | 基準 |
-|---|---|
-| 🔴 重大 | ガイドが明示的に禁じることに直接違反（プリズムを UI 部品・チャート・モーションに使う等） |
-| 🟠 重要 | ガイドからの逸脱（フォーカス色・状態色・アイコンセット・reduced-motion 未対応・外側クリックで閉じないモーダル・ガイドにない部品の導入等） |
-| 🟡 提案 | トークン化・スケール合わせ・間隔レシピへの寄せ |
-| 🟢 軽微 | 命名・微調整 |
-
-各項目の重大度は `references/check-criteria.md` の表に従う。
+重大度は `references/check-criteria.md` の各項目に従う（🔴 ガイドの明示禁止に直接違反 / 🟠 ガイドからの逸脱 / 🟡 提案 / 🟢 軽微）。
 
 ## ルール
 

@@ -76,7 +76,7 @@
 ```bash
 # C1/C2 プリズム値・ハードコード色（ガイドの prism hex と一般的な hex / rgb）
 rg -n -i '#(8b6ad4|a78bfa|4a72d0|60a5fa|3aaaba|22d3ee|3d9a7a|34d399|b8a24a|fbbf24)\b|--prism-' <dir>
-rg -n -i '#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(' <dir> --glob '!**/tokens*' --glob '!**/*.svg'
+rg -n -i '#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(' <dir> --glob '!**/{tokens*,variables.css,tailwind.config.*,theme.*}' --glob '!**/*.svg'
 # C2 Tailwind 既定色
 rg -n '\b(text|bg|border|ring|from|to|via)-(red|green|blue|yellow|gray|slate|zinc|neutral|stone|orange|amber|lime|emerald|teal|cyan|sky|indigo|violet|purple|fuchsia|pink|rose)-[0-9]{2,3}\b' <dir>
 # C3 フォーカス
@@ -96,6 +96,6 @@ rg -n 'z-index:\s*[0-9]{4,}|z-\[[0-9]+\]|z-(10|20|30|40|50)\b' <dir>
 rg -n -i 'modal|dialog|drawer|scrim|backdrop|overlay' <dir>
 ```
 
-- `rg` が無ければ `grep -rnE` に読み替える
-- トークン定義ファイル自体（ガイドの値を `:root` に定義する箇所）は C2 の対象外
+- `rg` が無ければ `grep -rnE` に読み替える（`--glob '!X'` は `--exclude=X` / `--exclude-dir=X` に置き換える）
+- トークン定義ファイル（`tokens*` / `variables.css` / `tailwind.config.*` / `theme.*` で、ガイドの値を `:root` 等に定義する箇所）は C2 の対象外。上記コマンドは除外済み
 - 検出が 0 件でも、読んで確認できていない項目は「未確認」と書き、問題なしと書かない

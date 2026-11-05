@@ -1,6 +1,6 @@
 ---
 name: ousiass-design-guide
-description: 仕様書・docs に Ousiass 共通デザインガイド（brand-guide）を取り込み、参照を書く。
+description: Ousiass プロダクトの仕様書・docs に共通デザインガイドを参照として取り込むとき。
 user-invocable: true
 ---
 
