@@ -14,7 +14,7 @@
 | C3 | フォーカスリングは `--focus`（`2px solid` / offset 2）。フォームの focus は `--focus` 青（`--ring` 40%）。それ以外の青・アクセント色を UI に足さない | `outline: none` だけ、独自の青ボタン、リンクが青 | 🟠 |
 | C4 | 状態色は次の 4 トークンだけ。値は必ずこの HEX と照合する（Light / Dark）: `--success` `#3d5c4a` / `#8fafa0`、`--warning` `#7a6a3a` / `#c4b87a`、`--danger` `#7a4545` / `#c49a9a`、`--info` `#4a5a6a` / `#9aabbc`。トークン定義（`:root` / `[data-theme=dark]` / Tailwind theme 等）の値がこれと違えば違反。ステータスのピル・バッジ・アラートは「文字 `var(--状態)`・枠 `color-mix(in srgb, var(--状態) 40%, transparent)`・地 `color-mix(in srgb, var(--状態) 10%, transparent)`・`--r-full`」だけ。ピンク・ローズ・パステル・ネオンなど 4 トークン以外の色相を状態表示に使わない（中立の「下書き」だけは `--mute`）。状態はアイコン＋文言＋色で伝え、色だけに頼らない | `color: red`、`bg-rose-100 text-pink-700`、`#f9a8d4` のピル、`--danger: #ef4444`、色だけのステータス表示 | 🔴（4 トークン外の色相・定義値の不一致）/ 🟠（淡い塗りのルール逸脱） |
 | C5 | ライト / ダークの両方で成立する。トークンが `[data-theme=dark]` 等で切り替わる | ダークで文字が読めない、片方のみの値 | 🟠 |
-| C6 | `--mute` は補助テキスト・キャプション。本文の長文に使わない（コントラスト不足） | 段落本文が `--mute` | 🟡 |
+| C6 | `--mute` は補助テキスト・キャプションのみ。本文の長文に使わない。値は Light `#6b6b6e` / Dark `#8b8b8e`（ガイドの HEX と照合）。`--bone` / `--surface` 上で通常テキスト AA 4.5:1 を満たすこと | 段落本文が `--mute`、Light で `#8b8b8e` のまま、独自の薄いグレー | 🟠（値の不一致・本文への使用）/ 🟡（用途の逸脱が軽微な場合） |
 | C7 | プロダクト独自のパレットを作らない。主操作は `--accent`（インク色） | `--brand-primary` の新設 | 🟠 |
 | C8 | 純黒 `#000` / `#000000` / `rgb(0,0,0)` / `bg-black` をページ背景・大きな面に使わない。ページ背景は `--bone`（Light `#f5f5f4` / Dark `#050505`＝ほぼ黒）、カード・パネル・サイドバーは `--surface`（Light `#ffffff` / Dark `#141414`）、区切りは `--border`（`#e7e7e5` / `#2a2a2a`） | ダークの `body{background:#000}`、`bg-black`、サイドバーだけ `#000` | 🟠 |
 
@@ -97,6 +97,9 @@ rg -n 'prefers-reduced-motion|motion-reduce' <dir>
 # O1/O4 オーバーレイ・z-index
 rg -n 'z-index:\s*[0-9]{4,}|z-\[[0-9]+\]|z-(10|20|30|40|50)\b' <dir>
 rg -n -i 'modal|dialog|drawer|scrim|backdrop|overlay' <dir>
+# C6 mute 値照合
+rg -n -i -- '--mute\s*:' <dir>
+# ↑ Light で #8b8b8e のみ・#6b6b6e が無い、または独自 HEX なら読んで判定（トークン定義ファイルも対象）
 # C4 状態色の照合（許可外の色相・定義値の不一致）
 rg -n -i -- '--(success|warning|danger|info)\s*:' <dir>
 # ↑ 値が 3d5c4a / 8fafa0 / 7a6a3a / c4b87a / 7a4545 / c49a9a / 4a5a6a / 9aabbc 以外なら違反（トークン定義ファイルも対象）
