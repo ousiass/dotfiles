@@ -8,7 +8,7 @@ user-invocable: true
 
 `/ousiass-design-check` で Ousiass 共通デザインガイド準拠を確認 → カテゴリ別 Issue を `/design-fix` で修正 → 再 check、を**指摘が 0 件になるまで**反復する。**最後の check を終えたら、その間に溜まったスコープ外（spinoff）を起票し、それも実装してから終わる**（フェーズ3。起票だけで終わらない。実装後の再 check はしない）。`refine-sweep` のデザインガイド版で、Issue を可視性の Source of Truth にする。メインスレッド（CTO）は状態管理と判定だけを行い、**コードには触れない**。check も fix も必ず `Agent` に丸投げする。
 
-**並列化の方針**: check が返す Issue ごとの対象ファイルが**重なるものは 1 バッチ（1 worktree で直列）、重ならないものは別バッチ（並列）**にする。C/T/S/I/M/O は同じファイルを触りがちなので、カテゴリ単位で無条件に並列にはしない。
+**並列化の方針**: check が返す Issue ごとの対象ファイルが**重なるものは 1 バッチ（1 worktree で直列）、重ならないものは別バッチ（並列）**にする。C/T/S/I/M/O/B は同じファイルを触りがちなので、カテゴリ単位で無条件に並列にはしない。
 
 sweep 系の共通規約（lock・heartbeat・prelude・事前ガード・single-pr）は `../sweep-common/` と `issue-sweep` に従い、ここでは**デザイン固有の差分だけ**書く。
 

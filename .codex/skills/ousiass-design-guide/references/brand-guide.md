@@ -4,7 +4,11 @@
 
 - 公開ページ: https://ousiassllc.github.io/brand-guide/ （トークン可視化: `tokens-preview.html`）
 - リポジトリ: `ousiassllc/brand-guide`
-- 要約の取り込み時点: `73d8cf6`（色・フォント・サイズ・UI 確定、ダーク背景・スイッチ・スライダー追加、`--mute` を Light / Dark で分離 2026-11-05）
+- 要約の取り込み時点: `5d816f8`（フル SHA `5d816f8fde675938647d43d521441c40d9a13b77`。PR #5 のマージコミットで、PR #4 の見出し変更を含む）。反映範囲は、既存要約の `622ea73` 時点に加え、見出しタグと表示サイズの分離（§2）、`--mute` の Light/Dark 分離（§1）、スクロールバー（§10）。ダーク背景（純黒 #000 を使わない）・スイッチ・スライダーも反映済み
+- 固定 SHA の正本（食い違ったら正本が優先）:
+  - 文字・見出し: `index.html#typography` / `tokens-preview.html#heading-compact`
+  - スクロールバー: `index.html#scrollbar` / `tokens-preview.html#scrollbar`
+  - ソース: https://github.com/ousiassllc/brand-guide/blob/5d816f8fde675938647d43d521441c40d9a13b77/index.html ・ `.../tokens-preview.html`（同じ SHA）
 - ガイドの README は「下書き」と表記している。値の確定状況はページ上の表記が正
 
 全プロダクト共通。ライト / ダークの両方が必須。UI はほぼ無彩色で、静かで余白の多い画面を基本にする。
@@ -18,7 +22,7 @@
 |---|---|---|---|
 | `--ink` | `#050505` | `#ffffff` | 文字・ロゴ・主要アイコン |
 | `--bone` | `#f5f5f4` | `#050505` | ページ背景 |
-| `--mute` | `#6b6b6e` | `#8b8b8e` | 補助テキスト・キャプション（`--bone` / `--surface` 上で AA 4.5:1 以上。本文の長文には使わない） |
+| `--mute` | `#6b6b6e` | `#8b8b8e` | 補助テキスト・キャプション（`--bone` / `--surface` 上で AA 4.5:1 以上。本文の長文には使わない）。スクロールバー thumb の基準色でもある（§10） |
 | `--surface` | `#ffffff` | `#141414` | カード・パネル |
 | `--border` | `#e7e7e5` | `#2a2a2a` | 罫線・区切り |
 | `--accent` | `#050505` | `#f5f5f4` | 主ボタン・リンク・選択状態（インク色そのもの） |
@@ -67,7 +71,7 @@
 
 ### サイズスケール（本文 16px 基準）
 
-| トークン | px | 行間 | 用途 |
+| トークン | px | 行間 | 用途（例） |
 |---|---|---|---|
 | `xs` | 12 | 1.6 | 注記・バッジ |
 | `sm` | 14 | 1.7 | 補足・表・ボタン小 |
@@ -76,6 +80,18 @@
 | `xl` | 24 | 1.5 | h3 |
 | `2xl` | 32 | 1.4 | h2 |
 | `3xl` | 40 | 1.3 | h1・ヒーロー |
+
+「用途（例）」は例示であり、タグとサイズの必須対応ではない（`h1` = 40 / `h2` = 32 / `h3` = 24 を強制しない）。サイズは上のスケールから、画面の役割に合わせて選ぶ。
+
+### 見出しタグと表示サイズ（独立して指定する）
+
+- HTML の見出しレベル（h1〜h6）は**文書の意味構造**、文字サイズは**視覚的な役割**。2 つは独立して指定でき、一対一の必須対応ではない
+- **H1 は必須ではない**。H1 を置くためだけに大見出しを足さない。既存シェルに埋め込む画面など、H1 なしで h3 / h4 から始まるケースも許容する
+- 小さく見せたいだけならタグは変えず、CSS でサイズを調整する。タグは読み上げ（見出しナビ）で自然な文書階層になるよう選ぶ
+- 見出しレベルを飛ばす（例: h2 の次が h4）場合は、文脈上の理由があるか確認する。理由なく飛ばさない
+- 全見出しを一律に縮小しない。サイズは既存スケール（12 / 14 / 16 / 18 / 24 / 32 / 40）から役割に合わせて選ぶ
+- スタイルは役割クラスで指定する（正本見本の `.pg-t`（ページ）/ `.sec-t`（セクション）/ `.cd-t`（カード））。ウェイト 600・字間・margin のリセットも役割クラス側に置き、`h3` などの要素セレクタには置かない。そうするとタグを差し替えても見た目が変わらない
+- 正本のコンパクト見本（`tokens-preview.html#heading-compact`）の h3 24 → h4 18 → h5 16 は**見本であり規範ではない**。全画面の必須値にしない。見本でも説明文は本文 16・注記は 12・小ボタンは 14（14 は補足・表・小ボタンの既存用途のみ）で、カードタイトル（`.cd-t` 16・600）と説明文（16・400）は別物
 
 ### ウェイト
 
@@ -109,7 +125,7 @@
 | メニュー / ナビ項目 | 項目間 8（`--gap-menu`）・高さ 40（`--menu-item-h`）・左右 12（`--menu-pad-x`、余裕があれば 16）。選択肢リストは項目間 4（`--gap-option`） |
 | グリッド | 標準 16（`--gap-grid`）・広い画面/大きいカード 24（`--gap-grid-lg`）・密 12（`--gap-grid-dense`） |
 | フォーム | ラベル→入力 6〜8（`--gap-label`）・入力→補足 4（`--gap-help`）・項目→項目 16（`--gap-field`） |
-| 見出し | h1/h2 の下 24（`--gap-h1`/`--gap-h2`）・h3 の下 12（`--gap-h3`）・見出し→本文 8〜12（`--gap-heading-body`）・段落間 16（`--gap-para`） |
+| 見出し | 大見出し（例: h1 / h2）の下 24（`--gap-h1`/`--gap-h2`）・小見出し（例: h3）の下 12（`--gap-h3`）・見出し→本文 8〜12（`--gap-heading-body`）・段落間 16（`--gap-para`）。間隔はタグ番号ではなく見た目の大・小で決める。トークン名・値は変わらない |
 | カード | padding 24（`--pad-card`）・小さいカード 16（`--pad-card-sm`）・カード内のまとまり同士 24（`--gap-card-section`） |
 | ボタン列・インライン | 8（`--gap-inline`） |
 | セクション | 標準 72（`--gap-section`）・スマホ/密な画面 48（`--gap-section-sm`） |
@@ -206,8 +222,48 @@ Don't: 装飾だけのループ・視差・大きな移動 / バウンス・ス�
 - コードエディタ: JetBrains Mono・ガターは bone + `--mute` 行番号・シンタックスは `--ink`/`--mute` の最小対比・原色ハイライト禁止
 - 独自ウィジェット: 共通ガイドに置かない。そのプロダクト / 案件のガイドで定義する。共有化したいときは先に共通ガイドへ提案する
 
-## 10. Do / Don't まとめ
+## 10. スクロールバー（縦・横・両方向）
 
-Do: 背景 bone・カード surface・区切り border / 主操作は accent / プリズムはロゴとキービジュアルだけ / 状態はアイコン＋文言＋くすんだ状態色 / ライト・ダーク両方で確認 / サイズはスケールのトークンから選ぶ / 本文 16px Regular。
+対象は `overflow: auto` 等でコンテンツをスクロールする領域のバー。値を変える range スライダー（トラック 4・つまみ 16）とは**別物**で、スライダーの規定は適用しない。OS 標準の太く明るいバーと矢印を、静かな UI から浮かせない。縦・横・両方向で同じ設計。
 
-Don't: ボタン・リンク・フォームにプリズム / 鮮やかな原色の状態色 / プロダクトごとの独自パレット / mute を長文本文に / 色だけで意味を伝える / ナビ・リンクまで SemiBold / OFL 以外のフォント / ガイドにない部品・モーション / 背景・大きな面に `#000` / `#000000` / OS・ブラウザ標準のままのスイッチ・スライダー / 4 トークン外の色（ピンク・ローズ等）の状態バッジ。
+### 見た目
+
+- 矢印（スクロールボタン）なし・細め・透明 track・透明 corner（縦横の交差部分）・角丸 full のグレー thumb
+- カスタム可能な環境（WebKit / Blink）では縦幅・横高さとも **8px**。thumb の角丸 999px
+- thumb は通常 `--mute`（Light `#6b6b6e` / Dark `#8b8b8e`）。hover は `color-mix(in srgb, var(--ink) 35%, var(--mute))`、active / drag は同 65%（Light は少し濃く、Dark は少し明るくなる）。背景（bone / surface）との視認性を実際に確認する
+- Firefox 等は `scrollbar-width: thin` ＋ `scrollbar-color` で近似。全ブラウザで厳密な 8px は保証しない
+
+### CSS の適用例と優先関係
+
+```css
+@media (forced-colors: none) {
+  .scroll { scrollbar-width: thin; scrollbar-color: var(--mute) transparent; } /* 標準（Firefox ほか） */
+  @supports selector(::-webkit-scrollbar) {                                    /* WebKit / Blink */
+    .scroll { scrollbar-width: auto; scrollbar-color: auto; }                  /* ← 標準指定を auto に戻す */
+    .scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+    .scroll::-webkit-scrollbar-track,
+    .scroll::-webkit-scrollbar-corner { background: transparent; }
+    .scroll::-webkit-scrollbar-button { display: none; }                       /* 正本のライブ見本は display:none;width:0;height:0 */
+    .scroll::-webkit-scrollbar-thumb { background: var(--mute); border-radius: 999px; }
+    .scroll::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ink) 35%, var(--mute)); }
+    .scroll::-webkit-scrollbar-thumb:active { background: color-mix(in srgb, var(--ink) 65%, var(--mute)); }
+  }
+}
+```
+
+- **優先関係**: Chromium 121 以降は `scrollbar-width` / `scrollbar-color` が `auto` 以外だと `::-webkit-scrollbar` を無視する。標準指定を先に書き擬似要素を後に並べるだけでは 8px・hover / active の色にならない。`@supports selector(::-webkit-scrollbar)` の中で標準 2 プロパティを `auto` に戻す
+- **対応差**: WebKit / Blink = 擬似要素で幅・矢印・hover / active を制御できる。Firefox = thin と色のみ（幅は OS 任せ・hover / active の色は変えられない・矢印は出ないことが多い）。標準指定だけの比較見本では Chromium で矢印が残ることがあり、これは推奨の完成形ではない
+- **forced-colors 例外**: `forced-colors: active`（Windows ハイコントラスト等）や OS が太いバーを要求する設定では、カスタムを外して OS 側の見やすさを優先する（カスタムは `@media (forced-colors: none)` の中だけ）
+- **OS の制約**: macOS・モバイルのオーバーレイ（自動で隠れる）バーは、擬似要素でカスタムすると常時表示の従来型に変わることがある。OS の常時表示設定でも見え方が変わる。仕様上の制限として許容し、スクロール機能は維持する。全環境で同一 px・同一表示は保証しない
+
+### 守ること（操作性）
+
+- ネイティブスクロールを使う。独自 JS のドラッグ機構や装飾 SVG に置き換えない
+- バーを強制的に常時非表示にしない（`overflow: hidden` や `scrollbar-width: none` で問題を隠さない）。スクロールできること・操作性を損なわない。対応できない環境があっても、隠すためにスクロール機能を消さない
+- キーボード（Tab で領域へフォーカス → 縦は ↑ ↓ / PageUp / PageDown / Space / Home / End、横は ← →）、タッチ、ホイール、トラックパッドを維持する。thumb は細くドラッグしにくいので、ドラッグ以外の操作を必ず使える状態にする。フォーカスできる領域には名前（正本の見本は `tabindex="0" role="region" aria-label`）を付ける
+
+## 11. Do / Don't まとめ
+
+Do: 背景 bone・カード surface・区切り border / 主操作は accent / プリズムはロゴとキービジュアルだけ / 状態はアイコン＋文言＋くすんだ状態色 / ライト・ダーク両方で確認 / サイズはスケールのトークンから選ぶ / 本文 16px Regular / タグは文書構造、大きさは CSS（役割クラス）で決める / スクロール領域のバーは縦横とも §10 の設計でネイティブのまま。
+
+Don't: ボタン・リンク・フォームにプリズム / 鮮やかな原色の状態色 / プロダクトごとの独自パレット / mute を長文本文に / 色だけで意味を伝える / ナビ・リンクまで SemiBold / OFL 以外のフォント / ガイドにない部品・モーション / 小さくするためだけに見出しタグを変える / H1 を置くためだけに大見出しを足す / スクロールバーの常時非表示・独自 JS 置き換え・range 規定の流用 / 背景・大きな面に `#000` / `#000000` / OS・ブラウザ標準のままのスイッチ・スライダー / 4 トークン外の色（ピンク・ローズ等）の状態バッジ。
