@@ -53,7 +53,8 @@ graph TD
 | `/design-spec` | 対話的にデザイン仕様書（UI/UX）を作成・既存ドキュメントに追記 |
 | `/design-review` | UIコンポーネントのデザイン品質をレビューし、Issueまたはレポートとして生成 |
 | `/ousiass-design-guide` | 仕様書・docs に Ousiass 共通デザインガイド（brand-guide）を参照として取り込む。トークンは名前で参照し、ガイドにない部品は使わない。`design-spec` の土台 |
-| `/ousiass-design-check` | 実装・PR・画面が Ousiass 共通デザインガイドに沿っているかを確認しカテゴリ別（C/T/S/I/M/O）Issue またはレポートにする。`design-review` は置き換えず、ガイド準拠に特化 |
+| `/ousiass-design-check` | 実装・PR・画面が Ousiass 共通デザインガイドに沿っているかを確認しカテゴリ別（C/T/S/I/M/O/B）Issue またはレポートにする。`design-review` は置き換えず、ガイド準拠に特化 |
+| `/ousiass-design-check-split` | `/ousiass-design-check` の並列版（単体でも使え、`/ousiass-design-sweep-split` の check 部品）。同じ基準・Issue 形式で、色 / 文字と形 / UI 部品 / 重なり・動き・アイコンの 4 グループを並列 agent で確認し、全項目の確認状況（coverage）を返させて読み飛ばしを防ぐ。基準は `ousiass-design-check` を参照（複製しない） |
 | `/ui-trim` | 冗長なUI要素・文言を検出し、削除・簡潔化・ヘルプ移動の提案をIssue化（実装は `/impl`）。`design-review` とは別観点 |
 | `/design-request` | デザインを見ながら対話で変更要望をまとめ、構造化されたIssueを作成 |
 | `/design-fix` | デザインレビューやデザイン変更Issueの指摘を修正し、デザイン検証付きでPRを作成 |
@@ -88,6 +89,7 @@ graph TD
 | `/refine` | **リポジトリ全体**を対象に同じループを回し、修正を 1 本の PR にまとめる。小〜中規模リポジトリの一括クリーンアップ用 |
 | `/refine-sweep` | 全コードベースに対して 4 観点 review→fix→PR→merge を反復し critical/major/minor をゼロまで磨く（`--no-minor` で軽量モード）。仕様書のドメイン軸で並列 PR。spinoff も自動 `/issue-sweep` 委譲で実装まで完了 |
 | `/ousiass-design-sweep` | `/ousiass-design-check` → `/design-fix` を、指摘が 0 件（2 回連続）になるまで自律で反復。対象ファイルが重ならない Issue は fix を並列、重なるものは 1 worktree で直列。最後の check のあと、溜まったスコープ外（spinoff）を起票するだけでなく実装まで行って終わる（実装後の再 check なし）。`--single-pr` / `--multi-pr`、`--abort` は `issue-sweep` と同じ |
+| `/ousiass-design-sweep-split` | `/ousiass-design-sweep` の check を観点別（4 グループ）の並列 agent にした試作版。差分だけを持ち、fix・判定・spinoff 実装は `/ousiass-design-sweep` のとおり。coverage で確認漏れを検出する |
 | `/doc-drift` | ドキュメントと実装コードの整合性をチェックし、乖離レポートを生成 |
 | `/doc-drift-git` | gitリモートとの差分を対象にドキュメントとコードの整合性チェック |
 | `/spec-audit-git` | gitリモートとの差分を対象に仕様乖離・TODO・スキップテストを検知（`--report-only` で Issue 化なし） |

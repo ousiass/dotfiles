@@ -76,6 +76,7 @@
 | O9 | 印刷・PDF がある場合: ink on bone、ナビ・ドロワー・トースト等は `@media print` で非表示、状態色は文言併記、プリズム装飾は印刷しない | ダークテーマのまま印刷 | 🟡 |
 | O10 | スイッチはガイドの見た目必須（OS / ブラウザ標準のまま出さない）: トラック 36×20・つまみ 14・`--r-full`、OFF は `--accent-soft`＋1px `--border`、ON は `--accent`（つまみ `--bone`）、フォーカスは `--ring`、ラベル Regular 15（SemiBold にしない） | 素の `<input type="checkbox" role="switch">`、緑の ON、iOS 風の別サイズ | 🟠 |
 | O11 | スライダーはガイドの見た目必須: トラック高さ 4・`--r-full`、未充填 `--accent-soft`・充填 `--accent`、つまみ 16 の円・`--surface`＋1px `--border`（ダークも同じ構造）。`accent-color` だけに頼らず track / thumb を明示スタイル。値表示は Mono `--mute` 可 | 素の `<input type="range">`、`accent-color` のみ、青い充填 | 🟠 |
+| O12 | 進捗・ローディング表示はガイドの見た目必須: プログレスバーは track `--accent-soft`・fill `--accent`・高さ 6・`--r-full`（`role="progressbar"` と `aria-valuenow` 等を付ける）。スピナーは 20px・線 2px（track `--accent-soft`・先端 `--accent`）。スケルトンは `--accent-soft` の角丸バー。OS / ブラウザ標準の `<progress>` / `<meter>`、虹色・グラデの充填、青や緑の充填、独自の太さ・サイズにしない（動きは M2・M3・M6） | 素の `<progress>`、青い充填、高さ 12 のバー、グラデーションの充填、独自のローディング表示 | 🟠 |
 
 ## B. スクロールバー（縦・横・両方向）
 
@@ -170,6 +171,9 @@ rg -n 'overflow(-x|-y)?[[:space:]]*:[[:space:]]*(auto|scroll)|overflow-(x-|y-)?(
 rg -n '::-webkit-scrollbar|scrollbar-(width|color|gutter)|forced-colors|@supports[[:space:]]+selector' <dir>
 rg -n 'scrollbar-width[[:space:]]*:[[:space:]]*none|scrollbar-none|no-scrollbar' <dir>
 rg -n -i 'type="range"|\[type=range\]|::-webkit-slider|::-moz-range' <dir>
+# O12 進捗・ローディング
+rg -n -i '<progress|<meter|role=["'"'"']progressbar|progress-?bar|spinner|loader|loading|skeleton|animate-spin|animate-pulse' <dir>
+# ↑ ヒットした部品の track / fill / 高さ / 色を読んで判定（animate-spin / animate-pulse は色とサイズも見る）
 ```
 
 - `rg` が無ければ `grep -rnE`（`-i` 付きは `grep -rniE`）に読み替える（`--glob '!X'` は `--exclude=X` / `--exclude-dir=X` に置き換える）。T6〜T8・B の行は `grep -rnE` でもそのまま動く書き方にしてある。`::-webkit-scrollbar` ブロック内の `display: none`（`-button` 以外）は複数行にまたがるので、2 行目の検出行の前後を読んで確認する
