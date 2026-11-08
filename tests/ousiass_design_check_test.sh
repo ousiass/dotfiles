@@ -34,13 +34,30 @@ for rel in \
     fi
 done
 
+# SKILL.md は frontmatter・対話ツール・タスク管理の記法が runtime ごとに違うので全体は比べない。
+# 代わりに、ガイド内容（見出し・スクロールバー・参照先）を述べる行だけを抜き出して一致を見る。
+# 抜き出す行の目印は、実装でなく正本由来の語（§10 / T6〜T8 / スクロールバー / 見出しタグ / index.html#）。
+for skill in ousiass-design-guide ousiass-design-check; do
+    pick() { grep -E '§10|T6〜T8|スクロールバー|見出しタグ|index\.html#|forced-colors' "$DOTFILES_DIR/$1/skills/$skill/SKILL.md"; }
+    claude_lines=$(pick .claude)
+    codex_lines=$(pick .codex)
+    if [[ -n "$claude_lines" && "$claude_lines" == "$codex_lines" ]]; then
+        ok "claude/codex の SKILL.md でガイド内容の行が一致: $skill"
+    else
+        ng "claude/codex の SKILL.md でガイド内容の行が不一致（または 0 行）: $skill"
+    fi
+done
+
 # --- 2. 固定 SHA の整合 ---
+full_sha_of() { grep -oE '[0-9a-f]{40}' "$1" | head -1; }
 guide_sha=$(grep -m1 '^- 要約の取り込み時点' "$DOTFILES_DIR/.claude/skills/ousiass-design-guide/references/brand-guide.md" | grep -oE '`[0-9a-f]{7}`' | head -1 | tr -d '`')
 check_sha=$(grep -m1 '固定 SHA は' "$CRITERIA" | grep -oE '`[0-9a-f]{7}`' | head -1 | tr -d '`')
-if [[ -n "$guide_sha" && "$guide_sha" == "$check_sha" ]]; then
-    ok "基準 SHA が guide と check で一致 ($guide_sha)"
+guide_full=$(full_sha_of "$DOTFILES_DIR/.claude/skills/ousiass-design-guide/references/brand-guide.md")
+check_full=$(full_sha_of "$CRITERIA")
+if [[ -n "$guide_sha" && "$guide_sha" == "$check_sha" && -n "$guide_full" && "$guide_full" == "$check_full" && "$guide_full" == "$guide_sha"* ]]; then
+    ok "基準 SHA が guide と check で一致し、短縮と 40 桁が整合 ($guide_sha / $guide_full)"
 else
-    ng "基準 SHA が不一致または取得不可 (guide=$guide_sha / check=$check_sha)"
+    ng "基準 SHA が不一致または取得不可 (guide=$guide_sha/$guide_full check=$check_sha/$check_full)"
 fi
 
 # --- 3. 検出レシピ（rg → grep -E へ機械的に読み替えて実行）---
@@ -77,6 +94,8 @@ check_hits "B6 隠蔽レシピ: 正本どおりの見本は拾わない" 'scroll
 check_hits "B 領域レシピ: 正本どおりの見本を拾う"     'overflow(-x|-y)?' "$FX/pass-scrollbar-canonical.html"  hit
 check_hits "B 擬似要素レシピ: 正本どおりの見本を拾う" '::-webkit-scrollbar|scrollbar-(width' "$FX/pass-scrollbar-canonical.html" hit
 check_hits "B 擬似要素レシピ: 優先関係の見本を拾う"   '::-webkit-scrollbar|scrollbar-(width' "$FX/finding-scrollbar-chromium-precedence.html" hit
+check_hits "B 擬似要素レシピ: 縦だけ指定の見本も候補に拾う（B1 の合否は幅・高さを読んで決める）" '::-webkit-scrollbar|scrollbar-(width' "$FX/finding-scrollbar-vertical-only.html" hit
+check_hits "B 擬似要素レシピ: range 流用の見本も候補に拾う（B5 の合否は値を読んで決める）"   '::-webkit-scrollbar|scrollbar-(width' "$FX/finding-scrollbar-range-reuse.html"  hit
 # B: range スライダーのレシピは、スクロールバーの見本を range と取り違えない
 check_hits "B5 range レシピ: スクロール見本は拾わない" 'type="range"' "$FX/pass-scrollbar-canonical.html"     nohit
 # T6〜T8: 見出しタグは H1 の有無・開始レベルに関係なく拾える（候補。H1 なしを理由に落とさない）

@@ -31,7 +31,7 @@ description: Ousiass プロダクトの実装・PR・画面が共通デザイン
 1. 対象（コード / PR 差分 / 画面）と使用フレームワークを把握する
 2. プロジェクトのトークン定義（`tokens.*`, `variables.css`, `tailwind.config.*`, `theme.ts` 等）を読み、ガイドのトークン名・値と対応しているかを確認する
 3. 仕様書・docs に「Ousiass デザインガイド準拠」節があれば読む（承認済みの逸脱は指摘から除く）
-4. `references/check-criteria.md` と、`ousiass-design-guide` スキルの `references/brand-guide.md` を読み、後者 7 行目の取り込み時点コミット SHA（現在の基準は `5d816f8`）を控える（レポートの基準欄に使う）。ガイドの値に迷ったら公開ページ（`index.html` の `#typography` `#scrollbar`、`tokens-preview.html` の `#heading-compact` `#scrollbar` など）で確認する。公開ページが読めなければ要約のみで判定し、レポートの「未確認」に「公開ページ未確認」と書く
+4. `references/check-criteria.md` と、`ousiass-design-guide` スキルの `references/brand-guide.md` を読み、後者 7 行目の取り込み時点コミット SHA を控える（レポートの基準欄に使う）。ガイドの値に迷ったら公開ページ（`index.html` の `#typography` `#scrollbar`、`tokens-preview.html` の `#heading-compact` `#scrollbar` など）で確認する。公開ページが読めなければ要約のみで判定し、レポートの「未確認」に「公開ページ未確認」と書く
 5. 対象をリストアップし、計画立てしつつタスクを管理する（ファイル数が多ければディレクトリ単位）
 
 ## フェーズ2: 準拠チェック
