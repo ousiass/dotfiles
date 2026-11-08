@@ -46,7 +46,7 @@ clean-timer: ## 週次の自動掃除を systemd timer に登録（sudo 不要�
 	systemctl --user enable --now dotfiles-cleanup.timer
 	@systemctl --user list-timers dotfiles-cleanup.timer --no-pager
 
-test: ## 回帰テストを実行（cleanup.sh / runner-path-guard.sh / runner-host-setup.sh / runner-tools-install.sh / swarm-console の install / cloudflared の apt ソース / bash 3.2 可搬性 / evals の dry 配線）
+test: ## 回帰テストを実行（cleanup.sh / runner-path-guard.sh / runner-host-setup.sh / runner-tools-install.sh / swarm-console の install / cloudflared の apt ソース / bash 3.2 可搬性 / evals の dry 配線 / ousiass-design スキルの同期と検出レシピ）
 	./tests/cleanup_test.sh
 	./tests/runner_path_guard_test.sh
 	./tests/runner_host_setup_test.sh
@@ -55,3 +55,4 @@ test: ## 回帰テストを実行（cleanup.sh / runner-path-guard.sh / runner-h
 	./tests/cloudflared_install_test.sh
 	./tests/portability_test.sh
 	./tests/evals_dry_test.sh
+	./tests/ousiass_design_check_test.sh
