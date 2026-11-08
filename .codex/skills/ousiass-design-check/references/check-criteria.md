@@ -14,10 +14,11 @@
 | C1 | プリズム（`--prism-*`、violet→blue→cyan→green→yellow のグラデ）はロゴ・ヒーロー・キービジュアルだけ。ボタン・リンク・入力欄・バッジ・チャート・アクティブ表示・モーションに使わない | 主ボタンの虹色グラデ、チャート系列にプリズム色、プリズムのボーダーアニメ | 🔴 |
 | C2 | 色はトークン（`--ink` `--bone` `--mute` `--surface` `--border` `--accent` `--accent-soft` と状態色）。ハードコード hex / rgb / Tailwind 既定色を使わない | `#333`、`text-gray-500`、`bg-blue-600` | 🟠（値がガイドと一致していてもトークン未使用なら 🟡） |
 | C3 | フォーカスリングは `--focus`（`2px solid` / offset 2）。フォームの focus は `--focus` 青（`--ring` 40%）。それ以外の青・アクセント色を UI に足さない | `outline: none` だけ、独自の青ボタン、リンクが青 | 🟠 |
-| C4 | 状態色は `--success` `--warning` `--danger` `--info`（くすんだ無彩色寄り）。鮮やかな原色の赤・緑を使わない。状態はアイコン＋文言＋色で伝え、色だけに頼らない | `color: red`、色だけのステータス表示 | 🟠 |
+| C4 | 状態色は次の 4 トークンだけ。値は必ずこの HEX と照合する（Light / Dark）: `--success` `#3d5c4a` / `#8fafa0`、`--warning` `#7a6a3a` / `#c4b87a`、`--danger` `#7a4545` / `#c49a9a`、`--info` `#4a5a6a` / `#9aabbc`。トークン定義（`:root` / `[data-theme=dark]` / Tailwind theme 等）の値がこれと違えば違反。ステータスのピル・バッジ・アラートは「文字 `var(--状態)`・枠 `color-mix(in srgb, var(--状態) 40%, transparent)`・地 `color-mix(in srgb, var(--状態) 10%, transparent)`・`--r-full`」だけ。ピンク・ローズ・パステル・ネオンなど 4 トークン以外の色相を状態表示に使わない（中立の「下書き」だけは `--mute`）。状態はアイコン＋文言＋色で伝え、色だけに頼らない | `color: red`、`bg-rose-100 text-pink-700`、`#f9a8d4` のピル、`--danger: #ef4444`、色だけのステータス表示 | 🔴（4 トークン外の色相・定義値の不一致）/ 🟠（淡い塗りのルール逸脱） |
 | C5 | ライト / ダークの両方で成立する。トークンが `[data-theme=dark]` 等で切り替わる | ダークで文字が読めない、片方のみの値 | 🟠 |
-| C6 | `--mute` は補助テキスト・キャプション。本文の長文に使わない（コントラスト不足） | 段落本文が `--mute` | 🟡 |
+| C6 | `--mute` は補助テキスト・キャプションのみ。本文の長文に使わない。値は Light `#6b6b6e` / Dark `#8b8b8e`（ガイドの HEX と照合）。`--bone` / `--surface` 上で通常テキスト AA 4.5:1 を満たすこと | 段落本文が `--mute`、Light で `#8b8b8e` のまま、独自の薄いグレー | 🟠（値の不一致・本文への使用）/ 🟡（用途の逸脱が軽微な場合） |
 | C7 | プロダクト独自のパレットを作らない。主操作は `--accent`（インク色） | `--brand-primary` の新設 | 🟠 |
+| C8 | 純黒 `#000` / `#000000` / `rgb(0,0,0)` / `bg-black` をページ背景・大きな面に使わない。ページ背景は `--bone`（Light `#f5f5f4` / Dark `#050505`＝ほぼ黒）、カード・パネル・サイドバーは `--surface`（Light `#ffffff` / Dark `#141414`）、区切りは `--border`（`#e7e7e5` / `#2a2a2a`） | ダークの `body{background:#000}`、`bg-black`、サイドバーだけ `#000` | 🟠 |
 
 ## T. タイポグラフィ
 
@@ -73,6 +74,9 @@
 | O7 | ボタンは主（`--accent`）/ サブ / ゴースト / 危険。SemiBold・`--r-md`・小は高さ 32・disabled は opacity .4。ナビ・リンクは Regular。ページネーションの「もっと見る」は無限スクロールより明示ボタン | ボタン以外のリンクが SemiBold、disabled が別の見た目 | 🟡 |
 | O8 | **ガイドにない部品を使わない**。独自ウィジェットは案件ガイドで定義する（共通ガイドに発明しない）。必要ならガイドへ追加提案が先 | 共通 UI 層に独自の評価ウィジェットを新設 | 🟠 |
 | O9 | 印刷・PDF がある場合: ink on bone、ナビ・ドロワー・トースト等は `@media print` で非表示、状態色は文言併記、プリズム装飾は印刷しない | ダークテーマのまま印刷 | 🟡 |
+| O10 | スイッチはガイドの見た目必須（OS / ブラウザ標準のまま出さない）: トラック 36×20・つまみ 14・`--r-full`、OFF は `--accent-soft`＋1px `--border`、ON は `--accent`（つまみ `--bone`）、フォーカスは `--ring`、ラベル Regular 15（SemiBold にしない） | 素の `<input type="checkbox" role="switch">`、緑の ON、iOS 風の別サイズ | 🟠 |
+| O11 | スライダーはガイドの見た目必須: トラック高さ 4・`--r-full`、未充填 `--accent-soft`・充填 `--accent`、つまみ 16 の円・`--surface`＋1px `--border`（ダークも同じ構造）。`accent-color` だけに頼らず track / thumb を明示スタイル。値表示は Mono `--mute` 可 | 素の `<input type="range">`、`accent-color` のみ、青い充填 | 🟠 |
+| O12 | 進捗・ローディング表示はガイドの見た目必須: プログレスバーは track `--accent-soft`・fill `--accent`・高さ 6・`--r-full`（`role="progressbar"` と `aria-valuenow` 等を付ける）。スピナーは 20px・線 2px（track `--accent-soft`・先端 `--accent`）。スケルトンは `--accent-soft` の角丸バー。OS / ブラウザ標準の `<progress>` / `<meter>`、虹色・グラデの充填、青や緑の充填、独自の太さ・サイズにしない（動きは M2・M3・M6） | 素の `<progress>`、青い充填、高さ 12 のバー、グラデーションの充填、独自のローディング表示 | 🟠 |
 
 ## B. スクロールバー（縦・横・両方向）
 
@@ -146,6 +150,19 @@ rg -n 'prefers-reduced-motion|motion-reduce' <dir>
 # O1/O4 オーバーレイ・z-index
 rg -n 'z-index:\s*[0-9]{4,}|z-\[[0-9]+\]|z-(10|20|30|40|50)\b' <dir>
 rg -n -i 'modal|dialog|drawer|scrim|backdrop|overlay' <dir>
+# C6 mute 値照合
+rg -n -i -- '--mute\s*:' <dir>
+# ↑ Light で #8b8b8e のみ・#6b6b6e が無い、または独自 HEX なら読んで判定（トークン定義ファイルも対象）
+# C4 状態色の照合（許可外の色相・定義値の不一致）
+rg -n -i -- '--(success|warning|danger|info)\s*:' <dir>
+# ↑ 値が 3d5c4a / 8fafa0 / 7a6a3a / c4b87a / 7a4545 / c49a9a / 4a5a6a / 9aabbc 以外なら違反（トークン定義ファイルも対象）
+rg -n '\b(text|bg|border|ring)-(red|green|yellow|pink|rose|fuchsia|orange|amber|emerald|lime)-[0-9]{2,3}(/[0-9]+)?\b|\b(bg|text)-(pink|rose|red|green)-50\b' <dir>
+rg -n -i 'badge|pill|chip|status|tag' <dir>
+# ↑ ヒットした部品の色が 4 トークン＋淡い塗り（文字 / 枠40% / 地10%）かを読んで判定
+# C8 純黒
+rg -n -i '#000\b|#000000\b|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\)|\bbg-black\b' <dir>
+# O10 / O11 標準コントロール
+rg -n 'type=["'"'"']?(range|checkbox)|role=["'"'"']?switch|accent-color' <dir>
 # T6〜T8 見出し（候補検出のみ。タグの有無・番号で合否にしない）
 rg -n -i '<h[1-6][ >]|role="heading"' <dir>
 rg -n '(^|[[:space:],}>])h[1-6][[:space:]]*[,{]' <dir>
@@ -154,8 +171,11 @@ rg -n 'overflow(-x|-y)?[[:space:]]*:[[:space:]]*(auto|scroll)|overflow-(x-|y-)?(
 rg -n '::-webkit-scrollbar|scrollbar-(width|color|gutter)|forced-colors|@supports[[:space:]]+selector' <dir>
 rg -n 'scrollbar-width[[:space:]]*:[[:space:]]*none|scrollbar-none|no-scrollbar' <dir>
 rg -n -i 'type="range"|\[type=range\]|::-webkit-slider|::-moz-range' <dir>
+# O12 進捗・ローディング
+rg -n -i '<progress|<meter|role=["'"'"']progressbar|progress-?bar|spinner|loader|loading|skeleton|animate-spin|animate-pulse' <dir>
+# ↑ ヒットした部品の track / fill / 高さ / 色を読んで判定（animate-spin / animate-pulse は色とサイズも見る）
 ```
 
 - `rg` が無ければ `grep -rnE`（`-i` 付きは `grep -rniE`）に読み替える（`--glob '!X'` は `--exclude=X` / `--exclude-dir=X` に置き換える）。T6〜T8・B の行は `grep -rnE` でもそのまま動く書き方にしてある。`::-webkit-scrollbar` ブロック内の `display: none`（`-button` 以外）は複数行にまたがるので、2 行目の検出行の前後を読んで確認する
-- トークン定義ファイル（`tokens*` / `variables.css` / `tailwind.config.*` / `theme.*` で、ガイドの値を `:root` 等に定義する箇所）は C2 の対象外。上記コマンドは除外済み
+- トークン定義ファイル（`tokens*` / `variables.css` / `tailwind.config.*` / `theme.*` で、ガイドの値を `:root` 等に定義する箇所）は C2 の対象外。C2 のコマンドは除外済み。**C4 の定義値照合ではこの除外を適用しない**（定義そのものの誤りを拾うため）
 - 検出が 0 件でも、読んで確認できていない項目は「未確認」と書き、問題なしと書かない
