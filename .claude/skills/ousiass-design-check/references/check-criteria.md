@@ -3,7 +3,7 @@
 正は brand-guide（https://ousiassllc.github.io/brand-guide/ ）。値の詳細は `ousiass-design-guide` スキルの `references/brand-guide.md`（要約）。食い違ったらガイドが正。本書の基準の固定 SHA は `5d816f8`（フル SHA `5d816f8fde675938647d43d521441c40d9a13b77`）。見出しは `index.html#typography` / `tokens-preview.html#heading-compact`、スクロールバーは `index.html#scrollbar` / `tokens-preview.html#scrollbar`。
 「ガイドにない部品・値・モーションは使わない」が全項目の前提。
 
-重大度: 🔴 重大（ガイドの明示禁止に直接違反し、ブランドを崩す）/ 🟠 重要（ガイドからの逸脱）/ 🟡 提案（トークン化・整理）/ 🟢 軽微。禁止・逸脱・提案の区別は、各項目の「重大度」欄の値に従う。正本が「基本」「近似」「見本」と書いている値のずれ（例: 幅が 8px から外れる）は 🟡 に留め、正本が定めた要素・状態そのものの欠落（矢印が残る・thumb 色が違う など）を 🟠 とする。**ガイドにない禁止を作らない**（ガイドが定めていないことは指摘にせず、「ガイドへの追加提案」に分ける）。
+重大度: 🔴 重大（ガイドの明示禁止に直接違反し、ブランドを崩す）/ 🟠 重要（ガイドからの逸脱）/ 🟡 提案（トークン化・整理）/ 🟢 軽微。禁止・逸脱・提案の区別は、各項目の「重大度」欄の値に従う。正本が「基本」「近似」「見本」と書いている値のずれ（例: 幅が 8px から外れる）は 🟡 に留め、正本が定めた要素・色そのものの欠落（矢印が残る・thumb 色が違う など。hover / active だけの未指定は 🟡）を 🟠 とする。**ガイドにない禁止を作らない**（ガイドが定めていないことは指摘にせず、「ガイドへの追加提案」に分ける）。
 
 判定は 4 区分: **準拠** / **指摘**（重大度付き）/ **仕様上の例外**（環境差など。根拠付きで記録）/ **未確認**（確認できていない。準拠扱いにしない）。詳細は末尾の「判定の区分と証拠」。
 
@@ -84,7 +84,7 @@
 | B2 | 見た目の実値: 矢印なし（`::-webkit-scrollbar-button` 非表示）・透明 track / corner・thumb は `--mute`（Light `#6b6b6e` / Dark `#8b8b8e`）で角丸 999px・WebKit / Blink で幅・高さ 8px（基本）。hover は `color-mix(in srgb, var(--ink) 35%, var(--mute))`、active / drag は同 65%。標準側は `scrollbar-width: thin; scrollbar-color: var(--mute) transparent`。Light / Dark の bone・surface 上で見えること | 矢印が残る、thumb が accent やハードコード色、track に塗り / 幅・高さが 8px から外れる（例: 12px）、hover / active 色の指定なし | 🟠（矢印・thumb 色・track の塗り）/ 🟡（幅・高さのずれ、hover / active のみ未指定） |
 | B3 | **優先関係**: Chromium 121 以降は `scrollbar-width` / `scrollbar-color` が `auto` 以外だと `::-webkit-scrollbar` を無視する。`@supports selector(::-webkit-scrollbar)` の中で標準 2 プロパティを `auto` に戻す。標準 → 擬似要素の順に並べるだけでは不可。Chromium の computed style（`scrollbarWidth` が `auto`）と実描画（幅 8px・矢印なし・hover 色）で確認する | 標準指定を残したまま擬似要素を書き、Chromium で 8px / hover / active が効かない | 🟠 |
 | B4 | カスタムは `@media (forced-colors: none)` に限定する。`forced-colors: active` や OS が太いバーを要求する設定では OS の見やすさを優先し、カスタムを外す | forced-colors に関係なく常にカスタムを適用 | 🟠 |
-| B5 | range スライダーの規定（トラック 4px・つまみ 16px）をスクロールバーに流用しない。スクロールバーの規定を range に流用しない | スクロールバー thumb の幅 16px、トラック 4px | 🟠 |
+| B5 | range スライダーの規定（トラック 4px・つまみ 16px）をスクロールバーに流用しない。スクロールバーの規定を range に流用しない。幅の値がずれているだけなら B2 の 🟡。range の規定を流用している根拠（range 用の値・クラスの再利用、range の指定をスクロールバーへ当てている など）が読めるときに 🟠 | range 用のトラック 4px・つまみ 16px の指定をスクロールバーに当てている（thumb 幅 16px・高さ 4px） | 🟠 |
 | B6 | ネイティブスクロールを維持する。独自 JS のドラッグ機構・装飾 SVG への置き換え、バーの常時非表示（`scrollbar-width: none`・`::-webkit-scrollbar { display: none }`）や `overflow: hidden` で問題を隠してスクロール・キー操作を失わせることをしない。キーボードで領域を操作できる: 領域内にフォーカス可能な要素がなければ Tab で領域自体にフォーカスでき（`tabindex="0"`・領域名。正本の見本は `role="region" aria-label` 付き）、縦は ↑↓ / PageUp / PageDown / Space / Home / End、横は ← → で動く。ホイール・トラックパッド・タッチ・ドラッグ以外の代替操作を維持する | バーを隠した上にキーボードで動かせない、独自 JS スクロールバー | 🟠 |
 
 ### 環境差による仕様上の例外
