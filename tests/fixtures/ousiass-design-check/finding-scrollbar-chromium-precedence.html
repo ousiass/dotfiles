@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><style>
+:root{--ink:#050505;--bone:#f5f5f4;--mute:#6b6b6e}
+.sb{overflow:auto;width:240px;height:120px;border:1px solid #e7e7e5}
+.sb .inner{width:600px;height:400px}
+/* 標準指定のあとに擬似要素を並べるだけ。@supports 内で auto に戻していない（B3）。Chromium 121 以降は擬似要素が無視される */
+@media (forced-colors:none){
+.sb{scrollbar-width:thin;scrollbar-color:var(--mute) transparent}
+.sb::-webkit-scrollbar{width:8px;height:8px}
+.sb::-webkit-scrollbar-button{display:none}
+.sb::-webkit-scrollbar-thumb{background:var(--mute);border-radius:999px}
+.sb::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--ink) 35%,var(--mute))}
+}
+</style></head><body>
+<div class="sb" id="sb" tabindex="0" role="region" aria-label="縦横スクロールの見本"><div class="inner"></div></div>
+</body></html>
