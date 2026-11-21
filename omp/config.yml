@@ -25,13 +25,13 @@ compaction:
 retry:
   fallbackChains:
     default:
-      - cursor/claude-sonnet-5-high
+      - cursor/claude-sonnet-5:high
       - cursor/grok-4.7-high
     task:
-      - cursor/claude-sonnet-5-high
+      - cursor/claude-sonnet-5:high
       - cursor/grok-4.7-high
     advisor:
-      - cursor/claude-sonnet-5-high
+      - cursor/claude-sonnet-5:high
     smol:
       - cursor/grok-4.7-low-fast
       - cursor/claude-sonnet-5-low
@@ -41,8 +41,7 @@ retry:
     commit:
       - cursor/grok-4.7-low-fast
       - cursor/claude-sonnet-5-low
-    slow:
-      []
+    slow: []
 providers:
   maxInFlightRequests:
     anthropic: 3
@@ -55,8 +54,11 @@ hideThinkingBlock: true
 textVerbosity: low
 skills:
   enableClaudeUser: true
-setupVersion: 2
+setupVersion: 3
 dev:
   autoqaConsent: granted
 claudeResets:
-  autoRedeem: "no"
+  autoRedeem5h: "no"
+  autoRedeemWeekly: "no"
+update:
+  auto: true
