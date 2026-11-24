@@ -129,7 +129,7 @@ $EDITOR .env
      - サブエージェントは `omp/agents/`（develop / review）→ `~/.omp/agent/agents/`。
        omp は `.claude/agents` を意図的にスキップする（frontmatter 契約が別物）ため専用の実体を置く。
        モデルは定義側に書かず `modelRoles` の `@task` / `@slow` で解決する
-     - スキルは `omp/skills/`（sweep / impl 系と、そこから呼ばれるレビュー・生成系 26 個）→ `~/.omp/agent/skills/`。
+     - スキルは `omp/skills/`（sweep / impl 系と、そこから呼ばれるレビュー・生成系、`merge-chain` など 33 個）→ `~/.omp/agent/skills/`。
        `sweep-common` は `SKILL.md` を持たない共有リファレンスでスキルとしては登録されないが、
        各スキルから `../sweep-common/<file>` の相対パスで参照されるため同じ階層に置く
        omp の native provider (priority 100) が claude provider (80) より優先されるため同名を上書きし、
