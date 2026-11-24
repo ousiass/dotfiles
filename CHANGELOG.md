@@ -20,6 +20,7 @@
 - Register swarm-console as a systemd user service / `systemd/swarm-console.service`（上流の `deploy/swarm-console.service` と同じ）を `~/.config/systemd/user` にリンクし、`daemon-reload` → `enable` → `loginctl enable-linger` まで行う。`config.toml` が無ければ起動せず設定の手順（`setup` / `token add`）を表示する。`config.toml` とトークンはマシンごと・秘密なので dotfiles では管理しない（作り方は README）
 - Add `~/bin/swarm-console` to PATH / `fish/conf.d/paths.fish` と `shell/paths.sh` の両方に追加（`~/bin` にリンクは張らず、フォルダそのものを通す）
 - Select the runner-setup org from a list / `make runner-setup` は登録先の org の既定（`ousiassllc`）を持たなくなった。端末から実行すると、`gh` で取った owner の org の一覧から番号で選び、「この org に、この名前・group で登録します」の確認（`y` のときだけ登録）を取る。`RUNNER_ORG` があればその org が初期選択（空の Enter で採用）。端末が無いときは `RUNNER_ORG` の指定でだけ登録し、無ければ何も登録せずに指定方法を出してエラーで止まる。設定ファイル（`~/.env`）からの自動決定はしない。登録済みのホストの再実行には影響しない
+- Add common git / safety rules to omp RULES / `.claude/CLAUDE.md`（omp の `~/.omp/agent/RULES.md` の実体）に共通ルールを追加。`## Git Commits` にコミットは `git commit -s`（cherry-pick も `-s`）・`--amend` / rebase / force push / `reset --hard` をしない（直しは新しいコミットを足す）、`## Git Merge` にローカル merge は `--signoff`・リモートブランチは作業用でも削除しない（`gh pr merge` に `--delete-branch` を付けない）、`## 高負荷ホストでの実行` にプロセスは PID を指定して止める（`pkill` / `killall` / 名前指定は使わない）、`## 完了報告` にトークン・鍵・パスワードをチャット・ログ・報告に出さない、を追記。スキル側には複製しない
 
 ### 🐛 Bug Fixes / バグ修正
 

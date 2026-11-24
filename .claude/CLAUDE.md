@@ -32,11 +32,14 @@
 - 説明は日本語で簡潔に書く
 - 例: `feat: ユーザー認証機能を追加`, `fix: ログイン時のエラーを修正`
 - `git commit` / `git push` で `--no-verify` を使わないこと。pre-commit および pre-push フックは必ず通す。フックが失敗した場合はスキップせず、原因を調査・修正する。
+- コミットは `git commit -s`（DCO 署名）で行う。cherry-pick も `-s` を付ける。
+- `--amend`・rebase・force push・`reset --hard` は使わない。直しは新しいコミットを足す。
 
 ## Git Merge
 - PR をマージする際は squash せず、マージコミット方式（merge commit）を使うこと。
 - `gh pr merge` を使う場合は `--merge` を明示する（`--squash` / `--rebase` は使わない）。
-- ローカルで `git merge` する場合も fast-forward ではなく `--no-ff` でマージコミットを残す。
+- ローカルで `git merge` する場合は、fast-forward ではなく `--no-ff` でマージコミットを残し、`--signoff` を付ける。
+- PR のブランチを含め、リモートブランチは作業用でも削除しない（削除はローカルのブランチだけ）。`gh pr merge` に `--delete-branch` を付けない。
 
 ## CI
 - PR のあるブランチへ push したら、「完了」と報告する前に CI の結果を確認する。`gh pr checks <PR番号>` で pending が無くなるまで待ち、結果を見ること（ローカルでテストが通っただけでは完了にしない）。
@@ -53,6 +56,7 @@
 - build・vet・lint・test は 1 本のコマンドに詰めず、別々のコマンドで 1 つずつ実行する。
 - sweep 系スキルの並列数は既定 5。ホストが高負荷（1 分間の load average が `nproc` を超える）のときは 3 まで下げる。
 - 負荷の確認は `uptime`（load average を `nproc` と比べる）。
+- プロセスを止めるときは `ps` / `pgrep` で PID を確かめ、PID を指定して止める（`pkill` / `killall` / 名前指定の kill は使わない）。
 
 ## 指示の遵守
 - 指示で実装方式が決まっている場合は、別の方式に置き換えない。
@@ -69,6 +73,8 @@
 - 次にやること
 
 pending のチェックが残っているのに「CI 確認中」のまま完了と書かない。
+
+秘密の値（トークン・鍵・パスワード）は、チャット・ログ・報告のどこにも出さない。
 
 呼び出し元から返答形式（JSON のみ等）・「停止しない」・「CI 待ちは呼び出し元が行う」と指示されている場合は、その指示を優先する（止まらず、できなければ failure として返す）。
 
