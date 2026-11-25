@@ -244,6 +244,18 @@ Claude Code 版からの書き換え規則:
 `sweep-common` は `SKILL.md` を持たない共有リファレンスでスキルとしては登録されないが、
 各スキルから `../sweep-common/<file>` の相対パスで参照されるため同じ階層に置く。
 
+### PR 1 本を扱う無人向けスキル
+
+`ask` を使わず、依頼文で渡された値だけで動く。報告ファイルのパスも依頼文で渡される。
+
+| スキル | 呼び方 | やること |
+|---|---|---|
+| `pr-report` | `/pr-report <owner/repo> #<N> [head=<sha>] [since=<sha>] [refs-only=<Issue>] [shots=<dir>] [out=<dir>]` | 状態・コミット本数・署名（`-s` と GitHub Verified を分ける）・必須チェックの最新 run・本文・変更ファイルを `gh` で取り、返信下書き（平文）と JSON 要約を書く。書き込みは `refs-only=` があるときの本文直しだけ |
+| `pr-merge` | `/pr-merge <owner/repo> #<N> head=<sha> base=<branch> issues=#A:completed #B:not_planned` | head・base・OPEN・MERGEABLE・CI を確かめ、`gh pr merge --merge --match-head-commit` で 1 本だけマージし、一覧の Issue だけ close する。外れたら止める |
+| `ci-rerun-watch` | `/ci-rerun-watch <owner/repo> <run-id>\|#<PR> [avoid=<runner>] [cancel-on-avoid]` | 失敗したジョブだけ `gh run rerun --failed` で 1 回回し、完了まで見守る。ジョブごとの runner・OS・結果・最初の失敗ステップを報告する。コードは変えない |
+
+`pr-merge` は `merge-chain`（複数 PR・衝突の解消・main の CI）や `.claude/skills/merge-closeout`（確認カード・omp の終了処理）とは別で、後者 2 つは変えていない。
+
 ## plugins（`~/.omp/plugins/` 管理下。dotfiles には実体もロックファイルも置かない）
 
 `omp plugin install <pkg>` はプラグイン本体を `~/.omp/plugins/node_modules/<name>` に配置し、
