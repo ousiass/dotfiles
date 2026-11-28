@@ -113,7 +113,7 @@ mode="$(python3 -c 'import os,stat,sys; print(oct(stat.S_IMODE(os.stat(sys.argv[
 if [ "$mode" = "0o600" ] && ! grep -qF "$TOKEN" "$REMO_STATE"; then
     ok "セッションの保存ファイルは 0600・トークンなし"
 else
-    ng "保存ファイルの権限 $mode、またはトークンを含む"
+    ng "保存ファイルの権限 ${mode}、またはトークンを含む"
 fi
 
 # --- 5. shot: そのまま保存 / --window で切り抜き ---
