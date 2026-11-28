@@ -105,6 +105,7 @@ graph TD
 | `/omp-instruction-card` | omp のペインへ、指示の全文を見せて確認を取り、貼り付け・Enter・Working 確認まで行う |
 | `/merge-closeout` | PR のマージ確認 → マージコミットでマージ → 対象 Issue の close → omp の終了処理 |
 | `/retro` | ミスの型を 1 行ずつ記録し、月 1 回見直して同じ型が 2 回以上なら dotfiles の Issue にする |
+| `/desktop-qa` | Windows 実機のデスクトップアプリを puppet-remo（Nefos Remote）の MCP で、対象リポジトリの `qa/desktop-checklist.md` どおりに 1 項目ずつ OK/NG・根拠・スクショで確認。入れる前の状態を記録し、入れたものを片づけてレポート（`/tmp/swarm-console/reports/0_<pane>.md`）。MCP は `scripts/remo.py` で呼ぶ（トークンを伏せ、セッションを使い回して操作権を保つ） |
 
 ### メタ（スキル管理）
 
